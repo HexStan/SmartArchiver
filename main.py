@@ -15,9 +15,9 @@ def main():
     # parser.add_argument('--clean-logs', action='store_true', help='仅清理旧日志，不执行移动任务')
     # args = parser.parse_args()
 
-    # 确定配置文件路径 (假设在脚本同级目录)
+    # 确定配置文件路径
     base_dir = os.path.dirname(os.path.abspath(__file__))
-    config_path = os.path.join(base_dir, 'config.toml')
+    config_path = os.path.join(base_dir, 'config/config.toml')
 
     if not os.path.exists(config_path):
         print(f"Error: 配置文件 {config_path} 未找到")
