@@ -1,0 +1,63 @@
+# ==================================================
+# 基础配置
+# ==================================================
+
+lock_file = "/tmp/smartarchiver.lock"
+
+min_age_minutes = 1440
+max_retries = 3
+conflict_policy = "overwrite"  # skip | copy | overwrite
+remove_empty_dirs = true
+
+log_dir = "/var/log/smartarchiver"
+max_log_files = 30
+
+# ==================================================
+# 规则配置
+# ==================================================
+
+[delete_rules]
+global_min_size = "0B"
+
+[delete_rules.extensions]
+".tmp" = "ALL"
+".log" = "10MB"
+".DS_Store" = "ALL"
+
+[keep_rules]
+global_min_size = "0B"
+
+[keep_rules.extensions]
+".ini" = "ALL"
+".jpg" = "50KB"
+".wav" = "100KB"
+
+# ==================================================
+# 任务列表
+# ==================================================
+
+[[tasks]]
+source = "./source"
+dest = "./dest"
+min_age_minutes = 180
+
+# --------------------------------------------------
+
+[[tasks]]
+source = "./source-2"
+dest = "./dest-2"
+min_age_minutes = 180
+
+[tasks.delete_rules]
+global_min_size = "1MB"
+
+[tasks.delete_rules.extensions]
+".zip" = "ALL"
+
+[tasks.keep_rules]
+global_min_size = "10MB"
+
+[tasks.keep_rules.extensions]
+".raw" = "ALL"
+
+# --------------------------------------------------

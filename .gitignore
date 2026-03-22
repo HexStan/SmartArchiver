@@ -1,0 +1,9 @@
+.idea/
+.venv/
+test_source/
+test_dest/
+logs/
+deprecated/
+config.toml
+*.log
+failure_history.json
