@@ -67,7 +67,7 @@ def run_tasks(config, logger, history_mgr):
 
     logger.info(f"共计在 {duration_str} 内传输了 {total_size_str}，平均速度 {speed_str}。")
 
-    logger.info(f"{'=' * 80}\n", raw=True)
+    logger.info(f"{'=' * 80}", raw=True)
 
 
 def main():
@@ -121,14 +121,14 @@ def main():
         # 定时执行
         if mode == 'cron':
             if croniter is None:
-                logger.error("cron 模式需要 croniter 库，请执行: pip install croniter")
+                print("cron 模式需要 croniter 库，请执行: pip install croniter")
                 sys.exit(1)
             cron_expr = schedule_config.get('cron_expr')
             if not cron_expr:
-                logger.error("cron 模式需要配置 cron_expr")
+                print("cron 模式需要配置 cron_expr")
                 sys.exit(1)
             
-            logger.info(f"启动定时任务 (cron 模式): {cron_expr}")
+            logger.info(f"已设置定时任务 (cron 模式): {cron_expr}。")
             
             while True:
                 now = datetime.datetime.now()
@@ -136,7 +136,7 @@ def main():
                 next_run = cron.get_next(datetime.datetime)
                 sleep_seconds = (next_run - now).total_seconds()
                 
-                logger.info(f"下一次执行时间: {next_run.strftime('%Y-%m-%d %H:%M:%S')}")
+                logger.info(f"下一次执行时间: {next_run.strftime('%Y-%m-%d %H:%M:%S')}。\n")
                 time.sleep(sleep_seconds)
                 
                 try:
@@ -153,10 +153,10 @@ def main():
         elif mode == 'interval':
             interval_seconds = schedule_config.get('interval_seconds')
             if not interval_seconds or not isinstance(interval_seconds, (int, float)) or interval_seconds <= 0:
-                logger.error("interval 模式需要配置有效的 interval_seconds (大于0的数字)")
+                print("interval 模式需要配置有效的 interval_seconds (大于0的数字)")
                 sys.exit(1)
                 
-            logger.info(f"启动定时任务 (interval 模式): 每 {interval_seconds} 秒执行一次")
+            logger.info(f"已设置定时任务 (interval 模式): 每 {interval_seconds} 秒执行一次。")
             
             while True:
                 try:
@@ -170,10 +170,10 @@ def main():
                     history_mgr.save()
                 
                 next_run = datetime.datetime.now() + datetime.timedelta(seconds=interval_seconds)
-                logger.info(f"下一次执行时间: {next_run.strftime('%Y-%m-%d %H:%M:%S')}")
+                logger.info(f"下一次执行时间: {next_run.strftime('%Y-%m-%d %H:%M:%S')}。\n")
                 time.sleep(interval_seconds)
         else:
-            logger.error(f"不支持的定时模式: {mode}")
+            print(f"不支持的定时模式: {mode}")
             sys.exit(1)
 
 
