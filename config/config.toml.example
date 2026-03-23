@@ -1,72 +1,114 @@
 # ==================================================
-# 基础配置
+# 全局基础配置
 # ==================================================
 
+# 锁文件路径，防止多个实例同时运行
 lock_file = "/tmp/smartarchiver.lock"
 
+# 文件最小年龄（分钟），只有修改时间超过此时间的文件才会被处理
+# 默认值：1440 分钟（24小时）
 min_age_minutes = 1440
+
+# 文件操作失败时的最大重试次数
 max_retries = 3
-conflict_policy = "overwrite"  # skip | copy | overwrite
+
+# 文件冲突处理策略：
+# "overwrite" - 覆盖目标文件（默认）
+# "skip" - 跳过已存在的文件
+# "copy" - 创建带编号的副本（如 file-1.txt）
+conflict_policy = "overwrite"
+
+# 是否删除源目录中的空目录
 remove_empty_dirs = true
 
+# 日志文件存储目录
 log_dir = "./logs"
+
+# 保留的日志文件数量（0 表示不清理）
 max_log_files = 30
 
 # ==================================================
-# 定时任务配置 (可选)
+# 定时任务配置（可选）
 # ==================================================
-# 如果不配置 [schedule] 块，则作为一次性脚本执行
+# 如果不配置 [schedule] 块，程序将作为一次性脚本执行
+
 # [schedule]
-# mode = "cron"  # 可选 "cron" 或 "interval"
-# cron_expr = "0 * * * *"  # cron 模式下的表达式，例如每小时执行一次
-# interval_seconds = 3600  # interval 模式下的间隔秒数，任务执行完毕后开始计时
+# 定时模式："cron" 或 "interval"
+# mode = "cron"
+
+# cron 模式下的表达式（示例：每小时执行一次）
+# cron_expr = "0 * * * *"
+
+# interval 模式下的间隔秒数（任务执行完毕后开始计时）
+# interval_seconds = 3600
 
 # ==================================================
-# 规则配置
+# 全局文件过滤规则
 # ==================================================
 
+# 删除规则：匹配这些规则的文件将被删除
 [delete_rules]
+# 全局最小文件大小阈值
+# "0B" - 不启用全局过滤（默认）
+# "ALL" - 匹配所有文件
+# 其他值如 "10MB" - 小于此大小的文件将被删除
 global_min_size = "0B"
 
+# 特定扩展名的删除规则
 [delete_rules.extensions]
-".tmp" = "ALL"
-".log" = "10MB"
-".DS_Store" = "ALL"
+# 扩展名 = 大小阈值
+# "ALL" 表示删除所有该扩展名的文件
+# 具体大小如 "10MB" 表示删除小于该大小的文件
+".tmp" = "ALL"      # 删除所有 .tmp 文件
+".log" = "10MB"     # 删除小于 10MB 的 .log 文件
+".DS_Store" = "ALL" # 删除所有 .DS_Store 文件
 
+# 保留规则：匹配这些规则的文件将被跳过（不移动也不删除）
 [keep_rules]
+# 全局最小文件大小阈值
 global_min_size = "0B"
 
+# 特定扩展名的保留规则
 [keep_rules.extensions]
-".ini" = "ALL"
-".jpg" = "50KB"
-".wav" = "100KB"
+# 扩展名 = 大小阈值
+# "ALL" 表示保留所有该扩展名的文件
+# 具体大小如 "50KB" 表示保留小于该大小的文件
+".ini" = "ALL"      # 保留所有 .ini 文件
+".jpg" = "50KB"     # 保留小于 50KB 的 .jpg 文件
+".wav" = "100KB"    # 保留小于 100KB 的 .wav 文件
 
 # ==================================================
 # 任务列表
 # ==================================================
+# 每个任务定义一个源目录到目标目录的移动操作
+# 可以为每个任务单独配置过滤规则（覆盖全局规则）
 
+# 任务 1：基本移动任务
 [[tasks]]
-source = "./source"
-dest = "./dest"
-min_age_minutes = 180
+source = "./source"          # 源目录路径
+dest = "./dest"              # 目标目录路径
+min_age_minutes = 180        # 任务特定的最小文件年龄（覆盖全局配置）
 
 # --------------------------------------------------
 
+# 任务 2：带自定义规则的任务
 [[tasks]]
 source = "./source-2"
 dest = "./dest-2"
 min_age_minutes = 180
 
+# 任务特定的删除规则（覆盖全局删除规则）
 [tasks.delete_rules]
-global_min_size = "1MB"
+global_min_size = "1MB"      # 只删除小于 1MB 的文件
 
 [tasks.delete_rules.extensions]
-".zip" = "ALL"
+".zip" = "ALL"               # 删除所有 .zip 文件
 
+# 任务特定的保留规则（覆盖全局保留规则）
 [tasks.keep_rules]
-global_min_size = "10MB"
+global_min_size = "10MB"     # 保留小于 10MB 的文件
 
 [tasks.keep_rules.extensions]
-".raw" = "ALL"
+".raw" = "ALL"               # 保留所有 .raw 文件
 
 # --------------------------------------------------
