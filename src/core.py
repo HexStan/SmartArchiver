@@ -189,6 +189,9 @@ def process_directory_pair(task, global_stats, config, logger, history_mgr):
     global_min_age = config.get('min_age_minutes', 1440)
     min_age_minutes = task.get('min_age_minutes', global_min_age)
 
+    global_mode = config.get('mode', 'move').lower()
+    task_mode = task.get('mode', global_mode).lower()
+
     max_retries = config.get('max_retries', 3)
 
     conflict_policy = config.get('conflict_policy', 'overwrite').lower()
@@ -202,6 +205,7 @@ def process_directory_pair(task, global_stats, config, logger, history_mgr):
     logger.info(f" - 源路径: {source_root}")
     logger.info(f" - 目标路径: {dest_root}")
     logger.info(f" - 时间阈值: {format_timespan(age_threshold_seconds)}")
+    logger.info(f" - 任务模式: {'复制' if task_mode == 'copy' else '移动'}")
 
     if not os.path.exists(source_root):
         logger.error(f"源目录不存在: {source_root}")
@@ -270,7 +274,7 @@ def process_directory_pair(task, global_stats, config, logger, history_mgr):
 
             # 执行动作
             if action == FileAction.TRANSFER:
-                move_file(src_path, size, source_root, dest_root, logger, local_stats, history_mgr, conflict_policy)
+                move_file(src_path, size, source_root, dest_root, logger, local_stats, history_mgr, conflict_policy, task_mode)
             elif action == FileAction.DELETE:
                 perform_delete(src_path, size, source_root, logger, local_stats, history_mgr)
             elif action == FileAction.SKIP:
@@ -279,7 +283,7 @@ def process_directory_pair(task, global_stats, config, logger, history_mgr):
                 pass
 
     # 清理空目录 (对应 find -depth -empty -type d rmdir)
-    if remove_empty_dirs:
+    if remove_empty_dirs and task_mode != 'copy':
         clean_empty_dirs(source_root, logger)
 
     # 记录结束时间
@@ -321,9 +325,9 @@ def perform_delete(src_path, file_size, source_root, logger, stats, history_mgr)
                      f"Error: {e}")
 
 
-def move_file(src_path, file_size, source_root, dest_root, logger, stats, history_mgr, conflict_policy):
+def move_file(src_path, file_size, source_root, dest_root, logger, stats, history_mgr, conflict_policy, task_mode):
     """
-    执行具体的移动操作
+    执行具体的移动或复制操作
     """
     # 计算相对路径
     rel_path = os.path.relpath(src_path, source_root)
@@ -357,9 +361,12 @@ def move_file(src_path, file_size, source_root, dest_root, logger, stats, histor
                 # 未知策略默认跳过
                 return
 
-        # 使用 shutil.move 直接移动
-        # 同一文件系统下为原子重命名，跨文件系统自动降级为复制后删除
-        shutil.move(src_path, new_dest_path)
+        # 使用 shutil.move 或 shutil.copy2
+        if task_mode == 'copy':
+            shutil.copy2(src_path, new_dest_path)
+        else:
+            # 同一文件系统下为原子重命名，跨文件系统自动降级为复制后删除
+            shutil.move(src_path, new_dest_path)
 
         # 统计传输流量
         stats.total_bytes += file_size
@@ -368,21 +375,22 @@ def move_file(src_path, file_size, source_root, dest_root, logger, stats, histor
         history_mgr.record_success(src_path)
 
         size_str = format_size(file_size, binary=True)
+        action_str = "复制" if task_mode == 'copy' else "移动"
         if file_exists and conflict_policy == 'overwrite':
             logger.success(f"覆盖同名文件: {rel_path} ({size_str})")
         elif file_exists and conflict_policy == 'copy':
             new_rel = os.path.relpath(new_dest_path, dest_root)
             logger.success(f"目标存在，创建副本: {new_rel} ({size_str})")
         else:
-            logger.success(f"移动: {rel_path} ({size_str})")
+            logger.success(f"{action_str}: {rel_path} ({size_str})")
 
         stats.success += 1
 
     except Exception as e:
         # 失败时记录
         count = history_mgr.record_failure(src_path)
-        # 如果是删除失败但复制成功
-        logger.error(f"移动失败 ({count} 次): {rel_path}\n{e}")
+        action_str = "复制" if task_mode == 'copy' else "移动"
+        logger.error(f"{action_str}失败 ({count} 次): {rel_path}\n{e}")
         stats.error += 1
 
 
