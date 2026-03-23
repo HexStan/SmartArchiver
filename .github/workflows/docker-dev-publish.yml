@@ -6,6 +6,7 @@ on:
 env:
   DOCKERHUB_REPO: ${{ secrets.DOCKERHUB_USERNAME }}/smart-archiver
   GHCR_REPO: ghcr.io/${{ github.repository }}
+  CODE_BRANCH: dev
 
 jobs:
   build-and-push:
@@ -18,7 +19,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v5
         with:
-          ref: 'dev'
+          ref: ${{ env.CODE_BRANCH }}
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -51,8 +52,8 @@ jobs:
           tags: |
             # 当通过 Tag 触发时，输出对应的 Tag
             type=ref,event=tag
-            # 当手动触发时，输出对应的分支名
-            type=ref,event=branch
+            # 当手动触发时，输出代码所在分支名
+            type=raw,value=${{ env.CODE_BRANCH }}
             # 仅当通过 Tag 触发时，输出 latest 标签
             type=raw,value=latest,enable=${{ github.ref_type == 'tag' }}
 
