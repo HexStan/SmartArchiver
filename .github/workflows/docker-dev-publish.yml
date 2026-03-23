@@ -1,9 +1,6 @@
 name: Docker Build and Publish - Dev
 
 on:
-  push:
-    tags:
-      - '*'
   workflow_dispatch:
 
 env:
