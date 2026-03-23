@@ -9,7 +9,7 @@ max_retries = 3
 conflict_policy = "overwrite"  # skip | copy | overwrite
 remove_empty_dirs = true
 
-log_dir = "/var/log/smartarchiver"
+log_dir = "./logs"
 max_log_files = 30
 
 # ==================================================
