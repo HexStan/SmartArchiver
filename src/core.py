@@ -130,32 +130,6 @@ class FileFilterPolicy:
         return FileAction.TRANSFER
 
 
-def merge_rule_config(base_rules, task_rules):
-    """
-    合并规则配置：任务级配置 深度合并/覆盖 全局配置
-    """
-    if not base_rules:
-        base_rules = {}
-    if not task_rules:
-        return base_rules
-
-    # 创建 base 的副本，避免修改全局配置
-    merged = base_rules.copy()
-
-    # 确保 extensions 字典也是副本，防止 update 污染全局对象
-    merged['extensions'] = base_rules.get('extensions', {}).copy()
-
-    # 1. 覆盖 global_min_size (如果任务有定义)
-    if 'global_min_size' in task_rules:
-        merged['global_min_size'] = task_rules['global_min_size']
-
-    # 2. 合并 extensions (部分覆盖)
-    if 'extensions' in task_rules:
-        merged['extensions'].update(task_rules['extensions'])
-
-    return merged
-
-
 def get_unique_dest(dest_path):
     """
     如果目标文件存在，生成一个带编号的新路径
@@ -186,16 +160,13 @@ def process_directory_pair(task, global_stats, config, logger, history_mgr):
     source_root = task.get('source')
     dest_root = task.get('dest')
 
-    global_min_age = config.get('min_age_minutes', 1440)
-    min_age_minutes = task.get('min_age_minutes', global_min_age)
-
-    global_mode = config.get('mode', 'move').lower()
-    task_mode = task.get('mode', global_mode).lower()
+    min_age_minutes = task.get('min_age_minutes', 1440)
+    task_mode = task.get('mode', 'move').lower()
 
     max_retries = config.get('max_retries', 3)
 
-    conflict_policy = config.get('conflict_policy', 'overwrite').lower()
-    remove_empty_dirs = config.get('remove_empty_dirs', True)
+    conflict_policy = task.get('conflict_policy', 'overwrite').lower()
+    remove_empty_dirs = task.get('remove_empty_dirs', True)
 
     now = time.time()
     age_threshold_seconds = min_age_minutes * 60
@@ -215,15 +186,12 @@ def process_directory_pair(task, global_stats, config, logger, history_mgr):
         logger.error(f"!!! CRUCIAL: 目标目录不存在 !!!")
         return
 
-    global_delete_rules = config.get('delete_rules', {})
-    global_keep_rules = config.get('keep_rules', {})
-
     task_delete_rules = task.get('delete_rules', {})
     task_keep_rules = task.get('keep_rules', {})
 
     merged_config = {
-        'delete_rules': merge_rule_config(global_delete_rules, task_delete_rules),
-        'keep_rules': merge_rule_config(global_keep_rules, task_keep_rules)
+        'delete_rules': task_delete_rules,
+        'keep_rules': task_keep_rules
     }
 
     # 使用合并后的配置初始化策略
