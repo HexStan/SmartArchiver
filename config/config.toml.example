@@ -38,7 +38,7 @@ max_log_files = 30
 # 每个任务定义一个源目录到目标目录的移动操作
 # 可以为每个任务单独配置过滤规则
 
-# 任务 1：基本移动任务
+# 示例任务
 [[tasks]]
 source = "./source"          # 源目录路径
 dest = "./dest"              # 目标目录路径
@@ -60,44 +60,35 @@ conflict_policy = "overwrite"
 # 【必填】是否删除源目录中的空目录
 remove_empty_dirs = true
 
-# --------------------------------------------------
-
-# 任务 2：带自定义规则的任务
-[[tasks]]
-source = "./source-2"
-dest = "./dest-2"
-mode = "copy"                # 复制模式，源文件将保留
-min_age_minutes = 180
-conflict_policy = "skip"
-remove_empty_dirs = false
-
-# 任务特定的删除规则
-[tasks.delete_rules]
+# 删除规则
+# [tasks.delete_rules]
 # 最小文件大小阈值
 # "0B" - 不启用过滤（默认）
 # "ALL" - 匹配所有文件
 # 其他值如 "1MB" - 小于此大小的文件将被删除
-global_min_size = "1MB"
+# global_min_size = "1MB"
 
-[tasks.delete_rules.extensions]
+# [tasks.delete_rules.extensions]
 # 扩展名 = 大小阈值
 # "ALL" 表示删除所有该扩展名的文件
 # 具体大小如 "10MB" 表示删除小于该大小的文件
-".zip" = "ALL"               # 删除所有 .zip 文件
-".tmp" = "ALL"               # 删除所有 .tmp 文件
-".log" = "10MB"              # 删除小于 10MB 的 .log 文件
+# ".zip" = "ALL"               # 删除所有 .zip 文件
+# ".tmp" = "ALL"               # 删除所有 .tmp 文件
+# ".log" = "10MB"              # 删除小于 10MB 的 .log 文件
 
-# 任务特定的保留规则
-[tasks.keep_rules]
+# 保留规则
+# [tasks.keep_rules]
 # 最小文件大小阈值
-global_min_size = "10MB"     # 保留小于 10MB 的文件
+# global_min_size = "10MB"     # 保留小于 10MB 的文件
 
-[tasks.keep_rules.extensions]
+# [tasks.keep_rules.extensions]
 # 扩展名 = 大小阈值
 # "ALL" 表示保留所有该扩展名的文件
 # 具体大小如 "50KB" 表示保留小于该大小的文件
-".raw" = "ALL"               # 保留所有 .raw 文件
-".ini" = "ALL"               # 保留所有 .ini 文件
-".jpg" = "50KB"              # 保留小于 50KB 的 .jpg 文件
+# ".raw" = "ALL"               # 保留所有 .raw 文件
+# ".ini" = "ALL"               # 保留所有 .ini 文件
+# ".jpg" = "50KB"              # 保留小于 50KB 的 .jpg 文件
 
 # --------------------------------------------------
+
+# 其他任务……
