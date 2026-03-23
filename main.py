@@ -89,8 +89,9 @@ def main():
     # 获取最大日志数配置，默认为 0 (不清理)
     # log_dir = config.get('log_dir', '/var/log/smartarchiver')
     max_log_files = config.get('max_log_files', 0)
-    # 初始化日志时传入 max_log_files
-    logger = setup_logger(config['log_dir'], max_log_files)
+    log_level = config.get('log_level', 'INFO')
+    # 初始化日志时传入 max_log_files 和 log_level
+    logger = setup_logger(config['log_dir'], max_log_files, log_level)
 
     # 如果指定了 --clean-logs，执行清理并退出
     # if args.clean_logs:

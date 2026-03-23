@@ -24,6 +24,9 @@ remove_empty_dirs = true
 # 日志文件存储目录
 log_dir = "./logs"
 
+# 日志级别，可选值："DEBUG", "INFO", "WARNING", "ERROR"
+log_level = "INFO"
+
 # 保留的日志文件数量（0 表示不清理）
 max_log_files = 30
 

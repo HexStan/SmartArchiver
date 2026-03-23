@@ -54,7 +54,7 @@ class LoggerWrapper:
         return getattr(self._logger, name)
 
 
-def setup_logger(log_dir, max_log_files=0):
+def setup_logger(log_dir, max_log_files=0, log_level="INFO"):
     """
     配置日志记录器，格式：2025-01-01 08:00:00 [INFO] 消息内容
     """
@@ -66,8 +66,10 @@ def setup_logger(log_dir, max_log_files=0):
 
     # 获取原生 logger
     logger = logging.getLogger("smartarchiver")
-    # logger.setLevel(logging.INFO)
-    logger.setLevel(logging.DEBUG)
+    
+    # 设置日志级别
+    numeric_level = getattr(logging, log_level.upper(), logging.INFO)
+    logger.setLevel(numeric_level)
 
     # 清除旧的 handler 防止重复添加
     if logger.handlers:

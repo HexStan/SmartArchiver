@@ -242,7 +242,7 @@ def process_directory_pair(task, global_stats, config, logger, history_mgr):
             if should_skip:
                 # 简单处理，视为跳过
                 local_stats.dropped += 1
-                logger.info(f"跳过 (多次失败): {src_path}")
+                logger.warning(f"跳过 (多次失败): {src_path}")
                 continue
 
             try:
@@ -262,7 +262,7 @@ def process_directory_pair(task, global_stats, config, logger, history_mgr):
 
             if is_file_locked(src_path):
                 local_stats.locked_skipped += 1
-                logger.info(f"跳过 (被锁定): {rel_path}")
+                logger.warning(f"跳过 (被锁定): {rel_path}")
                 continue
 
             # 核心决策逻辑
@@ -341,7 +341,7 @@ def move_file(src_path, file_size, source_root, dest_root, logger, stats, histor
         if file_exists:
             if conflict_policy == 'skip':
                 stats.conflict_skipped += 1
-                logger.info(f"跳过 (重复): {rel_path}")
+                logger.debug(f"跳过 (重复): {rel_path}")
                 # 不记录到 success，也不报错
                 return
 
