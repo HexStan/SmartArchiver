@@ -3,7 +3,7 @@ import logging
 import os
 from datetime import datetime
 
-SUCCESS_LEVEL_NUM = 15
+SUCCESS_LEVEL_NUM = 25
 logging.addLevelName(SUCCESS_LEVEL_NUM, "SUCCESS")
 
 
