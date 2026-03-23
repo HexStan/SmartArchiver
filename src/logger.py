@@ -29,25 +29,30 @@ class LoggerWrapper:
     def __init__(self, logger):
         self._logger = logger
 
+    def _sanitize(self, msg):
+        if isinstance(msg, str):
+            return msg.encode('utf-8', 'surrogateescape').decode('utf-8', 'replace')
+        return msg
+
     def debug(self, msg, raw=False):
         """记录 debug 级别日志，raw=True 时不带格式"""
-        self._logger.debug(msg, extra={'is_raw': raw})
+        self._logger.debug(self._sanitize(msg), extra={'is_raw': raw})
 
     def info(self, msg, raw=False):
         """记录 info 级别日志，raw=True 时不带格式"""
-        self._logger.info(msg, extra={'is_raw': raw})
+        self._logger.info(self._sanitize(msg), extra={'is_raw': raw})
 
     def success(self, msg, raw=False):
         """记录 success 级别日志，raw=True 时不带格式"""
-        self._logger.log(SUCCESS_LEVEL_NUM, msg, extra={'is_raw': raw})
+        self._logger.log(SUCCESS_LEVEL_NUM, self._sanitize(msg), extra={'is_raw': raw})
 
     def warning(self, msg, raw=False):
         """记录 warning 级别日志"""
-        self._logger.warning(msg, extra={'is_raw': raw})
+        self._logger.warning(self._sanitize(msg), extra={'is_raw': raw})
 
     def error(self, msg, raw=False):
         """记录 error 级别日志，raw=True 时不带格式"""
-        self._logger.error(msg, extra={'is_raw': raw})
+        self._logger.error(self._sanitize(msg), extra={'is_raw': raw})
 
     # 如果需要访问底层 logger 的其他方法（如 warning, debug），可以通过 getattr 委托
     def __getattr__(self, name):
