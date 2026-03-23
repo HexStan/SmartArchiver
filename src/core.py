@@ -160,13 +160,20 @@ def process_directory_pair(task, global_stats, config, logger, history_mgr):
     source_root = task.get('source')
     dest_root = task.get('dest')
 
-    min_age_minutes = task.get('min_age_minutes', 1440)
-    task_mode = task.get('mode', 'move').lower()
+    # 检查必填配置项
+    required_fields = ['mode', 'min_age_minutes', 'conflict_policy', 'remove_empty_dirs']
+    missing_fields = [field for field in required_fields if field not in task]
+    if missing_fields:
+        logger.error(f"任务配置缺少必填项: {', '.join(missing_fields)}，跳过该任务。")
+        return
+
+    min_age_minutes = task['min_age_minutes']
+    task_mode = task['mode'].lower()
 
     max_retries = config.get('max_retries', 3)
 
-    conflict_policy = task.get('conflict_policy', 'overwrite').lower()
-    remove_empty_dirs = task.get('remove_empty_dirs', True)
+    conflict_policy = task['conflict_policy'].lower()
+    remove_empty_dirs = task['remove_empty_dirs']
 
     now = time.time()
     age_threshold_seconds = min_age_minutes * 60
