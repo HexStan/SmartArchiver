@@ -30,7 +30,7 @@ class LoggerWrapper:
         self._logger = logger
 
     def debug(self, msg, raw=False):
-        """记录 info 级别日志，raw=True 时不带格式"""
+        """记录 debug 级别日志，raw=True 时不带格式"""
         self._logger.debug(msg, extra={'is_raw': raw})
 
     def info(self, msg, raw=False):
@@ -38,7 +38,7 @@ class LoggerWrapper:
         self._logger.info(msg, extra={'is_raw': raw})
 
     def success(self, msg, raw=False):
-        """记录 info 级别日志，raw=True 时不带格式"""
+        """记录 success 级别日志，raw=True 时不带格式"""
         self._logger.log(SUCCESS_LEVEL_NUM, msg, extra={'is_raw': raw})
 
     def warning(self, msg, raw=False):
