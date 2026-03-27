@@ -3,6 +3,7 @@ import os
 import sys
 import time
 import datetime
+from humanfriendly import format_timespan
 
 try:
     from croniter import croniter
@@ -18,6 +19,7 @@ from src.utils import load_config, SingleInstance
 def run_tasks(config, logger, history_mgr):
     logger.info("=" * 80, raw=True)
     logger.info("脚本开始执行...")
+    start_time = time.time()
 
     tasks = config.get('tasks', [])
 
@@ -33,7 +35,10 @@ def run_tasks(config, logger, history_mgr):
 
         logger.info("当前任务结束。")
 
-    logger.info(f"所有任务执行完毕。")
+    # 计算执行时间
+    end_time = time.time()
+    exec_time = end_time - start_time
+    logger.info(f"所有任务执行完毕，总耗时: {format_timespan(exec_time)}。")
 
     logger.info(f"{'=' * 80}", raw=True)
 
