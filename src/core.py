@@ -231,10 +231,6 @@ def process_directory_pair(task, global_stats, config, logger, history_mgr):
             except OSError:
                 continue
 
-            # 检查时间阈值 (-mmin +$MIN_AGE)
-            # if (now - mtime) > age_threshold_seconds:
-            #     move_file(src_path, size, source_root, dest_root, logger, local_stats, history_mgr)
-
             # 所有操作（包括删除垃圾文件）都必须满足时间阈值
             if (now - mtime) <= age_threshold_seconds:
                 continue
@@ -270,19 +266,9 @@ def process_directory_pair(task, global_stats, config, logger, history_mgr):
     # 打印任务尾部统计
     if local_stats.success > 0:
         logger.info(f"在 {duration_str} 内传输了 {total_size_str}，平均速度 {speed_str}。")
-    # msg = f"成功 {local_stats.success} 项"
-    # if local_stats.kept > 0:
-    #     msg += f"，根据规则忽略 {local_stats.kept} 项"
-    # if local_stats.only_deleted > 0:
-    #     msg += f"，根据规则删除 {local_stats.only_deleted} 项"
-    # if local_stats.error > 0:
-    #     msg += f"，失败 {local_stats.error} 项"
-    # if local_stats.skipped > 0:
-    #     msg += f"，因多次失败跳过 {local_stats.skipped} 项"
-    # logger.info(msg + "。")
     # logger.info("==============================任务完成==============================")
 
-    # 将 局部统计数据 累加到 传入的全局对象 中
+    # 将局部统计数据累加到传入的全局对象中
     global_stats.merge(local_stats)
 
 
@@ -382,6 +368,6 @@ def clean_empty_dirs(source_root, logger):
             os.rmdir(root)
             rel_dir = os.path.relpath(root, source_root)
             logger.debug(f"删除空目录: {rel_dir}")
-            # stats.success += 1  # 原脚本将成功删除目录也计入日志里的 SUCCESS_LIST
+            # stats.success += 1
         except OSError:
             pass  # 目录非空，跳过

@@ -116,10 +116,6 @@ def setup_logger(log_dir, max_log_files=0, log_level="INFO"):
     # 使用自定义的 Formatter
     formatter = DualFormatter(fmt_str, datefmt='%Y-%m-%d %H:%M:%S')
 
-    # 将标准日志级别映射为中文以匹配原脚本习惯
-    # logging.addLevelName(logging.INFO, "信息")
-    # logging.addLevelName(logging.ERROR, "错误")
-
     file_handler.setFormatter(formatter)
     logger.addHandler(file_handler)
 
@@ -163,32 +159,3 @@ def clean_old_logs(log_dir, max_files):
             except OSError as e:
                 # 即使删除失败也不要在此时崩溃，仅打印错误
                 print(f"删除日志失败: {f}\n{e}")
-
-# def clean_logs(log_dir, retention_days, logger=None):
-#     """
-#     清理 X 天前的日志文件
-#     """
-#     if not os.path.exists(log_dir):
-#         return
-#
-#     logger.info(f"开始清理 {retention_days} 天前的旧日志...")
-#
-#     now = time.time()
-#     cutoff_seconds = retention_days * 86400
-#     deleted_count = 0
-#
-#     for filename in os.listdir(log_dir):
-#         file_path = os.path.join(log_dir, filename)
-#
-#         # 只处理文件，且扩展名为 .log (为了安全)
-#         if os.path.isfile(file_path) and filename.endswith('.log'):
-#             try:
-#                 mtime = os.path.getmtime(file_path)
-#                 if (now - mtime) > cutoff_seconds:
-#                     os.remove(file_path)
-#                     logger.info(f"已删除旧日志: {filename}")
-#                     deleted_count += 1
-#             except Exception as e:
-#                 logger.error(f"删除日志失败 {filename}: {e}")
-#
-#     logger.info(f"日志清理完成，共删除 {deleted_count} 个文件。")

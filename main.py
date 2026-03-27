@@ -71,11 +71,6 @@ def run_tasks(config, logger, history_mgr):
 
 
 def main():
-    # 解析命令行参数
-    # parser = argparse.ArgumentParser(description="文件移动与归档脚本")
-    # parser.add_argument('--clean-logs', action='store_true', help='仅清理旧日志，不执行移动任务')
-    # args = parser.parse_args()
-
     # 确定配置文件路径
     base_dir = os.path.dirname(os.path.abspath(__file__))
     config_path = os.path.join(base_dir, 'config/config.toml')
@@ -87,17 +82,10 @@ def main():
     config = load_config(config_path)
     # 初始化日志
     # 获取最大日志数配置，默认为 0 (不清理)
-    # log_dir = config.get('log_dir', '/var/log/smartarchiver')
     max_log_files = config.get('max_log_files', 0)
     log_level = config.get('log_level', 'INFO')
     # 初始化日志时传入 max_log_files 和 log_level
     logger = setup_logger(config['log_dir'], max_log_files, log_level)
-
-    # 如果指定了 --clean-logs，执行清理并退出
-    # if args.clean_logs:
-    #     retention_days = config.get('log_retention_days', 30)  # 默认30天
-    #     clean_logs(log_dir, retention_days, logger)
-    #     sys.exit(0)
 
     # 初始化历史管理器
     history_mgr = HistoryManager(config['log_dir'])
