@@ -1,7 +1,7 @@
 import os
 import shutil
-import time
 import subprocess
+import time
 from datetime import datetime
 from enum import Enum
 
@@ -157,11 +157,11 @@ def handle_sync_mode(task, config, logger, source_root, dest_root):
         return
 
     is_windows = os.name == 'nt'
-    
+
     exclude_list = task.get('exclude', [])
     if isinstance(exclude_list, str):
         exclude_list = [exclude_list]
-        
+
     backup_enabled = task.get('create_backups', False)
     max_backups = task.get('max_backups', 0)
 
@@ -170,14 +170,15 @@ def handle_sync_mode(task, config, logger, source_root, dest_root):
         backup_base = os.path.join(dest_root, '.smart-archiver.backups')
         timestamp = datetime.now().strftime('%Y%m%d-%H%M%S')
         backup_dir = os.path.join(backup_base, timestamp)
-        
+
         # 确保备份目录本身被排除，防止无限递归或被删除
         exclude_list.append('.smart-archiver.backups/')
-        
+
         # 清理旧备份
         if max_backups > 0 and os.path.exists(backup_base):
             try:
-                backups = [os.path.join(backup_base, d) for d in os.listdir(backup_base) if os.path.isdir(os.path.join(backup_base, d))]
+                backups = [os.path.join(backup_base, d) for d in os.listdir(backup_base) if
+                           os.path.isdir(os.path.join(backup_base, d))]
                 backups.sort()
                 # 如果当前备份数已经达到或超过最大限制，删除最旧的，为新备份腾出空间
                 if len(backups) >= max_backups:
@@ -193,19 +194,20 @@ def handle_sync_mode(task, config, logger, source_root, dest_root):
         if not shutil.which('rclone'):
             logger.error("未找到 rclone，无法执行 sync 模式，跳过该任务。")
             return
-        
+
         cmd = ['rclone', 'sync', source_root, dest_root]
         for ex in exclude_list:
             cmd.extend(['--exclude', ex])
         if backup_dir:
             cmd.extend(['--backup-dir', backup_dir])
-            
+
         logger.info("将使用 rclone 进行同步。")
         try:
             # 记录开始时间
             start_time = time.time()
 
-            process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding='utf-8', errors='replace')
+            process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                                       encoding='utf-8', errors='replace')
             for line in process.stdout:
                 logger.info(line.strip())
             process.wait()
@@ -218,13 +220,13 @@ def handle_sync_mode(task, config, logger, source_root, dest_root):
                 logger.success(f"rclone 同步完成，耗时: {format_timespan(exec_time)}。")
         except Exception as e:
             logger.error(f"执行 rclone 时发生错误: {e}")
-            
+
     else:
         # 非 Windows 平台使用 rsync
         if not shutil.which('rsync'):
             logger.error("未找到 rsync，无法执行 sync 模式，跳过该任务。")
             return
-            
+
         # rsync 同步目录内容需要在源路径后加斜杠
         src = source_root if source_root.endswith('/') else source_root + '/'
         cmd = ['rsync', '-av', '--delete', src, dest_root]
@@ -232,12 +234,13 @@ def handle_sync_mode(task, config, logger, source_root, dest_root):
             cmd.extend(['--exclude', ex])
         if backup_dir:
             cmd.extend(['--backup', f'--backup-dir={backup_dir}'])
-            
+
         logger.info("将使用 rsync 进行同步。")
         try:
             # 记录开始时间
             start_time = time.time()
-            process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding='utf-8', errors='replace')
+            process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                                       encoding='utf-8', errors='replace')
             for line in process.stdout:
                 # 每一行的行首加入 logger 中定义的时间戳样式
                 logger.info(line.strip(), raw=True, prepend_timestamp=True)
@@ -268,7 +271,7 @@ def process_directory_pair(task, config, logger, history_mgr):
         required_fields = ['mode']
     else:
         required_fields = ['mode', 'min_age_minutes', 'conflict_policy', 'remove_empty_dirs']
-        
+
     missing_fields = [field for field in required_fields if field not in task]
     if missing_fields:
         logger.error(f"任务配置缺少必填项: {', '.join(missing_fields)}，跳过该任务。")
@@ -375,7 +378,8 @@ def process_directory_pair(task, config, logger, history_mgr):
 
             # 执行动作
             if action == FileAction.TRANSFER:
-                move_file(src_path, size, source_root, dest_root, logger, local_stats, history_mgr, conflict_policy, task_mode)
+                move_file(src_path, size, source_root, dest_root, logger, local_stats, history_mgr, conflict_policy,
+                          task_mode)
             elif action == FileAction.DELETE:
                 perform_delete(src_path, size, source_root, logger, local_stats, history_mgr)
             elif action == FileAction.SKIP:

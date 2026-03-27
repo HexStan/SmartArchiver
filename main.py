@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
+import datetime
 import os
 import sys
 import time
-import datetime
+
 from humanfriendly import format_timespan
 
 try:
@@ -88,18 +89,18 @@ def main():
             if not cron_expr:
                 print("cron 模式需要配置 cron_expr")
                 sys.exit(1)
-            
+
             logger.info(f"已设置定时任务 (cron 模式): {cron_expr}。")
-            
+
             while True:
                 now = datetime.datetime.now()
                 cron = croniter(cron_expr, now)
                 next_run = cron.get_next(datetime.datetime)
                 sleep_seconds = (next_run - now).total_seconds()
-                
+
                 logger.info(f"下一次执行时间: {next_run.strftime('%Y-%m-%d %H:%M:%S')}。\n")
                 time.sleep(sleep_seconds)
-                
+
                 try:
                     # 尝试获取锁，如果获取失败说明上次任务还在执行，跳过本次
                     with SingleInstance(config['lock_file'], logger):
@@ -116,9 +117,9 @@ def main():
             if not interval_seconds or not isinstance(interval_seconds, (int, float)) or interval_seconds <= 0:
                 print("interval 模式需要配置有效的 interval_seconds (大于0的数字)")
                 sys.exit(1)
-                
+
             logger.info(f"已设置定时任务 (interval 模式): 每 {interval_seconds} 秒执行一次。")
-            
+
             while True:
                 try:
                     with SingleInstance(config['lock_file'], logger):
@@ -129,7 +130,7 @@ def main():
                 except Exception as e:
                     logger.error(f"发生未知错误: {e}")
                     history_mgr.save()
-                
+
                 next_run = datetime.datetime.now() + datetime.timedelta(seconds=interval_seconds)
                 logger.info(f"下一次执行时间: {next_run.strftime('%Y-%m-%d %H:%M:%S')}。\n")
                 time.sleep(interval_seconds)
