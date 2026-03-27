@@ -149,7 +149,7 @@ def handle_sync_mode(task, config, logger, source_root, dest_root):
     """
     logger.info(f" - 源路径: {source_root}")
     logger.info(f" - 目标路径: {dest_root}")
-    logger.info(f" - 任务模式: 同步 (sync)")
+    logger.info(f" - 任务模式: 同步")
 
     if not os.path.exists(source_root):
         logger.error(f"源目录不存在: {source_root}")
