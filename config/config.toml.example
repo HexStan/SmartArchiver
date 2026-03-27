@@ -92,8 +92,8 @@ remove_empty_dirs = true
 
 # sync 模式示例任务
 [[tasks]]
-source = "./source"          # 源目录路径
-dest = "./dest"              # 目标目录路径
+source = "./source-2"          # 源目录路径
+dest = "./dest-2"              # 目标目录路径
 
 # 【必填】任务执行模式：
 # "move" - 移动文件到目标目录
@@ -105,7 +105,7 @@ mode = "sync"
 # exclude = ["*.tmp", "node_modules/"]
 
 # 【选填】是否为要替换或删除的文件复制副本
-# backup_replaced_deleted = true
+# create_backups = true
 
 # 【选填】最多保留的副本份数（0 表示不限制）
 # max_backups = 5

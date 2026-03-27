@@ -165,7 +165,7 @@ def handle_sync_mode(task, config, logger, source_root, dest_root):
     if isinstance(exclude_list, str):
         exclude_list = [exclude_list]
         
-    backup_enabled = task.get('backup_replaced_deleted', False)
+    backup_enabled = task.get('create_backups', False)
     max_backups = task.get('max_backups', 0)
 
     backup_dir = None
