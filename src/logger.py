@@ -17,7 +17,12 @@ class DualFormatter(logging.Formatter):
     def format(self, record):
         # 检查 record 中是否有 is_raw 属性且为 True
         if getattr(record, 'is_raw', False):
-            return record.getMessage()
+            msg = record.getMessage()
+            if getattr(record, 'prepend_timestamp', False):
+                # 格式化时间戳
+                timestamp = self.formatTime(record, self.datefmt)
+                return f"{timestamp} {msg}"
+            return msg
         return super().format(record)
 
 
@@ -38,9 +43,9 @@ class LoggerWrapper:
         """记录 debug 级别日志，raw=True 时不带格式"""
         self._logger.debug(self._sanitize(msg), extra={'is_raw': raw})
 
-    def info(self, msg, raw=False):
-        """记录 info 级别日志，raw=True 时不带格式"""
-        self._logger.info(self._sanitize(msg), extra={'is_raw': raw})
+    def info(self, msg, raw=False, prepend_timestamp=False):
+        """记录 info 级别日志，raw=True 时不带格式，prepend_timestamp=True 时在 raw 模式下也添加时间戳"""
+        self._logger.info(self._sanitize(msg), extra={'is_raw': raw, 'prepend_timestamp': prepend_timestamp})
 
     def success(self, msg, raw=False):
         """记录 success 级别日志，raw=True 时不带格式"""

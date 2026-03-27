@@ -36,7 +36,7 @@ max_log_files = 30
 # 任务列表
 # ==================================================
 
-# 示例任务
+# move、copy 模式示例任务
 [[tasks]]
 source = "./source"          # 源目录路径
 dest = "./dest"              # 目标目录路径
@@ -44,7 +44,8 @@ dest = "./dest"              # 目标目录路径
 # 【必填】任务执行模式：
 # "move" - 移动文件到目标目录
 # "copy" - 复制文件到目标目录
-mode = "move"
+# "sync" - 将源目录以镜像方式同步到目标目录
+mode = "copy"
 
 # 【必填】文件最小年龄（分钟），只有修改时间超过此时间的文件才会被处理
 min_age_minutes = 180
@@ -58,7 +59,7 @@ conflict_policy = "overwrite"
 # 【必填】是否删除源目录中的空目录
 remove_empty_dirs = true
 
-# 删除规则
+# 【选填】删除规则
 # [tasks.delete_rules]
 # 最小文件大小阈值
 # "0B" - 不启用过滤（默认）
@@ -74,7 +75,7 @@ remove_empty_dirs = true
 # ".tmp" = "ALL"               # 删除所有 .tmp 文件
 # ".log" = "10MB"              # 删除小于 10MB 的 .log 文件
 
-# 保留规则
+# 【选填】保留规则
 # [tasks.keep_rules]
 # 最小文件大小阈值
 # global_min_size = "10MB"     # 保留小于 10MB 的文件
@@ -89,4 +90,22 @@ remove_empty_dirs = true
 
 # --------------------------------------------------
 
-# 其他任务……
+# sync 模式示例任务
+[[tasks]]
+source = "./source"          # 源目录路径
+dest = "./dest"              # 目标目录路径
+
+# 【必填】任务执行模式：
+# "move" - 移动文件到目标目录
+# "copy" - 复制文件到目标目录
+# "sync" - 将源目录以镜像方式同步到目标目录
+mode = "sync"
+
+# 【选填】排除同步的文件或目录（支持通配符）
+# exclude = ["*.tmp", "node_modules/"]
+
+# 【选填】是否为要替换或删除的文件复制副本
+# backup_replaced_deleted = true
+
+# 【选填】最多保留的副本份数（0 表示不限制）
+# max_backups = 5

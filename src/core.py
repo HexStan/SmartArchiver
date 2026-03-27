@@ -1,6 +1,8 @@
 import os
 import shutil
 import time
+import subprocess
+from datetime import datetime
 from enum import Enum
 
 from humanfriendly import format_size, format_timespan
@@ -141,6 +143,106 @@ def get_unique_dest(dest_path):
         counter += 1
 
 
+def handle_sync_mode(task, config, logger, source_root, dest_root):
+    """
+    处理 sync 模式：使用 rsync 或 rclone 镜像同步目录
+    """
+    logger.info(f" - 源路径: {source_root}")
+    logger.info(f" - 目标路径: {dest_root}")
+    logger.info(f" - 任务模式: 同步 (sync)")
+
+    if not os.path.exists(source_root):
+        logger.error(f"源目录不存在: {source_root}")
+        return
+
+    if not os.path.isdir(dest_root):
+        logger.error(f"!!! CRUCIAL: 目标目录不存在 !!!")
+        return
+
+    is_windows = os.name == 'nt'
+    
+    exclude_list = task.get('exclude', [])
+    if isinstance(exclude_list, str):
+        exclude_list = [exclude_list]
+        
+    backup_enabled = task.get('backup_replaced_deleted', False)
+    max_backups = task.get('max_backups', 0)
+
+    backup_dir = None
+    if backup_enabled:
+        dest_parent = os.path.dirname(os.path.abspath(dest_root))
+        backup_base = os.path.join(dest_parent, '.smart-archiver.backups')
+        timestamp = datetime.now().strftime('%Y-%m-%d-%H-%M-%S')
+        backup_dir = os.path.join(backup_base, timestamp)
+        
+        # 清理旧备份
+        if max_backups > 0 and os.path.exists(backup_base):
+            try:
+                backups = [os.path.join(backup_base, d) for d in os.listdir(backup_base) if os.path.isdir(os.path.join(backup_base, d))]
+                backups.sort()
+                # 如果当前备份数已经达到或超过最大限制，删除最旧的，为新备份腾出空间
+                if len(backups) >= max_backups:
+                    num_to_delete = len(backups) - max_backups + 1
+                    for b in backups[:num_to_delete]:
+                        shutil.rmtree(b)
+                        logger.debug(f"已删除旧备份: {b}")
+            except Exception as e:
+                logger.error(f"清理旧备份失败: {e}")
+
+    if is_windows:
+        # Windows 平台使用 rclone
+        if not shutil.which('rclone'):
+            logger.error("未找到 rclone，无法执行 sync 模式，跳过该任务。")
+            return
+        
+        cmd = ['rclone', 'sync', source_root, dest_root]
+        for ex in exclude_list:
+            cmd.extend(['--exclude', ex])
+        if backup_dir:
+            cmd.extend(['--backup-dir', backup_dir])
+            
+        logger.info("将使用 rclone 进行同步。")
+        try:
+            process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding='utf-8', errors='replace')
+            for line in process.stdout:
+                logger.info(line.strip())
+            process.wait()
+            if process.returncode != 0:
+                logger.error(f"rclone 同步失败，退出码: {process.returncode}")
+            else:
+                logger.success("rclone 同步完成。")
+        except Exception as e:
+            logger.error(f"执行 rclone 时发生错误: {e}")
+            
+    else:
+        # 非 Windows 平台使用 rsync
+        if not shutil.which('rsync'):
+            logger.error("未找到 rsync，无法执行 sync 模式，跳过该任务。")
+            return
+            
+        # rsync 同步目录内容需要在源路径后加斜杠
+        src = source_root if source_root.endswith('/') else source_root + '/'
+        cmd = ['rsync', '-av', '--delete', src, dest_root]
+        for ex in exclude_list:
+            cmd.extend(['--exclude', ex])
+        if backup_dir:
+            cmd.extend(['--backup', f'--backup-dir={backup_dir}'])
+            
+        logger.info("将使用 rsync 进行同步。")
+        try:
+            process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding='utf-8', errors='replace')
+            for line in process.stdout:
+                # 每一行的行首加入 logger 中定义的时间戳样式
+                logger.info(line.strip(), raw=True, prepend_timestamp=True)
+            process.wait()
+            if process.returncode != 0:
+                logger.error(f"rsync 同步失败，退出码: {process.returncode}")
+            else:
+                logger.success("rsync 同步完成。")
+        except Exception as e:
+            logger.error(f"执行 rsync 时发生错误: {e}")
+
+
 def process_directory_pair(task, config, logger, history_mgr):
     """
     处理单个目录对：遍历、移动文件
@@ -149,16 +251,24 @@ def process_directory_pair(task, config, logger, history_mgr):
 
     source_root = task.get('source')
     dest_root = task.get('dest')
+    task_mode = task.get('mode', '').lower()
 
     # 检查必填配置项
-    required_fields = ['mode', 'min_age_minutes', 'conflict_policy', 'remove_empty_dirs']
+    if task_mode == 'sync':
+        required_fields = ['mode']
+    else:
+        required_fields = ['mode', 'min_age_minutes', 'conflict_policy', 'remove_empty_dirs']
+        
     missing_fields = [field for field in required_fields if field not in task]
     if missing_fields:
         logger.error(f"任务配置缺少必填项: {', '.join(missing_fields)}，跳过该任务。")
         return
 
+    if task_mode == 'sync':
+        handle_sync_mode(task, config, logger, source_root, dest_root)
+        return
+
     min_age_minutes = task['min_age_minutes']
-    task_mode = task['mode'].lower()
 
     max_retries = config.get('max_retries', 3)
 
