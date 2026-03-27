@@ -203,6 +203,9 @@ def handle_sync_mode(task, config, logger, source_root, dest_root):
             
         logger.info("将使用 rclone 进行同步。")
         try:
+            # 记录开始时间
+            start_time = time.time()
+
             process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding='utf-8', errors='replace')
             for line in process.stdout:
                 logger.info(line.strip())
@@ -210,7 +213,10 @@ def handle_sync_mode(task, config, logger, source_root, dest_root):
             if process.returncode != 0:
                 logger.error(f"rclone 同步失败，退出码: {process.returncode}")
             else:
-                logger.success("rclone 同步完成。")
+                # 计算耗时
+                end_time = time.time()
+                exec_time = end_time - start_time
+                logger.success(f"rclone 同步完成，耗时: {format_timespan(exec_time)}。")
         except Exception as e:
             logger.error(f"执行 rclone 时发生错误: {e}")
             
@@ -230,6 +236,8 @@ def handle_sync_mode(task, config, logger, source_root, dest_root):
             
         logger.info("将使用 rsync 进行同步。")
         try:
+            # 记录开始时间
+            start_time = time.time()
             process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding='utf-8', errors='replace')
             for line in process.stdout:
                 # 每一行的行首加入 logger 中定义的时间戳样式
@@ -238,7 +246,10 @@ def handle_sync_mode(task, config, logger, source_root, dest_root):
             if process.returncode != 0:
                 logger.error(f"rsync 同步失败，退出码: {process.returncode}")
             else:
-                logger.success("rsync 同步完成。")
+                # 计算耗时
+                end_time = time.time()
+                exec_time = end_time - start_time
+                logger.success(f"rsync 同步完成，耗时: {format_timespan(exec_time)}。")
         except Exception as e:
             logger.error(f"执行 rsync 时发生错误: {e}")
 
