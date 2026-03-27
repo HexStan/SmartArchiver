@@ -26,16 +26,6 @@ class MoverStats:
         self.locked_skipped = 0
         self.total_bytes = 0
 
-    def merge(self, other):
-        self.success += other.success
-        self.error += other.error
-        self.dropped += other.dropped
-        self.kept += other.kept
-        self.deleted += other.deleted
-        self.conflict_skipped += other.conflict_skipped
-        self.locked_skipped += other.locked_skipped
-        self.total_bytes += other.total_bytes
-
     def calculate_speed(self, start_time, end_time):
         """
         计算耗时、总大小和传输速度
@@ -151,7 +141,7 @@ def get_unique_dest(dest_path):
         counter += 1
 
 
-def process_directory_pair(task, global_stats, config, logger, history_mgr):
+def process_directory_pair(task, config, logger, history_mgr):
     """
     处理单个目录对：遍历、移动文件
     """
@@ -179,7 +169,6 @@ def process_directory_pair(task, global_stats, config, logger, history_mgr):
     age_threshold_seconds = min_age_minutes * 60
 
     # 打印任务头部信息
-    # logger.info("==============================开始任务==============================")
     logger.info(f" - 源路径: {source_root}")
     logger.info(f" - 目标路径: {dest_root}")
     logger.info(f" - 时间阈值: {format_timespan(age_threshold_seconds)}")
@@ -264,12 +253,27 @@ def process_directory_pair(task, global_stats, config, logger, history_mgr):
     duration_str, total_size_str, speed_str = local_stats.calculate_speed(start_time, end_time)
 
     # 打印任务尾部统计
+    tail_msg = [f"成功 {local_stats.success} 项"]
+    if local_stats.conflict_skipped > 0:
+        tail_msg.append(f"因重复而跳过 {local_stats.conflict_skipped} 项")
+    if local_stats.locked_skipped > 0:
+        tail_msg.append(f"因文件锁而跳过 {local_stats.locked_skipped} 项")
+    if local_stats.kept > 0:
+        tail_msg.append(f"根据规则保留 {local_stats.kept} 项")
+    if local_stats.deleted > 0:
+        tail_msg.append(f"根据规则删除 {local_stats.deleted} 项")
+    logger.info("，".join(tail_msg) + "。")
+
+    tail_msg_2 = []
+    if local_stats.error > 0:
+        tail_msg_2.append(f"失败 {local_stats.error} 项")
+    if local_stats.dropped > 0:
+        tail_msg_2.append(f"因多次失败而跳过 {local_stats.dropped} 项")
+    if tail_msg_2:
+        logger.info("，".join(tail_msg_2) + "。")
+
     if local_stats.success > 0:
         logger.info(f"在 {duration_str} 内传输了 {total_size_str}，平均速度 {speed_str}。")
-    # logger.info("==============================任务完成==============================")
-
-    # 将局部统计数据累加到传入的全局对象中
-    global_stats.merge(local_stats)
 
 
 def perform_delete(src_path, file_size, source_root, logger, stats, history_mgr):
