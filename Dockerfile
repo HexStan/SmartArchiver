@@ -3,6 +3,11 @@ FROM python:3.14-slim-trixie
 # 设置环境变量，确保 Python 输出不被缓冲，以便日志能实时显示
 ENV PYTHONUNBUFFERED=1
 
+# 安装 rsync
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends rsync && \
+    rm -rf /var/lib/apt/lists/*
+
 # 设置工作目录
 WORKDIR /app
 
