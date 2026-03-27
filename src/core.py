@@ -170,10 +170,12 @@ def handle_sync_mode(task, config, logger, source_root, dest_root):
 
     backup_dir = None
     if backup_enabled:
-        dest_parent = os.path.dirname(os.path.abspath(dest_root))
-        backup_base = os.path.join(dest_parent, '.smart-archiver.backups')
-        timestamp = datetime.now().strftime('%Y-%m-%d-%H-%M-%S')
+        backup_base = os.path.join(dest_root, '.smart-archiver.backups')
+        timestamp = datetime.now().strftime('%Y%m%d-%H%M%S')
         backup_dir = os.path.join(backup_base, timestamp)
+        
+        # 确保备份目录本身被排除，防止无限递归或被删除
+        exclude_list.append('.smart-archiver.backups/')
         
         # 清理旧备份
         if max_backups > 0 and os.path.exists(backup_base):
