@@ -15,7 +15,7 @@ from src.utils import load_config, SingleInstance
 
 def run_tasks(config, logger, history_mgr):
     logger.info("=" * 80, raw=True)
-    logger.info("脚本开始执行...")
+    logger.info("脚本开始执行……")
     start_time = time.time()
 
     tasks = config.get("tasks", [])
@@ -46,7 +46,7 @@ def main():
     config_path = os.path.join(base_dir, "config/config.toml")
 
     if not os.path.exists(config_path):
-        print(f"Error: 配置文件 {config_path} 未找到")
+        print(f"Error: 配置文件 {config_path} 未找到。")
         sys.exit(1)
 
     config = load_config(config_path)
@@ -80,7 +80,7 @@ def main():
         if mode == "cron":
             cron_expr = schedule_config.get("cron_expr")
             if not cron_expr:
-                print("cron 模式需要配置 cron_expr")
+                print("cron 模式需要配置 cron_expr。")
                 sys.exit(1)
 
             logger.info(f"已设置定时任务 (cron 模式): {cron_expr}。")
@@ -114,7 +114,7 @@ def main():
                 or not isinstance(interval_seconds, (int, float))
                 or interval_seconds <= 0
             ):
-                print("interval 模式需要配置有效的 interval_seconds (大于0的数字)")
+                print("interval 模式需要配置有效的 interval_seconds (大于0的数字)。")
                 sys.exit(1)
 
             logger.info(

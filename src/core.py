@@ -154,14 +154,14 @@ def handle_sync_mode(task, config, logger, source_root, dest_root):
     """
     logger.info(f" - 源路径: {source_root}")
     logger.info(f" - 目标路径: {dest_root}")
-    logger.info(f" - 任务模式: 同步")
+    logger.info(" - 任务模式: 同步")
 
     if not os.path.exists(source_root):
         logger.error(f"源目录不存在: {source_root}")
         return
 
     if not os.path.isdir(dest_root):
-        logger.error(f"!!! CRUCIAL: 目标目录不存在 !!!")
+        logger.error("!!! CRUCIAL: 目标目录不存在 !!!")
         return
 
     is_windows = os.name == "nt"
@@ -212,7 +212,7 @@ def handle_sync_mode(task, config, logger, source_root, dest_root):
         if backup_dir:
             cmd.extend(["--backup-dir", backup_dir])
 
-        logger.info("将使用 rclone 进行同步。")
+        logger.info("正在使用 rclone 进行同步……")
         try:
             # 记录开始时间
             start_time = time.time()
@@ -252,7 +252,7 @@ def handle_sync_mode(task, config, logger, source_root, dest_root):
         if backup_dir:
             cmd.extend(["--backup", f"--backup-dir={backup_dir}"])
 
-        logger.info("将使用 rsync 进行同步。")
+        logger.info("正在使用 rsync 进行同步……")
         try:
             # 记录开始时间
             start_time = time.time()
@@ -330,7 +330,7 @@ def process_directory_pair(task, config, logger, history_mgr):
 
     missing_fields = [field for field in required_fields if field not in task]
     if missing_fields:
-        logger.error(f"任务配置缺少必填项: {', '.join(missing_fields)}，跳过该任务。")
+        logger.error(f"任务配置缺少必填项: {'、'.join(missing_fields)}，跳过该任务。")
         return
 
     if task_mode == "sync":
@@ -358,7 +358,7 @@ def process_directory_pair(task, config, logger, history_mgr):
         return
 
     if not os.path.isdir(dest_root):
-        logger.error(f"!!! CRUCIAL: 目标目录不存在 !!!")
+        logger.error("!!! CRUCIAL: 目标目录不存在 !!!")
         return
 
     task_delete_rules = task.get("delete_rules", {})
@@ -415,7 +415,7 @@ def process_directory_pair(task, config, logger, history_mgr):
             if should_skip:
                 # 简单处理，视为跳过
                 local_stats.dropped += 1
-                logger.warning(f"跳过 (多次失败): {src_path}")
+                logger.warning(f"跳过文件 (多次失败): {src_path}")
                 continue
 
             try:
@@ -431,7 +431,7 @@ def process_directory_pair(task, config, logger, history_mgr):
 
             if is_file_locked(src_path):
                 local_stats.locked_skipped += 1
-                logger.warning(f"跳过 (被锁定): {rel_path}")
+                logger.warning(f"跳过文件 (被锁定): {rel_path}")
                 continue
 
             # 核心决策逻辑
@@ -451,13 +451,13 @@ def process_directory_pair(task, config, logger, history_mgr):
                     task_mode,
                 )
             elif action == FileAction.DELETE:
-                perform_delete(
+                delete_file(
                     src_path, size, source_root, logger, local_stats, history_mgr
                 )
             elif action == FileAction.SKIP:
                 local_stats.kept += 1
                 logger.debug(
-                    f"保留 (匹配规则): {rel_path}  ({format_size(size, binary=True)})"
+                    f"保留文件 (匹配规则): {rel_path}  ({format_size(size, binary=True)})"
                 )
                 pass
 
@@ -499,17 +499,17 @@ def process_directory_pair(task, config, logger, history_mgr):
         )
 
 
-def perform_delete(src_path, file_size, source_root, logger, stats, history_mgr):
+def delete_file(src_path, file_size, source_root, logger, stats, history_mgr):
     rel_path = os.path.relpath(src_path, source_root)
     """删除逻辑"""
     try:
         os.remove(src_path)
-        logger.success(f"删除: {rel_path}  ({format_size(file_size, binary=True)})")
+        logger.success(f"删除文件: {rel_path}  ({format_size(file_size, binary=True)})")
         history_mgr.record_success(src_path)
         stats.deleted += 1
     except OSError as e:
         count = history_mgr.record_failure(src_path)
-        logger.error(f"删除失败 ({count} 次): {rel_path}\nError: {e}")
+        logger.error(f"删除文件失败 ({count} 次): {rel_path}\nError: {e}")
 
 
 def move_file(
