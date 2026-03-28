@@ -71,7 +71,7 @@ remove_empty_dirs = true
 # 2. 优先级逻辑:
 #    - 默认情况下：保留规则 (keep_rules) > 删除规则 (delete_rules) > 正常传输
 #    - 如果一个文件同时命中保留和删除规则，默认将被【保留】。
-#    - 可以通过 rule_conflict_policy 配置项修改此行为。
+#    - 可以通过 preferred_rule 配置项修改此行为。
 #
 # 3. 大小阈值:
 #    - 仅当文件/目录大小【小于】设定的阈值时，规则才会生效。
@@ -81,7 +81,7 @@ remove_empty_dirs = true
 # 【选填】当文件/目录同时命中保留规则和删除规则时的处理方式：
 # "keep" - 保留文件（默认）
 # "delete" - 删除文件
-# rule_conflict_policy = "keep"
+# preferred_rule = "keep"
 
 # 【选填】保留规则：命中的文件/目录将留在原处，不进行移动、复制或删除
 [tasks.keep_rules.dirs]

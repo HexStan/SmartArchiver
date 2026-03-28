@@ -108,7 +108,7 @@ class FileFilterPolicy:
         # 分别加载 删除规则 和 保留规则
         self.delete_rules = self._RuleSet(config.get("delete_rules", {}))
         self.keep_rules = self._RuleSet(config.get("keep_rules", {}))
-        self.rule_conflict_policy = config.get("rule_conflict_policy", "keep")
+        self.preferred_rule = config.get("preferred_rule", "keep")
 
     def decide(self, name, size, is_dir=False):
         """
@@ -119,7 +119,7 @@ class FileFilterPolicy:
 
         # 1. 如果同时命中保留和删除规则，根据配置项处理
         if match_keep and match_delete:
-            if self.rule_conflict_policy == "delete":
+            if self.preferred_rule == "delete":
                 return FileAction.DELETE
             else:
                 return FileAction.SKIP
@@ -372,12 +372,12 @@ def process_directory_pair(task, config, logger, history_mgr):
 
     task_delete_rules = task.get("delete_rules", {})
     task_keep_rules = task.get("keep_rules", {})
-    rule_conflict_policy = task.get("rule_conflict_policy", "keep")
+    preferred_rule = task.get("preferred_rule", "keep")
 
     merged_config = {
         "delete_rules": task_delete_rules,
         "keep_rules": task_keep_rules,
-        "rule_conflict_policy": rule_conflict_policy,
+        "preferred_rule": preferred_rule,
     }
 
     # 使用合并后的配置初始化策略
