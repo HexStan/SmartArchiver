@@ -16,9 +16,9 @@ class DualFormatter(logging.Formatter):
 
     def format(self, record):
         # 检查 record 中是否有 is_raw 属性且为 True
-        if getattr(record, 'is_raw', False):
+        if getattr(record, "is_raw", False):
             msg = record.getMessage()
-            if getattr(record, 'prepend_timestamp', False):
+            if getattr(record, "prepend_timestamp", False):
                 # 格式化时间戳
                 timestamp = self.formatTime(record, self.datefmt)
                 return f"{timestamp} {msg}"
@@ -36,28 +36,31 @@ class LoggerWrapper:
 
     def _sanitize(self, msg):
         if isinstance(msg, str):
-            return msg.encode('utf-8', 'surrogateescape').decode('utf-8', 'replace')
+            return msg.encode("utf-8", "surrogateescape").decode("utf-8", "replace")
         return msg
 
     def debug(self, msg, raw=False):
         """记录 debug 级别日志，raw=True 时不带格式"""
-        self._logger.debug(self._sanitize(msg), extra={'is_raw': raw})
+        self._logger.debug(self._sanitize(msg), extra={"is_raw": raw})
 
     def info(self, msg, raw=False, prepend_timestamp=False):
         """记录 info 级别日志，raw=True 时不带格式，prepend_timestamp=True 时在 raw 模式下也添加时间戳"""
-        self._logger.info(self._sanitize(msg), extra={'is_raw': raw, 'prepend_timestamp': prepend_timestamp})
+        self._logger.info(
+            self._sanitize(msg),
+            extra={"is_raw": raw, "prepend_timestamp": prepend_timestamp},
+        )
 
     def success(self, msg, raw=False):
         """记录 success 级别日志，raw=True 时不带格式"""
-        self._logger.log(SUCCESS_LEVEL_NUM, self._sanitize(msg), extra={'is_raw': raw})
+        self._logger.log(SUCCESS_LEVEL_NUM, self._sanitize(msg), extra={"is_raw": raw})
 
     def warning(self, msg, raw=False):
         """记录 warning 级别日志"""
-        self._logger.warning(self._sanitize(msg), extra={'is_raw': raw})
+        self._logger.warning(self._sanitize(msg), extra={"is_raw": raw})
 
     def error(self, msg, raw=False):
         """记录 error 级别日志，raw=True 时不带格式"""
-        self._logger.error(self._sanitize(msg), extra={'is_raw': raw})
+        self._logger.error(self._sanitize(msg), extra={"is_raw": raw})
 
     # 如果需要访问底层 logger 的其他方法（如 warning, debug），可以通过 getattr 委托
     def __getattr__(self, name):
@@ -69,7 +72,7 @@ class DailyRotatingFileHandler(logging.FileHandler):
     按天滚动的日志处理器，每天生成一个新的日志文件，并清理旧日志。
     """
 
-    def __init__(self, log_dir, max_log_files, encoding='utf-8'):
+    def __init__(self, log_dir, max_log_files, encoding="utf-8"):
         self.log_dir = log_dir
         self.max_log_files = max_log_files
         self.current_date = datetime.now().strftime("%Y%m%d")
@@ -81,7 +84,9 @@ class DailyRotatingFileHandler(logging.FileHandler):
         if new_date != self.current_date:
             self.current_date = new_date
             self.close()
-            filename = os.path.join(self.log_dir, f"smartarchiver-{self.current_date}.log")
+            filename = os.path.join(
+                self.log_dir, f"smartarchiver-{self.current_date}.log"
+            )
             self.baseFilename = os.path.abspath(filename)
             self.stream = self._open()
 
@@ -96,7 +101,8 @@ def setup_logger(log_dir, max_log_files=0, log_level="INFO"):
     """
     配置日志记录器，格式：2025-01-01 08:00:00 [INFO] 消息内容
     """
-    if not os.path.exists(log_dir): os.makedirs(log_dir)
+    if not os.path.exists(log_dir):
+        os.makedirs(log_dir)
 
     # 获取原生 logger
     logger = logging.getLogger("smartarchiver")
@@ -109,7 +115,7 @@ def setup_logger(log_dir, max_log_files=0, log_level="INFO"):
     if logger.handlers:
         logger.handlers = []
 
-    file_handler = DailyRotatingFileHandler(log_dir, max_log_files, encoding='utf-8')
+    file_handler = DailyRotatingFileHandler(log_dir, max_log_files, encoding="utf-8")
 
     # 执行旧日志清理 (启动时清理一次)
     if max_log_files > 0:
@@ -117,10 +123,10 @@ def setup_logger(log_dir, max_log_files=0, log_level="INFO"):
         clean_old_logs(log_dir, max_log_files)
 
     # 定义标准格式字符串
-    fmt_str = '%(asctime)s [%(levelname)s] %(message)s'
+    fmt_str = "%(asctime)s [%(levelname)s] %(message)s"
 
     # 使用自定义的 Formatter
-    formatter = DualFormatter(fmt_str, datefmt='%Y-%m-%d %H:%M:%S')
+    formatter = DualFormatter(fmt_str, datefmt="%Y-%m-%d %H:%M:%S")
 
     file_handler.setFormatter(formatter)
     logger.addHandler(file_handler)

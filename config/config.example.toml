@@ -38,8 +38,8 @@ max_log_files = 30
 
 # move、copy 模式示例任务
 [[tasks]]
-source = "./source"          # 源目录路径
-dest = "./dest"              # 目标目录路径
+source = "./source" # 源目录路径
+dest = "./dest"     # 目标目录路径
 
 # 【必填】任务执行模式：
 # "move" - 移动文件到目标目录
@@ -87,8 +87,8 @@ remove_empty_dirs = true
 
 # sync 模式示例任务
 [[tasks]]
-source = "./source-2"          # 源目录路径
-dest = "./dest-2"              # 目标目录路径
+source = "./source-2" # 源目录路径
+dest = "./dest-2"     # 目标目录路径
 
 # 【必填】任务执行模式：
 # "move" - 移动文件到目标目录

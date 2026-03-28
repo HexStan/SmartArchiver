@@ -18,7 +18,7 @@ def run_tasks(config, logger, history_mgr):
     logger.info("脚本开始执行...")
     start_time = time.time()
 
-    tasks = config.get('tasks', [])
+    tasks = config.get("tasks", [])
 
     if not tasks:
         logger.error("配置文件没有任务可以执行。")
@@ -43,7 +43,7 @@ def run_tasks(config, logger, history_mgr):
 def main():
     # 确定配置文件路径
     base_dir = os.path.dirname(os.path.abspath(__file__))
-    config_path = os.path.join(base_dir, 'config/config.toml')
+    config_path = os.path.join(base_dir, "config/config.toml")
 
     if not os.path.exists(config_path):
         print(f"Error: 配置文件 {config_path} 未找到")
@@ -52,21 +52,21 @@ def main():
     config = load_config(config_path)
     # 初始化日志
     # 获取最大日志数配置，默认为 0 (不清理)
-    max_log_files = config.get('max_log_files', 0)
-    log_level = config.get('log_level', 'INFO')
+    max_log_files = config.get("max_log_files", 0)
+    log_level = config.get("log_level", "INFO")
     # 初始化日志时传入 max_log_files 和 log_level
-    logger = setup_logger(config['log_dir'], max_log_files, log_level)
+    logger = setup_logger(config["log_dir"], max_log_files, log_level)
 
     # 初始化历史管理器
-    history_mgr = HistoryManager(config['log_dir'])
+    history_mgr = HistoryManager(config["log_dir"])
 
-    schedule_config = config.get('schedule', {})
-    mode = schedule_config.get('mode')
+    schedule_config = config.get("schedule", {})
+    mode = schedule_config.get("mode")
 
     if not mode:
         # 一次性执行
         try:
-            with SingleInstance(config['lock_file'], logger):
+            with SingleInstance(config["lock_file"], logger):
                 run_tasks(config, logger, history_mgr)
         except SystemExit:
             pass
@@ -77,8 +77,8 @@ def main():
             history_mgr.save()
     else:
         # 定时执行
-        if mode == 'cron':
-            cron_expr = schedule_config.get('cron_expr')
+        if mode == "cron":
+            cron_expr = schedule_config.get("cron_expr")
             if not cron_expr:
                 print("cron 模式需要配置 cron_expr")
                 sys.exit(1)
@@ -91,12 +91,14 @@ def main():
                 next_run = cron.get_next(datetime.datetime)
                 sleep_seconds = (next_run - now).total_seconds()
 
-                logger.info(f"下一次执行时间: {next_run.strftime('%Y-%m-%d %H:%M:%S')}。\n")
+                logger.info(
+                    f"下一次执行时间: {next_run.strftime('%Y-%m-%d %H:%M:%S')}。\n"
+                )
                 time.sleep(sleep_seconds)
 
                 try:
                     # 尝试获取锁，如果获取失败说明上次任务还在执行，跳过本次
-                    with SingleInstance(config['lock_file'], logger):
+                    with SingleInstance(config["lock_file"], logger):
                         run_tasks(config, logger, history_mgr)
                         history_mgr.save()
                 except SystemExit:
@@ -105,17 +107,23 @@ def main():
                     logger.error(f"发生未知错误: {e}")
                     history_mgr.save()
 
-        elif mode == 'interval':
-            interval_seconds = schedule_config.get('interval_seconds')
-            if not interval_seconds or not isinstance(interval_seconds, (int, float)) or interval_seconds <= 0:
+        elif mode == "interval":
+            interval_seconds = schedule_config.get("interval_seconds")
+            if (
+                not interval_seconds
+                or not isinstance(interval_seconds, (int, float))
+                or interval_seconds <= 0
+            ):
                 print("interval 模式需要配置有效的 interval_seconds (大于0的数字)")
                 sys.exit(1)
 
-            logger.info(f"已设置定时任务 (interval 模式): 每 {interval_seconds} 秒执行一次。")
+            logger.info(
+                f"已设置定时任务 (interval 模式): 每 {interval_seconds} 秒执行一次。"
+            )
 
             while True:
                 try:
-                    with SingleInstance(config['lock_file'], logger):
+                    with SingleInstance(config["lock_file"], logger):
                         run_tasks(config, logger, history_mgr)
                         history_mgr.save()
                 except SystemExit:
@@ -124,8 +132,12 @@ def main():
                     logger.error(f"发生未知错误: {e}")
                     history_mgr.save()
 
-                next_run = datetime.datetime.now() + datetime.timedelta(seconds=interval_seconds)
-                logger.info(f"下一次执行时间: {next_run.strftime('%Y-%m-%d %H:%M:%S')}。\n")
+                next_run = datetime.datetime.now() + datetime.timedelta(
+                    seconds=interval_seconds
+                )
+                logger.info(
+                    f"下一次执行时间: {next_run.strftime('%Y-%m-%d %H:%M:%S')}。\n"
+                )
                 time.sleep(interval_seconds)
         else:
             print(f"不支持的定时模式: {mode}")
