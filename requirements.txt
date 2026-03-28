@@ -1,2 +1,2 @@
 humanfriendly==10.0
-croniter==2.0.3
+croniter==6.2.2

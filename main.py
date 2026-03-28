@@ -4,12 +4,8 @@ import os
 import sys
 import time
 
+from croniter import croniter
 from humanfriendly import format_timespan
-
-try:
-    from croniter import croniter
-except ImportError:
-    croniter = None
 
 from src.core import process_directory_pair
 from src.history import HistoryManager
@@ -82,9 +78,6 @@ def main():
     else:
         # 定时执行
         if mode == 'cron':
-            if croniter is None:
-                print("cron 模式需要 croniter 库，请执行: pip install croniter")
-                sys.exit(1)
             cron_expr = schedule_config.get('cron_expr')
             if not cron_expr:
                 print("cron 模式需要配置 cron_expr")
