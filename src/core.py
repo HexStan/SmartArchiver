@@ -115,13 +115,13 @@ class FileFilterPolicy:
         优先级：删除规则 > 保留规则 > 正常传输
         """
 
-        # 1. 检查是否命中删除规则
-        if self.delete_rules.matches(name, size, is_dir):
-            return FileAction.DELETE
-
-        # 2. 检查是否命中保留规则 (Skip)
+        # 1. 检查是否命中保留规则
         if self.keep_rules.matches(name, size, is_dir):
             return FileAction.SKIP
+
+        # 2. 检查是否命中删除规则
+        if self.delete_rules.matches(name, size, is_dir):
+            return FileAction.DELETE
 
         # 3. 都不命中，正常传输
         return FileAction.TRANSFER
