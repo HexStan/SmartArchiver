@@ -3,7 +3,7 @@ import logging
 import os
 from datetime import datetime
 
-SUCCESS_LEVEL_NUM = 15
+SUCCESS_LEVEL_NUM = 25
 logging.addLevelName(SUCCESS_LEVEL_NUM, "SUCCESS")
 
 
@@ -16,8 +16,13 @@ class DualFormatter(logging.Formatter):
 
     def format(self, record):
         # 检查 record 中是否有 is_raw 属性且为 True
-        if getattr(record, 'is_raw', False):
-            return record.getMessage()
+        if getattr(record, "is_raw", False):
+            msg = record.getMessage()
+            if getattr(record, "prepend_timestamp", False):
+                # 格式化时间戳
+                timestamp = self.formatTime(record, self.datefmt)
+                return f"{timestamp} {msg}"
+            return msg
         return super().format(record)
 
 
@@ -29,66 +34,99 @@ class LoggerWrapper:
     def __init__(self, logger):
         self._logger = logger
 
-    def debug(self, msg, raw=False):
-        """记录 info 级别日志，raw=True 时不带格式"""
-        self._logger.debug(msg, extra={'is_raw': raw})
+    def _sanitize(self, msg):
+        if isinstance(msg, str):
+            return msg.encode("utf-8", "surrogateescape").decode("utf-8", "replace")
+        return msg
 
-    def info(self, msg, raw=False):
-        """记录 info 级别日志，raw=True 时不带格式"""
-        self._logger.info(msg, extra={'is_raw': raw})
+    def debug(self, msg, raw=False):
+        """记录 debug 级别日志，raw=True 时不带格式"""
+        self._logger.debug(self._sanitize(msg), extra={"is_raw": raw})
+
+    def info(self, msg, raw=False, prepend_timestamp=False):
+        """记录 info 级别日志，raw=True 时不带格式，prepend_timestamp=True 时在 raw 模式下也添加时间戳"""
+        self._logger.info(
+            self._sanitize(msg),
+            extra={"is_raw": raw, "prepend_timestamp": prepend_timestamp},
+        )
 
     def success(self, msg, raw=False):
-        """记录 info 级别日志，raw=True 时不带格式"""
-        self._logger.log(SUCCESS_LEVEL_NUM, msg, extra={'is_raw': raw})
+        """记录 success 级别日志，raw=True 时不带格式"""
+        self._logger.log(SUCCESS_LEVEL_NUM, self._sanitize(msg), extra={"is_raw": raw})
 
     def warning(self, msg, raw=False):
         """记录 warning 级别日志"""
-        self._logger.warning(msg, extra={'is_raw': raw})
+        self._logger.warning(self._sanitize(msg), extra={"is_raw": raw})
 
     def error(self, msg, raw=False):
         """记录 error 级别日志，raw=True 时不带格式"""
-        self._logger.error(msg, extra={'is_raw': raw})
+        self._logger.error(self._sanitize(msg), extra={"is_raw": raw})
 
     # 如果需要访问底层 logger 的其他方法（如 warning, debug），可以通过 getattr 委托
     def __getattr__(self, name):
         return getattr(self._logger, name)
 
 
-def setup_logger(log_dir, max_log_files=0):
+class DailyRotatingFileHandler(logging.FileHandler):
+    """
+    按天滚动的日志处理器，每天生成一个新的日志文件，并清理旧日志。
+    """
+
+    def __init__(self, log_dir, max_log_files, encoding="utf-8"):
+        self.log_dir = log_dir
+        self.max_log_files = max_log_files
+        self.current_date = datetime.now().strftime("%Y%m%d")
+        filename = os.path.join(log_dir, f"smartarchiver-{self.current_date}.log")
+        super().__init__(filename, encoding=encoding)
+
+    def emit(self, record):
+        new_date = datetime.now().strftime("%Y%m%d")
+        if new_date != self.current_date:
+            self.current_date = new_date
+            self.close()
+            filename = os.path.join(
+                self.log_dir, f"smartarchiver-{self.current_date}.log"
+            )
+            self.baseFilename = os.path.abspath(filename)
+            self.stream = self._open()
+
+            # 日期变化时，执行旧日志清理
+            if self.max_log_files > 0:
+                clean_old_logs(self.log_dir, self.max_log_files)
+
+        super().emit(record)
+
+
+def setup_logger(log_dir, max_log_files=0, log_level="INFO"):
     """
     配置日志记录器，格式：2025-01-01 08:00:00 [INFO] 消息内容
     """
-    if not os.path.exists(log_dir): os.makedirs(log_dir)
-
-    # 日志文件名: smartarchiver-YYYYMMDD.log
-    date_str = datetime.now().strftime("%Y%m%d")
-    log_file = os.path.join(log_dir, f"smartarchiver-{date_str}.log")
+    if not os.path.exists(log_dir):
+        os.makedirs(log_dir)
 
     # 获取原生 logger
     logger = logging.getLogger("smartarchiver")
-    # logger.setLevel(logging.INFO)
-    logger.setLevel(logging.DEBUG)
+
+    # 设置日志级别
+    numeric_level = getattr(logging, log_level.upper(), logging.INFO)
+    logger.setLevel(numeric_level)
 
     # 清除旧的 handler 防止重复添加
     if logger.handlers:
         logger.handlers = []
 
-    file_handler = logging.FileHandler(log_file, encoding='utf-8')
+    file_handler = DailyRotatingFileHandler(log_dir, max_log_files, encoding="utf-8")
 
-    # 执行旧日志清理
+    # 执行旧日志清理 (启动时清理一次)
     if max_log_files > 0:
         # 注意：这里会把今天刚生成的文件也算在总数里（如果文件已存在）
         clean_old_logs(log_dir, max_log_files)
 
     # 定义标准格式字符串
-    fmt_str = '%(asctime)s [%(levelname)s] %(message)s'
+    fmt_str = "%(asctime)s [%(levelname)s] %(message)s"
 
     # 使用自定义的 Formatter
-    formatter = DualFormatter(fmt_str, datefmt='%Y-%m-%d %H:%M:%S')
-
-    # 将标准日志级别映射为中文以匹配原脚本习惯
-    # logging.addLevelName(logging.INFO, "信息")
-    # logging.addLevelName(logging.ERROR, "错误")
+    formatter = DualFormatter(fmt_str, datefmt="%Y-%m-%d %H:%M:%S")
 
     file_handler.setFormatter(formatter)
     logger.addHandler(file_handler)
@@ -133,32 +171,3 @@ def clean_old_logs(log_dir, max_files):
             except OSError as e:
                 # 即使删除失败也不要在此时崩溃，仅打印错误
                 print(f"删除日志失败: {f}\n{e}")
-
-# def clean_logs(log_dir, retention_days, logger=None):
-#     """
-#     清理 X 天前的日志文件
-#     """
-#     if not os.path.exists(log_dir):
-#         return
-#
-#     logger.info(f"开始清理 {retention_days} 天前的旧日志...")
-#
-#     now = time.time()
-#     cutoff_seconds = retention_days * 86400
-#     deleted_count = 0
-#
-#     for filename in os.listdir(log_dir):
-#         file_path = os.path.join(log_dir, filename)
-#
-#         # 只处理文件，且扩展名为 .log (为了安全)
-#         if os.path.isfile(file_path) and filename.endswith('.log'):
-#             try:
-#                 mtime = os.path.getmtime(file_path)
-#                 if (now - mtime) > cutoff_seconds:
-#                     os.remove(file_path)
-#                     logger.info(f"已删除旧日志: {filename}")
-#                     deleted_count += 1
-#             except Exception as e:
-#                 logger.error(f"删除日志失败 {filename}: {e}")
-#
-#     logger.info(f"日志清理完成，共删除 {deleted_count} 个文件。")

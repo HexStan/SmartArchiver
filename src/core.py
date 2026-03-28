@@ -1,6 +1,8 @@
 import os
 import shutil
 import time
+import subprocess
+from datetime import datetime
 from enum import Enum
 
 from humanfriendly import format_size, format_timespan
@@ -8,11 +10,36 @@ from humanfriendly import format_size, format_timespan
 from src.utils import parse_size_string, is_file_locked
 
 
+def match_pattern(name, pattern):
+    """
+    匹配模式：
+    - "example": 完全匹配
+    - "*example*": 部分连续匹配
+    - "example*": 前缀匹配
+    - "*example": 后缀匹配
+    - "*": 匹配所有
+    大小写不敏感
+    """
+    name = name.lower()
+    pattern = pattern.lower()
+
+    if pattern == "*":
+        return True
+    elif pattern.startswith("*") and pattern.endswith("*") and len(pattern) >= 2:
+        return pattern[1:-1] in name
+    elif pattern.startswith("*"):
+        return name.endswith(pattern[1:])
+    elif pattern.endswith("*"):
+        return name.startswith(pattern[:-1])
+    else:
+        return name == pattern
+
+
 # 定义操作枚举，提高代码可读性
 class FileAction(Enum):
     TRANSFER = "transfer"  # 正常移动
     DELETE = "delete"  # 命中规则，且配置为删除
-    SKIP = "skip"  # 命中规则（配置为保留）或隐藏文件
+    SKIP = "skip"  # 命中规则（配置为保留）
 
 
 class MoverStats:
@@ -25,16 +52,6 @@ class MoverStats:
         self.conflict_skipped = 0
         self.locked_skipped = 0
         self.total_bytes = 0
-
-    def merge(self, other):
-        self.success += other.success
-        self.error += other.error
-        self.dropped += other.dropped
-        self.kept += other.kept
-        self.deleted += other.deleted
-        self.conflict_skipped += other.conflict_skipped
-        self.locked_skipped += other.locked_skipped
-        self.total_bytes += other.total_bytes
 
     def calculate_speed(self, start_time, end_time):
         """
@@ -59,101 +76,55 @@ class MoverStats:
 
 class FileFilterPolicy:
     """
-    负责解析过滤规则并决定文件的处理方式
+    负责解析过滤规则并决定文件或目录的处理方式
     """
 
     class _RuleSet:
-
         def __init__(self, rules_config):
-            """内部辅助类，用于解析一组大小/后缀匹配规则"""
+            """内部辅助类，用于解析目录和文件的匹配规则"""
 
-            # 解析全局大小阈值 (默认为 0，即不启用全局过滤)
-            # 大于此大小的不命中规则，小于此大小的命中规则
-            self.global_threshold = parse_size_string(rules_config.get('global_min_size', "0B"))
+            self.dir_rules = {}
+            raw_dirs = rules_config.get("dirs", {})
+            for pattern, size_str in raw_dirs.items():
+                self.dir_rules[pattern] = parse_size_string(size_str)
 
-            # 解析特定扩展名规则: {"ext": "size_limit"} -> {"ext": int_bytes}
-            self.ext_rules = {}
-            raw_extensions = rules_config.get('extensions', {})
-            for ext, size_str in raw_extensions.items():
-                self.ext_rules[ext.lower()] = parse_size_string(size_str)
+            self.file_rules = {}
+            raw_files = rules_config.get("files", {})
+            for pattern, size_str in raw_files.items():
+                self.file_rules[pattern] = parse_size_string(size_str)
 
-        def matches(self, filename, file_size):
-            """判断文件是否命中该组规则"""
-            # 优先级 1: 如果全局阈值被设为无限大 (ALL)，默认用户期望命中所有文件，无视特定后缀规则
-            if self.global_threshold == float('inf'):
-                return True
+        def matches(self, name, size, is_dir=False):
+            """判断文件或目录是否命中该组规则"""
+            rules = self.dir_rules if is_dir else self.file_rules
 
-            # 优先级 2: 检查是否存在针对该后缀的特定规则
-            _, ext = os.path.splitext(filename)
-            ext = ext.lower()
-
-            if ext in self.ext_rules:
-                threshold = self.ext_rules[ext]
-                # 如果定义了特定规则，仅当文件小于该特定阈值时命中
-                return file_size < threshold
-
-            # 优先级 3: 如果没有特定规则，使用全局默认规则
-            # 如果文件小于全局定义的最小尺寸，则命中
-            # 如果定义了规则但文件大于阈值（例如 .log 是 20MB，限制是 10MB），
-            # 这种情况下它被视为“有效文件”，不应该再掉落到全局规则去判断。
-            # 所以这里不做 else 处理，matched_rule 保持 False。
-            if file_size < self.global_threshold:
-                return True
+            for pattern, threshold in rules.items():
+                if match_pattern(name, pattern):
+                    if size < threshold:
+                        return True
 
             return False
 
     def __init__(self, config):
         # 分别加载 删除规则 和 保留规则
-        self.delete_rules = self._RuleSet(config.get('delete_rules', {}))
-        self.keep_rules = self._RuleSet(config.get('keep_rules', {}))
+        self.delete_rules = self._RuleSet(config.get("delete_rules", {}))
+        self.keep_rules = self._RuleSet(config.get("keep_rules", {}))
 
-    def decide(self, filename, file_size):
+    def decide(self, name, size, is_dir=False):
         """
-        根据文件名和大小，返回 FileAction 决策
-        优先级：删除规则 > 保留规则 > 系统隐藏文件 > 正常传输
+        根据名称和大小，返回 FileAction 决策
+        优先级：删除规则 > 保留规则 > 正常传输
         """
 
         # 1. 检查是否命中删除规则
-        if self.delete_rules.matches(filename, file_size):
+        if self.delete_rules.matches(name, size, is_dir):
             return FileAction.DELETE
 
         # 2. 检查是否命中保留规则 (Skip)
-        if self.keep_rules.matches(filename, file_size):
+        if self.keep_rules.matches(name, size, is_dir):
             return FileAction.SKIP
 
-        # 3. 检查系统默认规则 (隐藏文件)
-        # 如果没有命中上面的显式规则，且是隐藏文件，则默认跳过
-        if filename.startswith('.'):
-            return FileAction.SKIP
-
-        # 4. 都不命中，正常传输
+        # 3. 都不命中，正常传输
         return FileAction.TRANSFER
-
-
-def merge_rule_config(base_rules, task_rules):
-    """
-    合并规则配置：任务级配置 深度合并/覆盖 全局配置
-    """
-    if not base_rules:
-        base_rules = {}
-    if not task_rules:
-        return base_rules
-
-    # 创建 base 的副本，避免修改全局配置
-    merged = base_rules.copy()
-
-    # 确保 extensions 字典也是副本，防止 update 污染全局对象
-    merged['extensions'] = base_rules.get('extensions', {}).copy()
-
-    # 1. 覆盖 global_min_size (如果任务有定义)
-    if 'global_min_size' in task_rules:
-        merged['global_min_size'] = task_rules['global_min_size']
-
-    # 2. 合并 extensions (部分覆盖)
-    if 'extensions' in task_rules:
-        merged['extensions'].update(task_rules['extensions'])
-
-    return merged
 
 
 def get_unique_dest(dest_path):
@@ -177,50 +148,223 @@ def get_unique_dest(dest_path):
         counter += 1
 
 
-def process_directory_pair(task, global_stats, config, logger, history_mgr):
+def handle_sync_mode(task, config, logger, source_root, dest_root):
     """
-    处理单个目录对：遍历、移动文件
+    处理 sync 模式：使用 rsync 或 rclone 镜像同步目录
     """
-    local_stats = MoverStats()
-
-    source_root = task.get('source')
-    dest_root = task.get('dest')
-
-    global_min_age = config.get('min_age_minutes', 1440)
-    min_age_minutes = task.get('min_age_minutes', global_min_age)
-
-    max_retries = config.get('max_retries', 3)
-
-    conflict_policy = config.get('conflict_policy', 'overwrite').lower()
-    remove_empty_dirs = config.get('remove_empty_dirs', True)
-
-    now = time.time()
-    age_threshold_seconds = min_age_minutes * 60
-
-    # 打印任务头部信息
-    # logger.info("==============================开始任务==============================")
     logger.info(f" - 源路径: {source_root}")
     logger.info(f" - 目标路径: {dest_root}")
-    logger.info(f" - 时间阈值: {format_timespan(age_threshold_seconds)}")
+    logger.info(" - 任务模式: 同步")
 
     if not os.path.exists(source_root):
         logger.error(f"源目录不存在: {source_root}")
         return
 
     if not os.path.isdir(dest_root):
-        logger.error(f"!!! CRUCIAL: 目标目录不存在 !!!")
+        logger.error("!!! CRUCIAL: 目标目录不存在 !!!")
         return
 
-    global_delete_rules = config.get('delete_rules', {})
-    global_keep_rules = config.get('keep_rules', {})
+    is_windows = os.name == "nt"
 
-    task_delete_rules = task.get('delete_rules', {})
-    task_keep_rules = task.get('keep_rules', {})
+    exclude_list = task.get("exclude", [])
+    if isinstance(exclude_list, str):
+        exclude_list = [exclude_list]
 
-    merged_config = {
-        'delete_rules': merge_rule_config(global_delete_rules, task_delete_rules),
-        'keep_rules': merge_rule_config(global_keep_rules, task_keep_rules)
-    }
+    backup_enabled = task.get("create_backups", False)
+    max_backups = task.get("max_backups", 0)
+
+    backup_dir = None
+    if backup_enabled:
+        backup_base = os.path.join(dest_root, ".smart-archiver.backups")
+        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        backup_dir = os.path.join(backup_base, timestamp)
+
+        # 确保备份目录本身被排除，防止无限递归或被删除
+        exclude_list.append(".smart-archiver.backups/")
+
+        # 清理旧备份
+        if max_backups > 0 and os.path.exists(backup_base):
+            try:
+                backups = [
+                    os.path.join(backup_base, d)
+                    for d in os.listdir(backup_base)
+                    if os.path.isdir(os.path.join(backup_base, d))
+                ]
+                backups.sort()
+                # 如果当前备份数已经达到或超过最大限制，删除最旧的，为新备份腾出空间
+                if len(backups) >= max_backups:
+                    num_to_delete = len(backups) - max_backups + 1
+                    for b in backups[:num_to_delete]:
+                        shutil.rmtree(b)
+                        logger.debug(f"已删除旧备份: {b}")
+            except Exception as e:
+                logger.error(f"清理旧备份失败: {e}")
+
+    if is_windows:
+        # Windows 平台使用 rclone
+        if not shutil.which("rclone"):
+            logger.error("未找到 rclone，无法执行 sync 模式，跳过该任务。")
+            return
+
+        cmd = ["rclone", "sync", source_root, dest_root]
+        for ex in exclude_list:
+            cmd.extend(["--exclude", ex])
+        if backup_dir:
+            cmd.extend(["--backup-dir", backup_dir])
+
+        logger.info("正在使用 rclone 进行同步……")
+        try:
+            # 记录开始时间
+            start_time = time.time()
+
+            process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+            )
+            for line in process.stdout:
+                logger.info(line.strip())
+            process.wait()
+            if process.returncode != 0:
+                logger.error(f"rclone 同步失败，退出码: {process.returncode}")
+            else:
+                # 计算耗时
+                end_time = time.time()
+                exec_time = end_time - start_time
+                logger.success(f"rclone 同步完成，耗时: {format_timespan(exec_time)}。")
+        except Exception as e:
+            logger.error(f"执行 rclone 时发生错误: {e}")
+
+    else:
+        # 非 Windows 平台使用 rsync
+        if not shutil.which("rsync"):
+            logger.error("未找到 rsync，无法执行 sync 模式，跳过该任务。")
+            return
+
+        # rsync 同步目录内容需要在源路径后加斜杠
+        src = source_root if source_root.endswith("/") else source_root + "/"
+        cmd = ["rsync", "-av", "--delete", src, dest_root]
+        for ex in exclude_list:
+            cmd.extend(["--exclude", ex])
+        if backup_dir:
+            cmd.extend(["--backup", f"--backup-dir={backup_dir}"])
+
+        logger.info("正在使用 rsync 进行同步……")
+        try:
+            # 记录开始时间
+            start_time = time.time()
+            process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+            )
+            for line in process.stdout:
+                # 每一行的行首加入 logger 中定义的时间戳样式
+                logger.info(line.strip(), raw=True, prepend_timestamp=True)
+            process.wait()
+            if process.returncode != 0:
+                logger.error(f"rsync 同步失败，退出码: {process.returncode}")
+            else:
+                # 计算耗时
+                end_time = time.time()
+                exec_time = end_time - start_time
+                logger.success(f"rsync 同步完成，耗时: {format_timespan(exec_time)}。")
+        except Exception as e:
+            logger.error(f"执行 rsync 时发生错误: {e}")
+
+
+def get_dir_size_and_mtime(dir_path):
+    """
+    计算目录的总大小和最新修改时间
+    """
+    total_size = 0
+    latest_mtime = 0
+
+    try:
+        # 获取目录本身的修改时间
+        latest_mtime = os.stat(dir_path).st_mtime
+
+        for root, dirs, files in os.walk(dir_path):
+            for f in files:
+                fp = os.path.join(root, f)
+                if not os.path.islink(fp):
+                    try:
+                        stat = os.stat(fp)
+                        total_size += stat.st_size
+                        if stat.st_mtime > latest_mtime:
+                            latest_mtime = stat.st_mtime
+                    except OSError:
+                        pass
+    except OSError:
+        pass
+
+    return total_size, latest_mtime
+
+
+def process_directory_pair(task, config, logger, history_mgr):
+    """
+    处理单个目录对：遍历、移动文件
+    """
+    local_stats = MoverStats()
+
+    source_root = task.get("source")
+    dest_root = task.get("dest")
+    task_mode = task.get("mode", "").lower()
+
+    # 检查必填配置项
+    if task_mode == "sync":
+        required_fields = ["mode"]
+    else:
+        required_fields = [
+            "mode",
+            "min_age_minutes",
+            "conflict_policy",
+            "remove_empty_dirs",
+        ]
+
+    missing_fields = [field for field in required_fields if field not in task]
+    if missing_fields:
+        logger.error(f"任务配置缺少必填项: {'、'.join(missing_fields)}，跳过该任务。")
+        return
+
+    if task_mode == "sync":
+        handle_sync_mode(task, config, logger, source_root, dest_root)
+        return
+
+    min_age_minutes = task["min_age_minutes"]
+
+    max_retries = config.get("max_retries", 3)
+
+    conflict_policy = task["conflict_policy"].lower()
+    remove_empty_dirs = task["remove_empty_dirs"]
+
+    now = time.time()
+    age_threshold_seconds = min_age_minutes * 60
+
+    # 打印任务头部信息
+    logger.info(f" - 源路径: {source_root}")
+    logger.info(f" - 目标路径: {dest_root}")
+    logger.info(f" - 时间阈值: {format_timespan(age_threshold_seconds)}")
+    logger.info(f" - 任务模式: {'复制' if task_mode == 'copy' else '移动'}")
+
+    if not os.path.exists(source_root):
+        logger.error(f"源目录不存在: {source_root}")
+        return
+
+    if not os.path.isdir(dest_root):
+        logger.error("!!! CRUCIAL: 目标目录不存在 !!!")
+        return
+
+    task_delete_rules = task.get("delete_rules", {})
+    task_keep_rules = task.get("keep_rules", {})
+
+    merged_config = {"delete_rules": task_delete_rules, "keep_rules": task_keep_rules}
 
     # 使用合并后的配置初始化策略
     policy = FileFilterPolicy(merged_config)
@@ -230,8 +374,37 @@ def process_directory_pair(task, global_stats, config, logger, history_mgr):
 
     # 遍历文件
     for root, dirs, files in os.walk(source_root):
-        # 排除隐藏目录，防止进入遍历 (对应 -name '.*' -prune)
-        dirs[:] = [d for d in dirs if not d.startswith('.')]
+        # 处理目录规则
+        dirs_to_remove = []
+        for d in dirs:
+            dir_path = os.path.join(root, d)
+            rel_dir_path = os.path.relpath(dir_path, source_root)
+
+            dir_size, dir_mtime = get_dir_size_and_mtime(dir_path)
+
+            action = policy.decide(d, dir_size, is_dir=True)
+
+            if action == FileAction.DELETE:
+                if (now - dir_mtime) > age_threshold_seconds:
+                    try:
+                        shutil.rmtree(dir_path)
+                        logger.success(
+                            f"删除目录: {rel_dir_path} ({format_size(dir_size, binary=True)})"
+                        )
+                        local_stats.deleted += 1
+                    except OSError as e:
+                        logger.error(f"删除目录失败: {rel_dir_path}\nError: {e}")
+                dirs_to_remove.append(d)
+            elif action == FileAction.SKIP:
+                logger.debug(
+                    f"保留目录 (匹配规则): {rel_dir_path} ({format_size(dir_size, binary=True)})"
+                )
+                local_stats.kept += 1
+                dirs_to_remove.append(d)
+
+        # 从 dirs 中移除已处理的目录，避免进入遍历
+        for d in dirs_to_remove:
+            dirs.remove(d)
 
         for file in files:
             src_path = os.path.join(root, file)
@@ -242,7 +415,7 @@ def process_directory_pair(task, global_stats, config, logger, history_mgr):
             if should_skip:
                 # 简单处理，视为跳过
                 local_stats.dropped += 1
-                logger.info(f"跳过 (多次失败): {src_path}")
+                logger.warning(f"跳过文件 (多次失败): {src_path}")
                 continue
 
             try:
@@ -252,17 +425,13 @@ def process_directory_pair(task, global_stats, config, logger, history_mgr):
             except OSError:
                 continue
 
-            # 检查时间阈值 (-mmin +$MIN_AGE)
-            # if (now - mtime) > age_threshold_seconds:
-            #     move_file(src_path, size, source_root, dest_root, logger, local_stats, history_mgr)
-
             # 所有操作（包括删除垃圾文件）都必须满足时间阈值
             if (now - mtime) <= age_threshold_seconds:
                 continue
 
             if is_file_locked(src_path):
                 local_stats.locked_skipped += 1
-                logger.info(f"跳过 (被锁定): {rel_path}")
+                logger.warning(f"跳过文件 (被锁定): {rel_path}")
                 continue
 
             # 核心决策逻辑
@@ -270,60 +439,92 @@ def process_directory_pair(task, global_stats, config, logger, history_mgr):
 
             # 执行动作
             if action == FileAction.TRANSFER:
-                move_file(src_path, size, source_root, dest_root, logger, local_stats, history_mgr, conflict_policy)
+                move_file(
+                    src_path,
+                    size,
+                    source_root,
+                    dest_root,
+                    logger,
+                    local_stats,
+                    history_mgr,
+                    conflict_policy,
+                    task_mode,
+                )
             elif action == FileAction.DELETE:
-                perform_delete(src_path, size, source_root, logger, local_stats, history_mgr)
+                delete_file(
+                    src_path, size, source_root, logger, local_stats, history_mgr
+                )
             elif action == FileAction.SKIP:
                 local_stats.kept += 1
-                logger.debug(f"保留 (匹配规则): {rel_path}  ({format_size(size, binary=True)})")
+                logger.debug(
+                    f"保留文件 (匹配规则): {rel_path}  ({format_size(size, binary=True)})"
+                )
                 pass
 
     # 清理空目录 (对应 find -depth -empty -type d rmdir)
-    if remove_empty_dirs:
+    if remove_empty_dirs and task_mode != "copy":
         clean_empty_dirs(source_root, logger)
 
     # 记录结束时间
     end_time = time.time()
 
     # 计算传输速率
-    duration_str, total_size_str, speed_str = local_stats.calculate_speed(start_time, end_time)
+    duration_str, total_size_str, speed_str = local_stats.calculate_speed(
+        start_time, end_time
+    )
 
     # 打印任务尾部统计
+    tail_msg = [f"成功 {local_stats.success} 项"]
+    if local_stats.conflict_skipped > 0:
+        tail_msg.append(f"因重复而跳过 {local_stats.conflict_skipped} 项")
+    if local_stats.locked_skipped > 0:
+        tail_msg.append(f"因文件锁而跳过 {local_stats.locked_skipped} 项")
+    if local_stats.kept > 0:
+        tail_msg.append(f"根据规则保留 {local_stats.kept} 项")
+    if local_stats.deleted > 0:
+        tail_msg.append(f"根据规则删除 {local_stats.deleted} 项")
+    logger.info("，".join(tail_msg) + "。")
+
+    tail_msg_2 = []
+    if local_stats.error > 0:
+        tail_msg_2.append(f"失败 {local_stats.error} 项")
+    if local_stats.dropped > 0:
+        tail_msg_2.append(f"因多次失败而跳过 {local_stats.dropped} 项")
+    if tail_msg_2:
+        logger.info("，".join(tail_msg_2) + "。")
+
     if local_stats.success > 0:
-        logger.info(f"在 {duration_str} 内传输了 {total_size_str}，平均速度 {speed_str}。")
-    # msg = f"成功 {local_stats.success} 项"
-    # if local_stats.kept > 0:
-    #     msg += f"，根据规则忽略 {local_stats.kept} 项"
-    # if local_stats.only_deleted > 0:
-    #     msg += f"，根据规则删除 {local_stats.only_deleted} 项"
-    # if local_stats.error > 0:
-    #     msg += f"，失败 {local_stats.error} 项"
-    # if local_stats.skipped > 0:
-    #     msg += f"，因多次失败跳过 {local_stats.skipped} 项"
-    # logger.info(msg + "。")
-    # logger.info("==============================任务完成==============================")
-
-    # 将 局部统计数据 累加到 传入的全局对象 中
-    global_stats.merge(local_stats)
+        logger.info(
+            f"在 {duration_str} 内传输了 {total_size_str}，平均速度 {speed_str}。"
+        )
 
 
-def perform_delete(src_path, file_size, source_root, logger, stats, history_mgr):
+def delete_file(src_path, file_size, source_root, logger, stats, history_mgr):
     rel_path = os.path.relpath(src_path, source_root)
     """删除逻辑"""
     try:
         os.remove(src_path)
-        logger.success(f"删除: {rel_path}  ({format_size(file_size, binary=True)})")
+        logger.success(f"删除文件: {rel_path}  ({format_size(file_size, binary=True)})")
         history_mgr.record_success(src_path)
         stats.deleted += 1
     except OSError as e:
         count = history_mgr.record_failure(src_path)
-        logger.error(f"删除失败 ({count} 次): {rel_path}\n"
-                     f"Error: {e}")
+        logger.error(f"删除文件失败 ({count} 次): {rel_path}\nError: {e}")
 
 
-def move_file(src_path, file_size, source_root, dest_root, logger, stats, history_mgr, conflict_policy):
+def move_file(
+    src_path,
+    file_size,
+    source_root,
+    dest_root,
+    logger,
+    stats,
+    history_mgr,
+    conflict_policy,
+    task_mode,
+):
     """
-    执行具体的移动操作
+    执行具体的移动或复制操作
     """
     # 计算相对路径
     rel_path = os.path.relpath(src_path, source_root)
@@ -339,17 +540,17 @@ def move_file(src_path, file_size, source_root, dest_root, logger, stats, histor
         new_dest_path = dest_path
 
         if file_exists:
-            if conflict_policy == 'skip':
+            if conflict_policy == "skip":
                 stats.conflict_skipped += 1
-                logger.info(f"跳过 (重复): {rel_path}")
+                logger.debug(f"跳过 (重复): {rel_path}")
                 # 不记录到 success，也不报错
                 return
 
-            elif conflict_policy == 'copy':
+            elif conflict_policy == "copy":
                 # 计算新的不冲突的路径
                 new_dest_path = get_unique_dest(dest_path)
 
-            elif conflict_policy == 'overwrite':
+            elif conflict_policy == "overwrite":
                 # 默认逻辑：删除目标
                 os.remove(dest_path)
 
@@ -357,9 +558,12 @@ def move_file(src_path, file_size, source_root, dest_root, logger, stats, histor
                 # 未知策略默认跳过
                 return
 
-        # 使用 shutil.move 直接移动
-        # 同一文件系统下为原子重命名，跨文件系统自动降级为复制后删除
-        shutil.move(src_path, new_dest_path)
+        # 使用 shutil.move 或 shutil.copy2
+        if task_mode == "copy":
+            shutil.copy2(src_path, new_dest_path)
+        else:
+            # 同一文件系统下为原子重命名，跨文件系统自动降级为复制后删除
+            shutil.move(src_path, new_dest_path)
 
         # 统计传输流量
         stats.total_bytes += file_size
@@ -368,21 +572,22 @@ def move_file(src_path, file_size, source_root, dest_root, logger, stats, histor
         history_mgr.record_success(src_path)
 
         size_str = format_size(file_size, binary=True)
-        if file_exists and conflict_policy == 'overwrite':
+        action_str = "复制" if task_mode == "copy" else "移动"
+        if file_exists and conflict_policy == "overwrite":
             logger.success(f"覆盖同名文件: {rel_path} ({size_str})")
-        elif file_exists and conflict_policy == 'copy':
+        elif file_exists and conflict_policy == "copy":
             new_rel = os.path.relpath(new_dest_path, dest_root)
             logger.success(f"目标存在，创建副本: {new_rel} ({size_str})")
         else:
-            logger.success(f"移动: {rel_path} ({size_str})")
+            logger.success(f"{action_str}: {rel_path} ({size_str})")
 
         stats.success += 1
 
     except Exception as e:
         # 失败时记录
         count = history_mgr.record_failure(src_path)
-        # 如果是删除失败但复制成功
-        logger.error(f"移动失败 ({count} 次): {rel_path}\n{e}")
+        action_str = "复制" if task_mode == "copy" else "移动"
+        logger.error(f"{action_str}失败 ({count} 次): {rel_path}\n{e}")
         stats.error += 1
 
 
@@ -399,6 +604,6 @@ def clean_empty_dirs(source_root, logger):
             os.rmdir(root)
             rel_dir = os.path.relpath(root, source_root)
             logger.debug(f"删除空目录: {rel_dir}")
-            # stats.success += 1  # 原脚本将成功删除目录也计入日志里的 SUCCESS_LIST
+            # stats.success += 1
         except OSError:
             pass  # 目录非空，跳过

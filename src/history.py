@@ -12,7 +12,9 @@ class HistoryManager:
         """加载历史记录"""
         if os.path.exists(self.file_path):
             try:
-                with open(self.file_path, 'r', encoding='utf-8') as f:
+                with open(
+                    self.file_path, "r", encoding="utf-8", errors="surrogateescape"
+                ) as f:
                     self.history = json.load(f)
             except (json.JSONDecodeError, IOError):
                 self.history = {}
@@ -22,8 +24,10 @@ class HistoryManager:
     def save(self):
         """保存历史记录到磁盘"""
         try:
-            with open(self.file_path, 'w', encoding='utf-8') as f:
+            temp_file = self.file_path + ".tmp"
+            with open(temp_file, "w", encoding="utf-8", errors="surrogateescape") as f:
                 json.dump(self.history, f, indent=2, ensure_ascii=False)
+            os.replace(temp_file, self.file_path)
         except IOError:
             pass
 

@@ -1,0 +1,18 @@
+services:
+  smart-archiver:
+    image: hexstan/smart-archiver:latest
+    # build: .
+    container_name: smart-archiver
+    restart: unless-stopped
+    environment:
+      - TZ=Asia/Shanghai
+
+    volumes:
+      - ./config:/app/config
+      - ./logs:/app/logs
+
+      # 源目录和目标目录
+      - ./source:/app/source
+      - ./dest:/app/dest
+      # - ./source-2:/app/source-2
+      # - ./dest-2:/app/dest-2

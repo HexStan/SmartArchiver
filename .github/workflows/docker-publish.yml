@@ -3,7 +3,11 @@ name: Docker Build and Publish
 on:
   push:
     tags:
+<<<<<<< HEAD
       - '*'
+=======
+      - "*"
+>>>>>>> dev
   workflow_dispatch:
 
 env:

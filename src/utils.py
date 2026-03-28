@@ -20,14 +20,14 @@ class SingleInstance:
         self.logger = logger
         self.fp = None
         # 判断当前是否为 Windows 系统
-        self.is_windows = os.name == 'nt'
+        self.is_windows = os.name == "nt"
 
     def __enter__(self):
         # 如果是 Windows 或者 fcntl 导入失败，直接跳过加锁逻辑
         if self.is_windows or fcntl is None:
             return self
         try:
-            self.fp = open(self.lock_file_path, 'w')
+            self.fp = open(self.lock_file_path, "w")
             # LOCK_EX: 排他锁, LOCK_NB: 非阻塞
             fcntl.flock(self.fp, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except IOError:
@@ -52,7 +52,7 @@ class SingleInstance:
 
 
 def load_config(config_path):
-    with open(config_path, 'rb') as f:
+    with open(config_path, "rb") as f:
         return tomllib.load(f)
 
 
@@ -68,7 +68,7 @@ def is_file_locked(filepath):
     f = None
     try:
         # 打开文件进行检查
-        f = open(filepath, 'r')
+        f = open(filepath, "r")
         # 尝试获取非阻塞的排他锁 (LOCK_EX | LOCK_NB)
         # 如果文件已被其他进程锁定 (共享锁或排他锁)，这里会抛出 IOError/BlockingIOError
         fcntl.flock(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -99,7 +99,7 @@ def parse_size_string(size_str):
 
     # ALL 返回无穷大
     if s.upper() == "ALL":
-        return float('inf')
+        return float("inf")
 
     try:
         # binary=True 表示使用 1024 进位 (MiB, KiB)
