@@ -60,7 +60,6 @@ conflict_policy = "overwrite"
 remove_empty_dirs = true
 
 # 【选填】删除规则
-# [tasks.delete_rules]
 # [tasks.delete_rules.dirs]
 # 目录名匹配规则 = 大小阈值
 # "ALL" 表示匹配所有大小
@@ -75,7 +74,6 @@ remove_empty_dirs = true
 # "*" = "1MB"                  # 删除所有小于 1MB 的文件
 
 # 【选填】保留规则
-# [tasks.keep_rules]
 # [tasks.keep_rules.dirs]
 # "important" = "ALL"          # 保留名为 important 的目录
 
