@@ -60,33 +60,28 @@ conflict_policy = "overwrite"
 remove_empty_dirs = true
 
 # 【选填】删除规则
-# [tasks.delete_rules]
-# 最小文件大小阈值
-# "0B" - 不启用过滤（默认）
-# "ALL" - 匹配所有文件
-# 其他值如 "1MB" - 小于此大小的文件将被删除
-# global_min_size = "1MB"
+# [tasks.delete_rules.dirs]
+# 目录名匹配规则 = 大小阈值
+# "ALL" 表示匹配所有大小
+# "temp*" = "ALL"              # 删除所有以 temp 开头的目录
+# "*cache*" = "ALL"            # 删除所有包含 cache 的目录
 
-# [tasks.delete_rules.extensions]
-# 扩展名 = 大小阈值
-# "ALL" 表示删除所有该扩展名的文件
-# 具体大小如 "10MB" 表示删除小于该大小的文件
-# ".zip" = "ALL"               # 删除所有 .zip 文件
-# ".tmp" = "ALL"               # 删除所有 .tmp 文件
-# ".log" = "10MB"              # 删除小于 10MB 的 .log 文件
+# [tasks.delete_rules.files]
+# 文件名匹配规则 = 大小阈值
+# "*.zip" = "ALL"              # 删除所有以 .zip 结尾的文件
+# "*.tmp" = "ALL"              # 删除所有以 .tmp 结尾的文件
+# "*.log" = "10MB"             # 删除小于 10MB 的以 .log 结尾的文件
+# "*" = "1MB"                  # 删除所有小于 1MB 的文件
 
 # 【选填】保留规则
-# [tasks.keep_rules]
-# 最小文件大小阈值
-# global_min_size = "10MB"     # 保留小于 10MB 的文件
+# [tasks.keep_rules.dirs]
+# "important" = "ALL"          # 保留名为 important 的目录
 
-# [tasks.keep_rules.extensions]
-# 扩展名 = 大小阈值
-# "ALL" 表示保留所有该扩展名的文件
-# 具体大小如 "50KB" 表示保留小于该大小的文件
-# ".raw" = "ALL"               # 保留所有 .raw 文件
-# ".ini" = "ALL"               # 保留所有 .ini 文件
-# ".jpg" = "50KB"              # 保留小于 50KB 的 .jpg 文件
+# [tasks.keep_rules.files]
+# "*.raw" = "ALL"              # 保留所有以 .raw 结尾的文件
+# "*.ini" = "ALL"              # 保留所有以 .ini 结尾的文件
+# "*.jpg" = "50KB"             # 保留小于 50KB 的以 .jpg 结尾的文件
+# "*" = "10MB"                 # 保留所有小于 10MB 的文件
 
 # --------------------------------------------------
 
