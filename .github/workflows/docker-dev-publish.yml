@@ -4,11 +4,7 @@ on:
   workflow_dispatch:
 
 env:
-<<<<<<< HEAD
-  DOCKERHUB_REPO: ${{ secrets.DOCKERHUB_USERNAME }}/smart-archiver
-=======
   # DOCKERHUB_REPO: ${{ secrets.DOCKERHUB_USERNAME }}/smart-archiver
->>>>>>> dev
   GHCR_REPO: ghcr.io/${{ github.repository }}
   CODE_BRANCH: dev
 
