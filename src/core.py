@@ -10,11 +10,36 @@ from humanfriendly import format_size, format_timespan
 from src.utils import parse_size_string, is_file_locked
 
 
+def match_pattern(name, pattern):
+    """
+    匹配模式：
+    - "example": 完全匹配
+    - "*example*": 部分连续匹配
+    - "example*": 前缀匹配
+    - "*example": 后缀匹配
+    - "*": 匹配所有
+    大小写不敏感
+    """
+    name = name.lower()
+    pattern = pattern.lower()
+    
+    if pattern == "*":
+        return True
+    elif pattern.startswith('*') and pattern.endswith('*') and len(pattern) >= 2:
+        return pattern[1:-1] in name
+    elif pattern.startswith('*'):
+        return name.endswith(pattern[1:])
+    elif pattern.endswith('*'):
+        return name.startswith(pattern[:-1])
+    else:
+        return name == pattern
+
+
 # 定义操作枚举，提高代码可读性
 class FileAction(Enum):
     TRANSFER = "transfer"  # 正常移动
     DELETE = "delete"  # 命中规则，且配置为删除
-    SKIP = "skip"  # 命中规则（配置为保留）或隐藏文件
+    SKIP = "skip"  # 命中规则（配置为保留）
 
 
 class MoverStats:
@@ -51,46 +76,32 @@ class MoverStats:
 
 class FileFilterPolicy:
     """
-    负责解析过滤规则并决定文件的处理方式
+    负责解析过滤规则并决定文件或目录的处理方式
     """
 
     class _RuleSet:
 
         def __init__(self, rules_config):
-            """内部辅助类，用于解析一组大小/后缀匹配规则"""
+            """内部辅助类，用于解析目录和文件的匹配规则"""
 
-            # 解析全局大小阈值 (默认为 0，即不启用全局过滤)
-            # 大于此大小的不命中规则，小于此大小的命中规则
-            self.global_threshold = parse_size_string(rules_config.get('global_min_size', "0B"))
+            self.dir_rules = {}
+            raw_dirs = rules_config.get('dirs', {})
+            for pattern, size_str in raw_dirs.items():
+                self.dir_rules[pattern] = parse_size_string(size_str)
 
-            # 解析特定扩展名规则: {"ext": "size_limit"} -> {"ext": int_bytes}
-            self.ext_rules = {}
-            raw_extensions = rules_config.get('extensions', {})
-            for ext, size_str in raw_extensions.items():
-                self.ext_rules[ext.lower()] = parse_size_string(size_str)
+            self.file_rules = {}
+            raw_files = rules_config.get('files', {})
+            for pattern, size_str in raw_files.items():
+                self.file_rules[pattern] = parse_size_string(size_str)
 
-        def matches(self, filename, file_size):
-            """判断文件是否命中该组规则"""
-            # 优先级 1: 如果全局阈值被设为无限大 (ALL)，默认用户期望命中所有文件，无视特定后缀规则
-            if self.global_threshold == float('inf'):
-                return True
-
-            # 优先级 2: 检查是否存在针对该后缀的特定规则
-            _, ext = os.path.splitext(filename)
-            ext = ext.lower()
-
-            if ext in self.ext_rules:
-                threshold = self.ext_rules[ext]
-                # 如果定义了特定规则，仅当文件小于该特定阈值时命中
-                return file_size < threshold
-
-            # 优先级 3: 如果没有特定规则，使用全局默认规则
-            # 如果文件小于全局定义的最小尺寸，则命中
-            # 如果定义了规则但文件大于阈值（例如 .log 是 20MB，限制是 10MB），
-            # 这种情况下它被视为“有效文件”，不应该再掉落到全局规则去判断。
-            # 所以这里不做 else 处理，matched_rule 保持 False。
-            if file_size < self.global_threshold:
-                return True
+        def matches(self, name, size, is_dir=False):
+            """判断文件或目录是否命中该组规则"""
+            rules = self.dir_rules if is_dir else self.file_rules
+            
+            for pattern, threshold in rules.items():
+                if match_pattern(name, pattern):
+                    if size < threshold:
+                        return True
 
             return False
 
@@ -99,26 +110,21 @@ class FileFilterPolicy:
         self.delete_rules = self._RuleSet(config.get('delete_rules', {}))
         self.keep_rules = self._RuleSet(config.get('keep_rules', {}))
 
-    def decide(self, filename, file_size):
+    def decide(self, name, size, is_dir=False):
         """
-        根据文件名和大小，返回 FileAction 决策
-        优先级：删除规则 > 保留规则 > 系统隐藏文件 > 正常传输
+        根据名称和大小，返回 FileAction 决策
+        优先级：删除规则 > 保留规则 > 正常传输
         """
 
         # 1. 检查是否命中删除规则
-        if self.delete_rules.matches(filename, file_size):
+        if self.delete_rules.matches(name, size, is_dir):
             return FileAction.DELETE
 
         # 2. 检查是否命中保留规则 (Skip)
-        if self.keep_rules.matches(filename, file_size):
+        if self.keep_rules.matches(name, size, is_dir):
             return FileAction.SKIP
 
-        # 3. 检查系统默认规则 (隐藏文件)
-        # 如果没有命中上面的显式规则，且是隐藏文件，则默认跳过
-        if filename.startswith('.'):
-            return FileAction.SKIP
-
-        # 4. 都不命中，正常传输
+        # 3. 都不命中，正常传输
         return FileAction.TRANSFER
 
 
@@ -256,6 +262,34 @@ def handle_sync_mode(task, config, logger, source_root, dest_root):
             logger.error(f"执行 rsync 时发生错误: {e}")
 
 
+def get_dir_size_and_mtime(dir_path):
+    """
+    计算目录的总大小和最新修改时间
+    """
+    total_size = 0
+    latest_mtime = 0
+    
+    try:
+        # 获取目录本身的修改时间
+        latest_mtime = os.stat(dir_path).st_mtime
+        
+        for root, dirs, files in os.walk(dir_path):
+            for f in files:
+                fp = os.path.join(root, f)
+                if not os.path.islink(fp):
+                    try:
+                        stat = os.stat(fp)
+                        total_size += stat.st_size
+                        if stat.st_mtime > latest_mtime:
+                            latest_mtime = stat.st_mtime
+                    except OSError:
+                        pass
+    except OSError:
+        pass
+        
+    return total_size, latest_mtime
+
+
 def process_directory_pair(task, config, logger, history_mgr):
     """
     处理单个目录对：遍历、移动文件
@@ -321,8 +355,33 @@ def process_directory_pair(task, config, logger, history_mgr):
 
     # 遍历文件
     for root, dirs, files in os.walk(source_root):
-        # 排除隐藏目录，防止进入遍历 (对应 -name '.*' -prune)
-        dirs[:] = [d for d in dirs if not d.startswith('.')]
+        # 处理目录规则
+        dirs_to_remove = []
+        for d in dirs:
+            dir_path = os.path.join(root, d)
+            rel_dir_path = os.path.relpath(dir_path, source_root)
+            
+            dir_size, dir_mtime = get_dir_size_and_mtime(dir_path)
+            
+            action = policy.decide(d, dir_size, is_dir=True)
+            
+            if action == FileAction.DELETE:
+                if (now - dir_mtime) > age_threshold_seconds:
+                    try:
+                        shutil.rmtree(dir_path)
+                        logger.success(f"删除目录: {rel_dir_path} ({format_size(dir_size, binary=True)})")
+                        local_stats.deleted += 1
+                    except OSError as e:
+                        logger.error(f"删除目录失败: {rel_dir_path}\nError: {e}")
+                dirs_to_remove.append(d)
+            elif action == FileAction.SKIP:
+                logger.debug(f"保留目录 (匹配规则): {rel_dir_path} ({format_size(dir_size, binary=True)})")
+                local_stats.kept += 1
+                dirs_to_remove.append(d)
+                
+        # 从 dirs 中移除已处理的目录，避免进入遍历
+        for d in dirs_to_remove:
+            dirs.remove(d)
 
         for file in files:
             src_path = os.path.join(root, file)
