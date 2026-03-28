@@ -117,17 +117,22 @@ class FileFilterPolicy:
         match_keep = self.keep_rules.matches(name, size, is_dir)
         match_delete = self.delete_rules.matches(name, size, is_dir)
 
+        # 1. 如果同时命中保留和删除规则，根据配置项处理
         if match_keep and match_delete:
             if self.rule_conflict_policy == "delete":
                 return FileAction.DELETE
             else:
                 return FileAction.SKIP
+
+        # 2. 如果只命中保留规则，保留目标
         elif match_keep:
             return FileAction.SKIP
+
+        # 3. 如果只命中删除规则，删除目标
         elif match_delete:
             return FileAction.DELETE
 
-        # 3. 都不命中，正常传输
+        # 4. 都不命中，正常传输
         return FileAction.TRANSFER
 
 
