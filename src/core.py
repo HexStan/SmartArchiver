@@ -108,19 +108,23 @@ class FileFilterPolicy:
         # 分别加载 删除规则 和 保留规则
         self.delete_rules = self._RuleSet(config.get("delete_rules", {}))
         self.keep_rules = self._RuleSet(config.get("keep_rules", {}))
+        self.rule_conflict_policy = config.get("rule_conflict_policy", "keep")
 
     def decide(self, name, size, is_dir=False):
         """
         根据名称和大小，返回 FileAction 决策
-        优先级：删除规则 > 保留规则 > 正常传输
         """
+        match_keep = self.keep_rules.matches(name, size, is_dir)
+        match_delete = self.delete_rules.matches(name, size, is_dir)
 
-        # 1. 检查是否命中保留规则
-        if self.keep_rules.matches(name, size, is_dir):
+        if match_keep and match_delete:
+            if self.rule_conflict_policy == "delete":
+                return FileAction.DELETE
+            else:
+                return FileAction.SKIP
+        elif match_keep:
             return FileAction.SKIP
-
-        # 2. 检查是否命中删除规则
-        if self.delete_rules.matches(name, size, is_dir):
+        elif match_delete:
             return FileAction.DELETE
 
         # 3. 都不命中，正常传输
@@ -363,8 +367,13 @@ def process_directory_pair(task, config, logger, history_mgr):
 
     task_delete_rules = task.get("delete_rules", {})
     task_keep_rules = task.get("keep_rules", {})
+    rule_conflict_policy = task.get("rule_conflict_policy", "keep")
 
-    merged_config = {"delete_rules": task_delete_rules, "keep_rules": task_keep_rules}
+    merged_config = {
+        "delete_rules": task_delete_rules,
+        "keep_rules": task_keep_rules,
+        "rule_conflict_policy": rule_conflict_policy,
+    }
 
     # 使用合并后的配置初始化策略
     policy = FileFilterPolicy(merged_config)
