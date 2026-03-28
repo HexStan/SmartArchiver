@@ -4,6 +4,7 @@ test_source/
 test_dest/
 logs/
 deprecated/
+__pycache__/
 config.toml
 *.log
 failure_history.json
