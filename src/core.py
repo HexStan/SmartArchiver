@@ -593,15 +593,15 @@ def move_file(
             new_rel = os.path.relpath(new_dest_path, dest_root)
             logger.success(f"目标存在，创建副本: {new_rel} ({size_str})")
         else:
-            logger.success(f"{action_str}: {rel_path} ({size_str})")
+            logger.success(f"{action_str}文件: {rel_path} ({size_str})")
 
         stats.success += 1
 
     except Exception as e:
         # 失败时记录
         count = history_mgr.record_failure(src_path)
-        action_str = "复制" if task_mode == "copy" else "移动"
-        logger.error(f"{action_str}失败 ({count} 次): {rel_path}\n{e}")
+        action_str = "复制" if task_mode == "copy" else "文件"
+        logger.error(f"{action_str}文件失败 ({count} 次): {rel_path}\n{e}")
         stats.error += 1
 
 
