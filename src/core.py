@@ -105,15 +105,26 @@ class FileFilterPolicy:
             return False
 
     def __init__(self, config):
-        # 分别加载 删除规则 和 保留规则
-        self.delete_rules = self._RuleSet(config.get("delete_rules", {}))
-        self.keep_rules = self._RuleSet(config.get("keep_rules", {}))
-        self.preferred_rule = config.get("preferred_rule", "keep")
+        self.is_whitelist_mode = config.get("is_whitelist_mode", False)
+        if self.is_whitelist_mode:
+            self.whitelist_rules = self._RuleSet(config.get("whitelist_rules", {}))
+        else:
+            # 分别加载 删除规则 和 保留规则
+            self.delete_rules = self._RuleSet(config.get("delete_rules", {}))
+            self.keep_rules = self._RuleSet(config.get("keep_rules", {}))
+            self.preferred_rule = config.get("preferred_rule", "keep")
 
     def decide(self, name, size, is_dir=False):
         """
         根据名称和大小，返回 FileAction 决策
         """
+        if self.is_whitelist_mode:
+            match_whitelist = self.whitelist_rules.matches(name, size, is_dir)
+            if match_whitelist:
+                return FileAction.TRANSFER
+            else:
+                return FileAction.SKIP
+
         match_keep = self.keep_rules.matches(name, size, is_dir)
         match_delete = self.delete_rules.matches(name, size, is_dir)
 
@@ -324,6 +335,13 @@ def _validate_task_config(task, task_mode, logger):
     if missing_fields:
         logger.error(f"任务配置缺少必填项: {'、'.join(missing_fields)}，跳过该任务。")
         return False
+
+    if task_mode in ["whitelist_copy", "whitelist_move"]:
+        whitelist_rules = task.get("whitelist_rules", {})
+        if not whitelist_rules.get("dirs") and not whitelist_rules.get("files"):
+            logger.error("白名单模式下必须配置 whitelist_rules.dirs 或 whitelist_rules.files，跳过该任务。")
+            return False
+
     return True
 
 
@@ -331,7 +349,16 @@ def _print_task_header(task, task_mode, source_root, dest_root, age_threshold_se
     task_name = task.get("name")
     if task_name:
         logger.info(f" - 名称：{task_name}")
-    logger.info(f" - 任务模式: {'复制' if task_mode == 'copy' else '移动'}")
+    
+    mode_str = "移动"
+    if task_mode in ["copy", "whitelist_copy"]:
+        mode_str = "复制"
+    elif task_mode == "whitelist_move":
+        mode_str = "移动 (白名单)"
+    if task_mode == "whitelist_copy":
+        mode_str = "复制 (白名单)"
+        
+    logger.info(f" - 任务模式: {mode_str}")
     logger.info(f" - 源路径: {source_root}")
     logger.info(f" - 目标路径: {dest_root}")
     logger.info(f" - 时间阈值: {format_timespan(age_threshold_seconds)}")
@@ -489,11 +516,15 @@ def process_directory_pair(task, config, logger, history_mgr):
     task_delete_rules = task.get("delete_rules", {})
     task_keep_rules = task.get("keep_rules", {})
     preferred_rule = task.get("preferred_rule", "keep")
+    whitelist_rules = task.get("whitelist_rules", {})
+    is_whitelist_mode = task_mode in ["whitelist_copy", "whitelist_move"]
 
     merged_config = {
         "delete_rules": task_delete_rules,
         "keep_rules": task_keep_rules,
         "preferred_rule": preferred_rule,
+        "whitelist_rules": whitelist_rules,
+        "is_whitelist_mode": is_whitelist_mode,
     }
 
     # 使用合并后的配置初始化策略
@@ -508,7 +539,7 @@ def process_directory_pair(task, config, logger, history_mgr):
         _process_files(files, root, source_root, dest_root, policy, now, age_threshold_seconds, local_stats, history_mgr, max_retries, conflict_policy, task_mode, logger)
 
     # 清理空目录 (对应 find -depth -empty -type d rmdir)
-    if remove_empty_dirs and task_mode != "copy":
+    if remove_empty_dirs and task_mode not in ["copy", "whitelist_copy"]:
         clean_empty_dirs(source_root, logger)
 
     # 记录结束时间
@@ -582,7 +613,7 @@ def move_file(
                 return
 
         # 使用 shutil.move 或 shutil.copy2
-        if task_mode == "copy":
+        if task_mode in ["copy", "whitelist_copy"]:
             shutil.copy2(src_path, new_dest_path)
         else:
             # 同一文件系统下为原子重命名，跨文件系统自动降级为复制后删除
@@ -595,7 +626,7 @@ def move_file(
         history_mgr.record_success(src_path)
 
         size_str = format_size(file_size, binary=True)
-        action_str = "复制" if task_mode == "copy" else "移动"
+        action_str = "复制" if task_mode in ["copy", "whitelist_copy"] else "移动"
         if file_exists and conflict_policy == "overwrite":
             logger.success(f"覆盖同名文件: {rel_path} ({size_str})")
         elif file_exists and conflict_policy == "copy":
@@ -609,7 +640,7 @@ def move_file(
     except Exception as e:
         # 失败时记录
         count = history_mgr.record_failure(src_path)
-        action_str = "复制" if task_mode == "copy" else "文件"
+        action_str = "复制" if task_mode in ["copy", "whitelist_copy"] else "文件"
         logger.error(f"{action_str}文件失败 ({count} 次): {rel_path}\n{e}")
         stats.error += 1
 
