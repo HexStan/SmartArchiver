@@ -161,9 +161,12 @@ def handle_sync_mode(task, config, logger, source_root, dest_root):
     """
     处理 sync 模式：使用 rsync 或 rclone 镜像同步目录
     """
+    task_name = task.get("name")
+    if task_name:
+        logger.info(f" - 名称：{task_name}")
+    logger.info(" - 任务模式: 同步")
     logger.info(f" - 源路径: {source_root}")
     logger.info(f" - 目标路径: {dest_root}")
-    logger.info(" - 任务模式: 同步")
 
     if not os.path.exists(source_root):
         logger.error(f"源目录不存在: {source_root}")
@@ -357,10 +360,13 @@ def process_directory_pair(task, config, logger, history_mgr):
     age_threshold_seconds = min_age_minutes * 60
 
     # 打印任务头部信息
+    task_name = task.get("name")
+    if task_name:
+        logger.info(f" - 名称：{task_name}")
+    logger.info(f" - 任务模式: {'复制' if task_mode == 'copy' else '移动'}")
     logger.info(f" - 源路径: {source_root}")
     logger.info(f" - 目标路径: {dest_root}")
     logger.info(f" - 时间阈值: {format_timespan(age_threshold_seconds)}")
-    logger.info(f" - 任务模式: {'复制' if task_mode == 'copy' else '移动'}")
 
     if not os.path.exists(source_root):
         logger.error(f"源目录不存在: {source_root}")
