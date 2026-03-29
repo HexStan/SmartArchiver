@@ -701,8 +701,9 @@ def clean_empty_dirs(source_root, logger):
         try:
             # os.rmdir 只有在目录为空时才成功，如果不为空会抛异常（我们捕获并忽略）
             os.rmdir(root)
-            rel_dir = os.path.relpath(root, source_root)
-            logger.debug(f"删除空目录: {rel_dir}")
-            # stats.success += 1
+            if logger:
+                rel_dir = os.path.relpath(root, source_root)
+                logger.debug(f"删除空目录: {rel_dir}")
+                 # stats.success += 1
         except OSError:
             pass  # 目录非空，跳过
