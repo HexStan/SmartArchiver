@@ -104,31 +104,21 @@ remove_empty_dirs = true
 # --------------------------------------------------
 
 [[tasks]]
-# 【选填】任务名称，可自定义
 name = "白名单移动/复制任务示例"
 
-#source = "./source" # 源目录路径
-dest = "./dest"     # 目标目录路径
+source = "./source"
+dest = "./dest"
 
 # 【必填】任务执行模式：
 # "whitelist_move" - 白名单移动模式（仅移动命中 whitelist_rules 的文件/目录，忽略 keep_rules 和 delete_rules）
 # "whitelist_copy" - 白名单复制模式（仅复制命中 whitelist_rules 的文件/目录，忽略 keep_rules 和 delete_rules）
 mode = "whitelist_copy"
 
-# 【必填】文件最小年龄（分钟），只有修改时间超过此时间的文件才会被处理
-# 注意：所有操作（包括删除规则）都必须满足此时间阈值
 min_age_minutes = 180
-
-# 【必填】文件冲突处理策略：
-# "overwrite" - 覆盖目标文件
-# "skip" - 跳过已存在的文件
-# "copy" - 创建带编号的副本（如 file-1.txt）
 conflict_policy = "overwrite"
-
-# 【必填】是否删除源目录中的空目录
 remove_empty_dirs = true
 
-# 【选填一项】白名单规则（仅在 whitelist_move 和 whitelist_copy 模式下生效，且至少配置一项）：
+# 【必填至少一项】白名单规则（仅在 whitelist_move 和 whitelist_copy 模式下生效）：
 # 命中的文件/目录将被移动或复制，未命中的将被忽略
 [tasks.whitelist_rules.dirs]
 # "Important" = "ALL"          # 仅处理名为 Important 的目录
@@ -139,11 +129,10 @@ remove_empty_dirs = true
 # --------------------------------------------------
 
 [[tasks]]
-# 【选填】任务名称，可自定义
 name = "同步任务示例"
 
-source = "./source-2" # 源目录路径
-dest = "./dest-2"     # 目标目录路径
+source = "./source-2"
+dest = "./dest-2"
 
 # 【必填】任务执行模式：
 # "sync" - 将源目录以镜像方式同步到目标目录
