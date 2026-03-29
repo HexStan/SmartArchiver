@@ -40,6 +40,9 @@ max_log_files = 30
 
 # move、copy 模式示例任务
 [[tasks]]
+# 【选填】任务名称，可自定义
+name = "普通移动/复制任务示例"
+
 source = "./source" # 源目录路径
 dest = "./dest"     # 目标目录路径
 
@@ -102,7 +105,10 @@ remove_empty_dirs = true
 # --------------------------------------------------
 # whitelist_move、whitelist_copy 模式示例任务
 [[tasks]]
-source = "./source" # 源目录路径
+# 【选填】任务名称，可自定义
+name = "白名单移动/复制任务示例"
+
+#source = "./source" # 源目录路径
 dest = "./dest"     # 目标目录路径
 
 # 【必填】任务执行模式：
@@ -134,6 +140,9 @@ remove_empty_dirs = true
 # --------------------------------------------------
 # sync 模式示例任务
 [[tasks]]
+# 【选填】任务名称，可自定义
+name = "同步任务示例"
+
 source = "./source-2" # 源目录路径
 dest = "./dest-2"     # 目标目录路径
 
