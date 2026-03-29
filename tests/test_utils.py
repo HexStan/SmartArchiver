@@ -77,7 +77,11 @@ class TestSingleInstance:
     def test_windows_no_lock(self, tmp_path, monkeypatch):
         monkeypatch.setattr(os, "name", "nt")
         lock_file = tmp_path / "test.lock"
-        logger = type("MockLogger", (), {"info": lambda self, x: None, "error": lambda self, x: None})()
+        logger = type(
+            "MockLogger",
+            (),
+            {"info": lambda self, x: None, "error": lambda self, x: None},
+        )()
 
         with SingleInstance(str(lock_file), logger):
             pass
@@ -88,7 +92,11 @@ class TestSingleInstance:
 
         monkeypatch.setattr(os, "name", "posix")
         lock_file = tmp_path / "test.lock"
-        logger = type("MockLogger", (), {"info": lambda self, x: None, "error": lambda self, x: None})()
+        logger = type(
+            "MockLogger",
+            (),
+            {"info": lambda self, x: None, "error": lambda self, x: None},
+        )()
 
         with SingleInstance(str(lock_file), logger):
             pass

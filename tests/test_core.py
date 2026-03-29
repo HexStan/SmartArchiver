@@ -86,9 +86,7 @@ class TestFileFilterPolicy:
     def test_whitelist_mode_transfer(self):
         config = {
             "is_whitelist_mode": True,
-            "whitelist_rules": {
-                "files": {"*.txt": "ALL"}
-            }
+            "whitelist_rules": {"files": {"*.txt": "ALL"}},
         }
         policy = FileFilterPolicy(config)
         assert policy.decide("file.txt", 100) == FileAction.TRANSFER
@@ -96,9 +94,7 @@ class TestFileFilterPolicy:
     def test_whitelist_mode_skip(self):
         config = {
             "is_whitelist_mode": True,
-            "whitelist_rules": {
-                "files": {"*.txt": "ALL"}
-            }
+            "whitelist_rules": {"files": {"*.txt": "ALL"}},
         }
         policy = FileFilterPolicy(config)
         assert policy.decide("file.pdf", 100) == FileAction.SKIP
@@ -106,11 +102,9 @@ class TestFileFilterPolicy:
     def test_delete_mode(self):
         config = {
             "is_whitelist_mode": False,
-            "delete_rules": {
-                "files": {"*.tmp": "ALL"}
-            },
+            "delete_rules": {"files": {"*.tmp": "ALL"}},
             "keep_rules": {},
-            "preferred_rule": "keep"
+            "preferred_rule": "keep",
         }
         policy = FileFilterPolicy(config)
         assert policy.decide("file.tmp", 100) == FileAction.DELETE
@@ -119,10 +113,8 @@ class TestFileFilterPolicy:
         config = {
             "is_whitelist_mode": False,
             "delete_rules": {},
-            "keep_rules": {
-                "files": {"*.raw": "ALL"}
-            },
-            "preferred_rule": "keep"
+            "keep_rules": {"files": {"*.raw": "ALL"}},
+            "preferred_rule": "keep",
         }
         policy = FileFilterPolicy(config)
         assert policy.decide("photo.raw", 100) == FileAction.SKIP
@@ -132,7 +124,7 @@ class TestFileFilterPolicy:
             "is_whitelist_mode": False,
             "delete_rules": {},
             "keep_rules": {},
-            "preferred_rule": "keep"
+            "preferred_rule": "keep",
         }
         policy = FileFilterPolicy(config)
         assert policy.decide("file.txt", 100) == FileAction.TRANSFER
@@ -140,13 +132,9 @@ class TestFileFilterPolicy:
     def test_conflict_prefer_keep(self):
         config = {
             "is_whitelist_mode": False,
-            "delete_rules": {
-                "files": {"*.txt": "ALL"}
-            },
-            "keep_rules": {
-                "files": {"*.txt": "ALL"}
-            },
-            "preferred_rule": "keep"
+            "delete_rules": {"files": {"*.txt": "ALL"}},
+            "keep_rules": {"files": {"*.txt": "ALL"}},
+            "preferred_rule": "keep",
         }
         policy = FileFilterPolicy(config)
         assert policy.decide("file.txt", 100) == FileAction.SKIP
@@ -154,13 +142,9 @@ class TestFileFilterPolicy:
     def test_conflict_prefer_delete(self):
         config = {
             "is_whitelist_mode": False,
-            "delete_rules": {
-                "files": {"*.txt": "ALL"}
-            },
-            "keep_rules": {
-                "files": {"*.txt": "ALL"}
-            },
-            "preferred_rule": "delete"
+            "delete_rules": {"files": {"*.txt": "ALL"}},
+            "keep_rules": {"files": {"*.txt": "ALL"}},
+            "preferred_rule": "delete",
         }
         policy = FileFilterPolicy(config)
         assert policy.decide("file.txt", 100) == FileAction.DELETE
@@ -168,11 +152,9 @@ class TestFileFilterPolicy:
     def test_size_threshold_below(self):
         config = {
             "is_whitelist_mode": False,
-            "delete_rules": {
-                "files": {"*.tmp": "1KB"}
-            },
+            "delete_rules": {"files": {"*.tmp": "1KB"}},
             "keep_rules": {},
-            "preferred_rule": "keep"
+            "preferred_rule": "keep",
         }
         policy = FileFilterPolicy(config)
         assert policy.decide("file.tmp", 500) == FileAction.DELETE
@@ -180,11 +162,9 @@ class TestFileFilterPolicy:
     def test_size_threshold_above(self):
         config = {
             "is_whitelist_mode": False,
-            "delete_rules": {
-                "files": {"*.tmp": "1KB"}
-            },
+            "delete_rules": {"files": {"*.tmp": "1KB"}},
             "keep_rules": {},
-            "preferred_rule": "keep"
+            "preferred_rule": "keep",
         }
         policy = FileFilterPolicy(config)
         assert policy.decide("file.tmp", 2000) == FileAction.TRANSFER
@@ -192,11 +172,9 @@ class TestFileFilterPolicy:
     def test_dir_rules(self):
         config = {
             "is_whitelist_mode": False,
-            "delete_rules": {
-                "dirs": {"*temp*": "ALL"}
-            },
+            "delete_rules": {"dirs": {"*temp*": "ALL"}},
             "keep_rules": {},
-            "preferred_rule": "keep"
+            "preferred_rule": "keep",
         }
         policy = FileFilterPolicy(config)
         assert policy.decide("my_temp_dir", 1000, is_dir=True) == FileAction.DELETE

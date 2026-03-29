@@ -704,6 +704,6 @@ def clean_empty_dirs(source_root, logger):
             if logger:
                 rel_dir = os.path.relpath(root, source_root)
                 logger.debug(f"删除空目录: {rel_dir}")
-                 # stats.success += 1
+                # stats.success += 1
         except OSError:
             pass  # 目录非空，跳过
