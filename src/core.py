@@ -157,6 +157,92 @@ def get_unique_dest(dest_path):
         counter += 1
 
 
+def _setup_backup_dir(dest_root, max_backups, exclude_list, logger):
+    backup_base = os.path.join(dest_root, ".smart-archiver.backups")
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    backup_dir = os.path.join(backup_base, timestamp)
+
+    # 确保备份目录本身被排除，防止无限递归或被删除
+    exclude_list.append(".smart-archiver.backups/")
+
+    # 清理旧备份
+    if max_backups > 0 and os.path.exists(backup_base):
+        try:
+            backups = [
+                os.path.join(backup_base, d)
+                for d in os.listdir(backup_base)
+                if os.path.isdir(os.path.join(backup_base, d))
+            ]
+            backups.sort()
+            # 如果当前备份数已经达到或超过最大限制，删除最旧的，为新备份腾出空间
+            if len(backups) >= max_backups:
+                num_to_delete = len(backups) - max_backups + 1
+                for b in backups[:num_to_delete]:
+                    shutil.rmtree(b)
+                    logger.debug(f"已删除旧备份: {b}")
+        except Exception as e:
+            logger.error(f"清理旧备份失败: {e}")
+            
+    return backup_dir
+
+
+def _run_sync_command(cmd, logger, tool_name, prepend_timestamp=False):
+    logger.info(f"正在使用 {tool_name} 进行同步……")
+    try:
+        start_time = time.time()
+        process = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+        )
+        for line in process.stdout:
+            if prepend_timestamp:
+                logger.info(line.strip(), raw=True, prepend_timestamp=True)
+            else:
+                logger.info(line.strip())
+        process.wait()
+        if process.returncode != 0:
+            logger.error(f"{tool_name} 同步失败，退出码: {process.returncode}")
+        else:
+            end_time = time.time()
+            exec_time = end_time - start_time
+            logger.success(f"{tool_name} 同步完成，耗时: {format_timespan(exec_time)}。")
+    except Exception as e:
+        logger.error(f"执行 {tool_name} 时发生错误: {e}")
+
+
+def _run_rclone_sync(source_root, dest_root, exclude_list, backup_dir, logger):
+    if not shutil.which("rclone"):
+        logger.error("未找到 rclone，无法执行 sync 模式，跳过该任务。")
+        return
+
+    cmd = ["rclone", "sync", source_root, dest_root]
+    for ex in exclude_list:
+        cmd.extend(["--exclude", ex])
+    if backup_dir:
+        cmd.extend(["--backup-dir", backup_dir])
+
+    _run_sync_command(cmd, logger, "rclone")
+
+
+def _run_rsync_sync(source_root, dest_root, exclude_list, backup_dir, logger):
+    if not shutil.which("rsync"):
+        logger.error("未找到 rsync，无法执行 sync 模式，跳过该任务。")
+        return
+
+    src = source_root if source_root.endswith("/") else source_root + "/"
+    cmd = ["rsync", "-av", "--delete", src, dest_root]
+    for ex in exclude_list:
+        cmd.extend(["--exclude", ex])
+    if backup_dir:
+        cmd.extend(["--backup", f"--backup-dir={backup_dir}"])
+
+    _run_sync_command(cmd, logger, "rsync", prepend_timestamp=True)
+
+
 def handle_sync_mode(task, config, logger, source_root, dest_root):
     """
     处理 sync 模式：使用 rsync 或 rclone 镜像同步目录
@@ -187,108 +273,12 @@ def handle_sync_mode(task, config, logger, source_root, dest_root):
 
     backup_dir = None
     if backup_enabled:
-        backup_base = os.path.join(dest_root, ".smart-archiver.backups")
-        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-        backup_dir = os.path.join(backup_base, timestamp)
-
-        # 确保备份目录本身被排除，防止无限递归或被删除
-        exclude_list.append(".smart-archiver.backups/")
-
-        # 清理旧备份
-        if max_backups > 0 and os.path.exists(backup_base):
-            try:
-                backups = [
-                    os.path.join(backup_base, d)
-                    for d in os.listdir(backup_base)
-                    if os.path.isdir(os.path.join(backup_base, d))
-                ]
-                backups.sort()
-                # 如果当前备份数已经达到或超过最大限制，删除最旧的，为新备份腾出空间
-                if len(backups) >= max_backups:
-                    num_to_delete = len(backups) - max_backups + 1
-                    for b in backups[:num_to_delete]:
-                        shutil.rmtree(b)
-                        logger.debug(f"已删除旧备份: {b}")
-            except Exception as e:
-                logger.error(f"清理旧备份失败: {e}")
+        backup_dir = _setup_backup_dir(dest_root, max_backups, exclude_list, logger)
 
     if is_windows:
-        # Windows 平台使用 rclone
-        if not shutil.which("rclone"):
-            logger.error("未找到 rclone，无法执行 sync 模式，跳过该任务。")
-            return
-
-        cmd = ["rclone", "sync", source_root, dest_root]
-        for ex in exclude_list:
-            cmd.extend(["--exclude", ex])
-        if backup_dir:
-            cmd.extend(["--backup-dir", backup_dir])
-
-        logger.info("正在使用 rclone 进行同步……")
-        try:
-            # 记录开始时间
-            start_time = time.time()
-
-            process = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-            )
-            for line in process.stdout:
-                logger.info(line.strip())
-            process.wait()
-            if process.returncode != 0:
-                logger.error(f"rclone 同步失败，退出码: {process.returncode}")
-            else:
-                # 计算耗时
-                end_time = time.time()
-                exec_time = end_time - start_time
-                logger.success(f"rclone 同步完成，耗时: {format_timespan(exec_time)}。")
-        except Exception as e:
-            logger.error(f"执行 rclone 时发生错误: {e}")
-
+        _run_rclone_sync(source_root, dest_root, exclude_list, backup_dir, logger)
     else:
-        # 非 Windows 平台使用 rsync
-        if not shutil.which("rsync"):
-            logger.error("未找到 rsync，无法执行 sync 模式，跳过该任务。")
-            return
-
-        # rsync 同步目录内容需要在源路径后加斜杠
-        src = source_root if source_root.endswith("/") else source_root + "/"
-        cmd = ["rsync", "-av", "--delete", src, dest_root]
-        for ex in exclude_list:
-            cmd.extend(["--exclude", ex])
-        if backup_dir:
-            cmd.extend(["--backup", f"--backup-dir={backup_dir}"])
-
-        logger.info("正在使用 rsync 进行同步……")
-        try:
-            # 记录开始时间
-            start_time = time.time()
-            process = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-            )
-            for line in process.stdout:
-                # 每一行的行首加入 logger 中定义的时间戳样式
-                logger.info(line.strip(), raw=True, prepend_timestamp=True)
-            process.wait()
-            if process.returncode != 0:
-                logger.error(f"rsync 同步失败，退出码: {process.returncode}")
-            else:
-                # 计算耗时
-                end_time = time.time()
-                exec_time = end_time - start_time
-                logger.success(f"rsync 同步完成，耗时: {format_timespan(exec_time)}。")
-        except Exception as e:
-            logger.error(f"执行 rsync 时发生错误: {e}")
+        _run_rsync_sync(source_root, dest_root, exclude_list, backup_dir, logger)
 
 
 def get_dir_size_and_mtime(dir_path):
@@ -319,17 +309,7 @@ def get_dir_size_and_mtime(dir_path):
     return total_size, latest_mtime
 
 
-def process_directory_pair(task, config, logger, history_mgr):
-    """
-    处理单个目录对：遍历、移动文件
-    """
-    local_stats = MoverStats()
-
-    source_root = task.get("source")
-    dest_root = task.get("dest")
-    task_mode = task.get("mode", "").lower()
-
-    # 检查必填配置项
+def _validate_task_config(task, task_mode, logger):
     if task_mode == "sync":
         required_fields = ["mode"]
     else:
@@ -343,23 +323,11 @@ def process_directory_pair(task, config, logger, history_mgr):
     missing_fields = [field for field in required_fields if field not in task]
     if missing_fields:
         logger.error(f"任务配置缺少必填项: {'、'.join(missing_fields)}，跳过该任务。")
-        return
+        return False
+    return True
 
-    if task_mode == "sync":
-        handle_sync_mode(task, config, logger, source_root, dest_root)
-        return
 
-    min_age_minutes = task["min_age_minutes"]
-
-    max_retries = config.get("max_retries", 3)
-
-    conflict_policy = task["conflict_policy"].lower()
-    remove_empty_dirs = task["remove_empty_dirs"]
-
-    now = time.time()
-    age_threshold_seconds = min_age_minutes * 60
-
-    # 打印任务头部信息
+def _print_task_header(task, task_mode, source_root, dest_root, age_threshold_seconds, logger):
     task_name = task.get("name")
     if task_name:
         logger.info(f" - 名称：{task_name}")
@@ -367,6 +335,148 @@ def process_directory_pair(task, config, logger, history_mgr):
     logger.info(f" - 源路径: {source_root}")
     logger.info(f" - 目标路径: {dest_root}")
     logger.info(f" - 时间阈值: {format_timespan(age_threshold_seconds)}")
+
+
+def _process_directories(dirs, root, source_root, policy, now, age_threshold_seconds, local_stats, logger):
+    dirs_to_remove = []
+    for d in dirs:
+        dir_path = os.path.join(root, d)
+        rel_dir_path = os.path.relpath(dir_path, source_root)
+
+        dir_size, dir_mtime = get_dir_size_and_mtime(dir_path)
+
+        action = policy.decide(d, dir_size, is_dir=True)
+
+        if action == FileAction.DELETE:
+            if (now - dir_mtime) > age_threshold_seconds:
+                try:
+                    shutil.rmtree(dir_path)
+                    logger.success(
+                        f"删除目录: {rel_dir_path} ({format_size(dir_size, binary=True)})"
+                    )
+                    local_stats.deleted += 1
+                except OSError as e:
+                    logger.error(f"删除目录失败: {rel_dir_path}\nError: {e}")
+            dirs_to_remove.append(d)
+        elif action == FileAction.SKIP:
+            logger.debug(
+                f"保留目录 (匹配规则): {rel_dir_path} ({format_size(dir_size, binary=True)})"
+            )
+            local_stats.kept += 1
+            dirs_to_remove.append(d)
+
+    for d in dirs_to_remove:
+        dirs.remove(d)
+
+
+def _process_files(files, root, source_root, dest_root, policy, now, age_threshold_seconds, local_stats, history_mgr, max_retries, conflict_policy, task_mode, logger):
+    for file in files:
+        src_path = os.path.join(root, file)
+        rel_path = os.path.relpath(src_path, source_root)
+
+        # 检查是否需要跳过
+        should_skip, fail_count = history_mgr.should_skip(src_path, max_retries)
+        if should_skip:
+            # 简单处理，视为跳过
+            local_stats.dropped += 1
+            logger.warning(f"跳过文件 (多次失败): {src_path}")
+            continue
+
+        try:
+            file_stat = os.stat(src_path)
+            mtime = file_stat.st_mtime
+            size = file_stat.st_size
+        except OSError:
+            continue
+
+        # 所有操作（包括删除垃圾文件）都必须满足时间阈值
+        if (now - mtime) <= age_threshold_seconds:
+            continue
+
+        if is_file_locked(src_path):
+            local_stats.locked_skipped += 1
+            logger.warning(f"跳过文件 (被锁定): {rel_path}")
+            continue
+
+        # 核心决策逻辑
+        action = policy.decide(file, size)
+
+        # 执行动作
+        if action == FileAction.TRANSFER:
+            move_file(
+                src_path,
+                size,
+                source_root,
+                dest_root,
+                logger,
+                local_stats,
+                history_mgr,
+                conflict_policy,
+                task_mode,
+            )
+        elif action == FileAction.DELETE:
+            delete_file(
+                src_path, size, source_root, logger, local_stats, history_mgr
+            )
+        elif action == FileAction.SKIP:
+            local_stats.kept += 1
+            logger.debug(
+                f"保留文件 (匹配规则): {rel_path}  ({format_size(size, binary=True)})"
+            )
+
+
+def _print_task_summary(local_stats, duration_str, total_size_str, speed_str, logger):
+    tail_msg = [f"成功 {local_stats.success} 项"]
+    if local_stats.conflict_skipped > 0:
+        tail_msg.append(f"因重复而跳过 {local_stats.conflict_skipped} 项")
+    if local_stats.locked_skipped > 0:
+        tail_msg.append(f"因文件锁而跳过 {local_stats.locked_skipped} 项")
+    if local_stats.kept > 0:
+        tail_msg.append(f"根据规则保留 {local_stats.kept} 项")
+    if local_stats.deleted > 0:
+        tail_msg.append(f"根据规则删除 {local_stats.deleted} 项")
+    logger.info("，".join(tail_msg) + "。")
+
+    tail_msg_2 = []
+    if local_stats.error > 0:
+        tail_msg_2.append(f"失败 {local_stats.error} 项")
+    if local_stats.dropped > 0:
+        tail_msg_2.append(f"因多次失败而跳过 {local_stats.dropped} 项")
+    if tail_msg_2:
+        logger.info("，".join(tail_msg_2) + "。")
+
+    if local_stats.success > 0:
+        logger.info(
+            f"在 {duration_str} 内传输了 {total_size_str}，平均速度 {speed_str}。"
+        )
+
+
+def process_directory_pair(task, config, logger, history_mgr):
+    """
+    处理单个目录对：遍历、移动文件
+    """
+    local_stats = MoverStats()
+
+    source_root = task.get("source")
+    dest_root = task.get("dest")
+    task_mode = task.get("mode", "").lower()
+
+    if not _validate_task_config(task, task_mode, logger):
+        return
+
+    if task_mode == "sync":
+        handle_sync_mode(task, config, logger, source_root, dest_root)
+        return
+
+    min_age_minutes = task["min_age_minutes"]
+    max_retries = config.get("max_retries", 3)
+    conflict_policy = task["conflict_policy"].lower()
+    remove_empty_dirs = task["remove_empty_dirs"]
+
+    now = time.time()
+    age_threshold_seconds = min_age_minutes * 60
+
+    _print_task_header(task, task_mode, source_root, dest_root, age_threshold_seconds, logger)
 
     if not os.path.exists(source_root):
         logger.error(f"源目录不存在: {source_root}")
@@ -394,92 +504,8 @@ def process_directory_pair(task, config, logger, history_mgr):
 
     # 遍历文件
     for root, dirs, files in os.walk(source_root):
-        # 处理目录规则
-        dirs_to_remove = []
-        for d in dirs:
-            dir_path = os.path.join(root, d)
-            rel_dir_path = os.path.relpath(dir_path, source_root)
-
-            dir_size, dir_mtime = get_dir_size_and_mtime(dir_path)
-
-            action = policy.decide(d, dir_size, is_dir=True)
-
-            if action == FileAction.DELETE:
-                if (now - dir_mtime) > age_threshold_seconds:
-                    try:
-                        shutil.rmtree(dir_path)
-                        logger.success(
-                            f"删除目录: {rel_dir_path} ({format_size(dir_size, binary=True)})"
-                        )
-                        local_stats.deleted += 1
-                    except OSError as e:
-                        logger.error(f"删除目录失败: {rel_dir_path}\nError: {e}")
-                dirs_to_remove.append(d)
-            elif action == FileAction.SKIP:
-                logger.debug(
-                    f"保留目录 (匹配规则): {rel_dir_path} ({format_size(dir_size, binary=True)})"
-                )
-                local_stats.kept += 1
-                dirs_to_remove.append(d)
-
-        # 从 dirs 中移除已处理的目录，避免进入遍历
-        for d in dirs_to_remove:
-            dirs.remove(d)
-
-        for file in files:
-            src_path = os.path.join(root, file)
-            rel_path = os.path.relpath(src_path, source_root)
-
-            # 检查是否需要跳过
-            should_skip, fail_count = history_mgr.should_skip(src_path, max_retries)
-            if should_skip:
-                # 简单处理，视为跳过
-                local_stats.dropped += 1
-                logger.warning(f"跳过文件 (多次失败): {src_path}")
-                continue
-
-            try:
-                file_stat = os.stat(src_path)
-                mtime = file_stat.st_mtime
-                size = file_stat.st_size
-            except OSError:
-                continue
-
-            # 所有操作（包括删除垃圾文件）都必须满足时间阈值
-            if (now - mtime) <= age_threshold_seconds:
-                continue
-
-            if is_file_locked(src_path):
-                local_stats.locked_skipped += 1
-                logger.warning(f"跳过文件 (被锁定): {rel_path}")
-                continue
-
-            # 核心决策逻辑
-            action = policy.decide(file, size)
-
-            # 执行动作
-            if action == FileAction.TRANSFER:
-                move_file(
-                    src_path,
-                    size,
-                    source_root,
-                    dest_root,
-                    logger,
-                    local_stats,
-                    history_mgr,
-                    conflict_policy,
-                    task_mode,
-                )
-            elif action == FileAction.DELETE:
-                delete_file(
-                    src_path, size, source_root, logger, local_stats, history_mgr
-                )
-            elif action == FileAction.SKIP:
-                local_stats.kept += 1
-                logger.debug(
-                    f"保留文件 (匹配规则): {rel_path}  ({format_size(size, binary=True)})"
-                )
-                pass
+        _process_directories(dirs, root, source_root, policy, now, age_threshold_seconds, local_stats, logger)
+        _process_files(files, root, source_root, dest_root, policy, now, age_threshold_seconds, local_stats, history_mgr, max_retries, conflict_policy, task_mode, logger)
 
     # 清理空目录 (对应 find -depth -empty -type d rmdir)
     if remove_empty_dirs and task_mode != "copy":
@@ -493,30 +519,7 @@ def process_directory_pair(task, config, logger, history_mgr):
         start_time, end_time
     )
 
-    # 打印任务尾部统计
-    tail_msg = [f"成功 {local_stats.success} 项"]
-    if local_stats.conflict_skipped > 0:
-        tail_msg.append(f"因重复而跳过 {local_stats.conflict_skipped} 项")
-    if local_stats.locked_skipped > 0:
-        tail_msg.append(f"因文件锁而跳过 {local_stats.locked_skipped} 项")
-    if local_stats.kept > 0:
-        tail_msg.append(f"根据规则保留 {local_stats.kept} 项")
-    if local_stats.deleted > 0:
-        tail_msg.append(f"根据规则删除 {local_stats.deleted} 项")
-    logger.info("，".join(tail_msg) + "。")
-
-    tail_msg_2 = []
-    if local_stats.error > 0:
-        tail_msg_2.append(f"失败 {local_stats.error} 项")
-    if local_stats.dropped > 0:
-        tail_msg_2.append(f"因多次失败而跳过 {local_stats.dropped} 项")
-    if tail_msg_2:
-        logger.info("，".join(tail_msg_2) + "。")
-
-    if local_stats.success > 0:
-        logger.info(
-            f"在 {duration_str} 内传输了 {total_size_str}，平均速度 {speed_str}。"
-        )
+    _print_task_summary(local_stats, duration_str, total_size_str, speed_str, logger)
 
 
 def delete_file(src_path, file_size, source_root, logger, stats, history_mgr):
