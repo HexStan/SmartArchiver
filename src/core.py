@@ -193,7 +193,7 @@ def _setup_backup_dir(dest_root, max_backups, exclude_list, logger):
                     logger.debug(f"已删除旧备份: {b}")
         except Exception as e:
             logger.error(f"清理旧备份失败: {e}")
-            
+
     return backup_dir
 
 
@@ -220,7 +220,9 @@ def _run_sync_command(cmd, logger, tool_name, prepend_timestamp=False):
         else:
             end_time = time.time()
             exec_time = end_time - start_time
-            logger.success(f"{tool_name} 同步完成，耗时: {format_timespan(exec_time)}。")
+            logger.success(
+                f"{tool_name} 同步完成，耗时: {format_timespan(exec_time)}。"
+            )
     except Exception as e:
         logger.error(f"执行 {tool_name} 时发生错误: {e}")
 
@@ -339,17 +341,21 @@ def _validate_task_config(task, task_mode, logger):
     if task_mode in ["whitelist_copy", "whitelist_move"]:
         whitelist_rules = task.get("whitelist_rules", {})
         if not whitelist_rules.get("dirs") and not whitelist_rules.get("files"):
-            logger.error("白名单模式下必须配置 whitelist_rules.dirs 或 whitelist_rules.files，跳过该任务。")
+            logger.error(
+                "白名单模式下必须配置 whitelist_rules.dirs 或 whitelist_rules.files，跳过该任务。"
+            )
             return False
 
     return True
 
 
-def _print_task_header(task, task_mode, source_root, dest_root, age_threshold_seconds, logger):
+def _print_task_header(
+    task, task_mode, source_root, dest_root, age_threshold_seconds, logger
+):
     task_name = task.get("name")
     if task_name:
         logger.info(f" - 名称：{task_name}")
-    
+
     mode_str = "移动"
     if task_mode in ["copy", "whitelist_copy"]:
         mode_str = "复制"
@@ -357,14 +363,16 @@ def _print_task_header(task, task_mode, source_root, dest_root, age_threshold_se
         mode_str = "移动 (白名单)"
     if task_mode == "whitelist_copy":
         mode_str = "复制 (白名单)"
-        
+
     logger.info(f" - 任务模式: {mode_str}")
     logger.info(f" - 源路径: {source_root}")
     logger.info(f" - 目标路径: {dest_root}")
     logger.info(f" - 时间阈值: {format_timespan(age_threshold_seconds)}")
 
 
-def _process_directories(dirs, root, source_root, policy, now, age_threshold_seconds, local_stats, logger):
+def _process_directories(
+    dirs, root, source_root, policy, now, age_threshold_seconds, local_stats, logger
+):
     dirs_to_remove = []
     for d in dirs:
         dir_path = os.path.join(root, d)
@@ -396,7 +404,21 @@ def _process_directories(dirs, root, source_root, policy, now, age_threshold_sec
         dirs.remove(d)
 
 
-def _process_files(files, root, source_root, dest_root, policy, now, age_threshold_seconds, local_stats, history_mgr, max_retries, conflict_policy, task_mode, logger):
+def _process_files(
+    files,
+    root,
+    source_root,
+    dest_root,
+    policy,
+    now,
+    age_threshold_seconds,
+    local_stats,
+    history_mgr,
+    max_retries,
+    conflict_policy,
+    task_mode,
+    logger,
+):
     for file in files:
         src_path = os.path.join(root, file)
         rel_path = os.path.relpath(src_path, source_root)
@@ -442,9 +464,7 @@ def _process_files(files, root, source_root, dest_root, policy, now, age_thresho
                 task_mode,
             )
         elif action == FileAction.DELETE:
-            delete_file(
-                src_path, size, source_root, logger, local_stats, history_mgr
-            )
+            delete_file(src_path, size, source_root, logger, local_stats, history_mgr)
         elif action == FileAction.SKIP:
             local_stats.kept += 1
             logger.debug(
@@ -503,7 +523,9 @@ def process_directory_pair(task, config, logger, history_mgr):
     now = time.time()
     age_threshold_seconds = min_age_minutes * 60
 
-    _print_task_header(task, task_mode, source_root, dest_root, age_threshold_seconds, logger)
+    _print_task_header(
+        task, task_mode, source_root, dest_root, age_threshold_seconds, logger
+    )
 
     if not os.path.exists(source_root):
         logger.error(f"源目录不存在: {source_root}")
@@ -535,8 +557,31 @@ def process_directory_pair(task, config, logger, history_mgr):
 
     # 遍历文件
     for root, dirs, files in os.walk(source_root):
-        _process_directories(dirs, root, source_root, policy, now, age_threshold_seconds, local_stats, logger)
-        _process_files(files, root, source_root, dest_root, policy, now, age_threshold_seconds, local_stats, history_mgr, max_retries, conflict_policy, task_mode, logger)
+        _process_directories(
+            dirs,
+            root,
+            source_root,
+            policy,
+            now,
+            age_threshold_seconds,
+            local_stats,
+            logger,
+        )
+        _process_files(
+            files,
+            root,
+            source_root,
+            dest_root,
+            policy,
+            now,
+            age_threshold_seconds,
+            local_stats,
+            history_mgr,
+            max_retries,
+            conflict_policy,
+            task_mode,
+            logger,
+        )
 
     # 清理空目录 (对应 find -depth -empty -type d rmdir)
     if remove_empty_dirs and task_mode not in ["copy", "whitelist_copy"]:
