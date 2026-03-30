@@ -93,12 +93,29 @@ class FileFilterPolicy:
             for pattern, size_str in raw_files.items():
                 self.file_rules[pattern] = parse_size_string(size_str)
 
-        def matches(self, name, size, is_dir=False):
-            """判断文件或目录是否命中该组规则"""
+        def matches(self, name, size_or_callable, is_dir=False):
+            """
+            判断文件或目录是否命中该组规则。
+            支持惰性求值：如果命中 "ALL" 规则，则不调用 size_or_callable 获取大小。
+            """
             rules = self.dir_rules if is_dir else self.file_rules
 
+            matching_thresholds = []
             for pattern, threshold in rules.items():
                 if match_pattern(name, pattern):
+                    # 如果阈值是 ALL (inf)，直接命中，无需检查大小
+                    if threshold == float("inf"):
+                        return True
+                    matching_thresholds.append(threshold)
+
+            # 只有在没有命中 ALL 且命中了其他有大小限制的规则时，才获取并检查大小
+            if matching_thresholds:
+                size = (
+                    size_or_callable()
+                    if callable(size_or_callable)
+                    else size_or_callable
+                )
+                for threshold in matching_thresholds:
                     if size < threshold:
                         return True
 
@@ -114,19 +131,22 @@ class FileFilterPolicy:
             self.keep_rules = self._RuleSet(config.get("keep_rules", {}))
             self.preferred_rule = config.get("preferred_rule", "keep")
 
-    def decide(self, name, size, is_dir=False):
+    def decide(self, name, size_or_callable, is_dir=False):
         """
-        根据名称和大小，返回 FileAction 决策
+        根据名称和大小，返回 FileAction 决策。
+        size_or_callable 可以是一个数值，也可以是一个返回数值的可调用对象（用于惰性求值）。
         """
         if self.is_whitelist_mode:
-            match_whitelist = self.whitelist_rules.matches(name, size, is_dir)
+            match_whitelist = self.whitelist_rules.matches(
+                name, size_or_callable, is_dir
+            )
             if match_whitelist:
                 return FileAction.TRANSFER
             else:
                 return FileAction.SKIP
 
-        match_keep = self.keep_rules.matches(name, size, is_dir)
-        match_delete = self.delete_rules.matches(name, size, is_dir)
+        match_keep = self.keep_rules.matches(name, size_or_callable, is_dir)
+        match_delete = self.delete_rules.matches(name, size_or_callable, is_dir)
 
         # 1. 如果同时命中保留和删除规则，根据配置项处理
         if match_keep and match_delete:
@@ -378,11 +398,28 @@ def _process_directories(
         dir_path = os.path.join(root, d)
         rel_dir_path = os.path.relpath(dir_path, source_root)
 
-        dir_size, dir_mtime = get_dir_size_and_mtime(dir_path)
+        dir_size_cache = []
+        dir_mtime_cache = []
 
-        action = policy.decide(d, dir_size, is_dir=True)
+        # 惰性获取目录大小和修改时间，仅在规则匹配需要时调用
+        def get_size():
+            if not dir_size_cache:
+                s, m = get_dir_size_and_mtime(dir_path)
+                dir_size_cache.append(s)
+                dir_mtime_cache.append(m)
+            return dir_size_cache[0]
+
+        action = policy.decide(d, get_size, is_dir=True)
 
         if action == FileAction.DELETE:
+            # 如果之前没获取过大小（例如命中 ALL 规则），则在此处获取以进行时间检查
+            if not dir_mtime_cache:
+                s, m = get_dir_size_and_mtime(dir_path)
+                dir_size_cache.append(s)
+                dir_mtime_cache.append(m)
+            dir_mtime = dir_mtime_cache[0]
+            dir_size = dir_size_cache[0]
+
             if (now - dir_mtime) > age_threshold_seconds:
                 try:
                     shutil.rmtree(dir_path)
@@ -394,9 +431,12 @@ def _process_directories(
                     logger.error(f"删除目录失败: {rel_dir_path}\nError: {e}")
             dirs_to_remove.append(d)
         elif action == FileAction.SKIP:
-            logger.debug(
-                f"保留目录 (匹配规则): {rel_dir_path} ({format_size(dir_size, binary=True)})"
+            size_str = (
+                f" ({format_size(dir_size_cache[0], binary=True)})"
+                if dir_size_cache
+                else ""
             )
+            logger.debug(f"保留目录 (匹配规则): {rel_dir_path}{size_str}")
             local_stats.kept += 1
             dirs_to_remove.append(d)
 
