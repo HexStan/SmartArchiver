@@ -10,6 +10,7 @@ env:
   # DOCKERHUB_REPO: ${{ secrets.DOCKERHUB_USERNAME }}/smart-archiver
   GHCR_REPO: ghcr.io/${{ github.repository }}
   CODE_BRANCH: main
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   build-and-push:
