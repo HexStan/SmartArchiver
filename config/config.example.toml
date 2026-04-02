@@ -75,11 +75,6 @@ remove_empty_dirs = true
 #    - 如果希望匹配所有大小，请使用 ge 规则并设置为 "0"（例如: "*.log" = "0"）。
 #    - 支持单位: B, KB, MB, GB, TB (例如: "10MB", "1.5GB")。
 
-# 【选填】当文件/目录同时命中保留规则和删除规则时的处理方式：
-# "keep" - 遵循保留规则（默认）
-# "delete" - 遵循删除规则
-preferred_rule = "keep"
-
 # 【选填】保留规则：命中的文件/目录将留在原处，不进行移动、复制或删除
 # 用不到的规则块可直接删除
 [tasks.keep_rules.dirs.lt]
@@ -105,6 +100,11 @@ preferred_rule = "keep"
 
 [tasks.delete_rules.files.ge]
 
+# 【选填】当文件/目录同时命中保留规则和删除规则时的处理方式：
+# "keep" - 遵循保留规则（默认）
+# "delete" - 遵循删除规则
+preferred_rule = "keep"
+
 # --------------------------------------------------
 
 [[tasks]]
@@ -124,7 +124,6 @@ count_limit = 20    # 目录文件总数量限制，0 表示不限制。
 
 conflict_policy = "overwrite"
 remove_empty_dirs = true
-preferred_rule = "keep"
 
 [tasks.keep_rules.dirs.lt]
 
@@ -141,6 +140,8 @@ preferred_rule = "keep"
 [tasks.delete_rules.files.lt]
 
 [tasks.delete_rules.files.ge]
+
+preferred_rule = "keep"
 
 # --------------------------------------------------
 
@@ -159,7 +160,8 @@ min_age_minutes = 180
 conflict_policy = "overwrite"
 remove_empty_dirs = true
 
-# 【dirs 或 files 中必填至少一项】白名单规则（仅在 whitelist_move 和 whitelist_copy 模式下生效）：
+# 【whitelist_rules.dirs 或 whitelist_rules.files 必填至少一项】
+# 白名单规则（仅在 whitelist_move 和 whitelist_copy 模式下生效）：
 # 命中的文件/目录将被移动或复制，未命中的将被忽略
 [tasks.whitelist_rules.dirs.lt]
 
@@ -186,6 +188,8 @@ remove_empty_dirs = true
 [tasks.delete_rules.files.lt]
 
 [tasks.delete_rules.files.ge]
+
+preferred_rule = "keep"
 
 # --------------------------------------------------
 
