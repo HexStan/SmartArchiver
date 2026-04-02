@@ -151,23 +151,7 @@ class FileFilterPolicy:
         size_or_callable 可以是一个数值，也可以是一个返回数值的可调用对象（用于惰性求值）。
         """
         if self.is_whitelist_mode:
-            match_whitelist = self.whitelist_rules.matches(
-                name, size_or_callable, is_dir
-            )
-            if match_whitelist:
-                match_keep = self.keep_rules.matches(name, size_or_callable, is_dir)
-                match_delete = self.delete_rules.matches(name, size_or_callable, is_dir)
-                if match_keep and match_delete:
-                    if self.preferred_rule == "delete":
-                        return FileAction.DELETE
-                    else:
-                        return FileAction.SKIP
-                elif match_keep:
-                    return FileAction.SKIP
-                elif match_delete:
-                    return FileAction.DELETE
-                return FileAction.TRANSFER
-            else:
+            if not self.whitelist_rules.matches(name, size_or_callable, is_dir):
                 return FileAction.SKIP
 
         match_keep = self.keep_rules.matches(name, size_or_callable, is_dir)
