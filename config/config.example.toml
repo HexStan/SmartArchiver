@@ -77,15 +77,14 @@ remove_empty_dirs = true
 #    - 可以通过 preferred_rule 配置项修改此行为。
 #
 # 3. 大小阈值:
-#    - 仅当文件/目录大小【小于/大于等于】设定的阈值时，规则才会生效。
-#    - lt 为小于，ge 为大于等于。
+#    - 仅当文件/目录大小【小于/大于等于】设定的阈值时，规则才会生效。lt 为小于，ge 为大于等于。
 #    - 如果希望匹配所有大小，请使用 ge 规则并设置为 "0"（例如: "*.log" = "0"）。
 #    - 支持单位: B, KB, MB, GB, TB (例如: "10MB", "1.5GB")。
 
 # 【选填】当文件/目录同时命中保留规则和删除规则时的处理方式：
 # "keep" - 保留文件（默认）
 # "delete" - 删除文件
-# preferred_rule = "keep"
+preferred_rule = "keep"
 
 # 【选填】保留规则：命中的文件/目录将留在原处，不进行移动、复制或删除
 [tasks.keep_rules.dirs.ge]
@@ -125,6 +124,7 @@ count_limit = 20    # 目录文件总数量限制，0 表示不限制。
 
 conflict_policy = "overwrite"
 remove_empty_dirs = true
+preferred_rule = "keep"
 
 [tasks.keep_rules.dirs.lt]
 
