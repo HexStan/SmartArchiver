@@ -83,40 +83,63 @@ class FileFilterPolicy:
         def __init__(self, rules_config):
             """内部辅助类，用于解析目录和文件的匹配规则"""
 
-            self.dir_rules = {}
+            self.dir_rules_lt = {}
+            self.dir_rules_ge = {}
             raw_dirs = rules_config.get("dirs", {})
-            for pattern, size_str in raw_dirs.items():
-                self.dir_rules[pattern] = parse_size_string(size_str)
+            self._parse_rules(raw_dirs, self.dir_rules_lt, self.dir_rules_ge)
 
-            self.file_rules = {}
+            self.file_rules_lt = {}
+            self.file_rules_ge = {}
             raw_files = rules_config.get("files", {})
-            for pattern, size_str in raw_files.items():
-                self.file_rules[pattern] = parse_size_string(size_str)
+            self._parse_rules(raw_files, self.file_rules_lt, self.file_rules_ge)
+
+        def _parse_rules(self, raw_rules, lt_dict, ge_dict):
+            if "lt" in raw_rules or "ge" in raw_rules:
+                for pattern, size_str in raw_rules.get("lt", {}).items():
+                    lt_dict[pattern] = parse_size_string(size_str)
+                for pattern, size_str in raw_rules.get("ge", {}).items():
+                    ge_dict[pattern] = parse_size_string(size_str)
+            else:
+                # 兼容旧版本配置，默认作为 lt 规则
+                for pattern, size_str in raw_rules.items():
+                    lt_dict[pattern] = parse_size_string(size_str)
 
         def matches(self, name, size_or_callable, is_dir=False):
             """
             判断文件或目录是否命中该组规则。
             支持惰性求值：如果命中 "ALL" 规则，则不调用 size_or_callable 获取大小。
             """
-            rules = self.dir_rules if is_dir else self.file_rules
+            rules_lt = self.dir_rules_lt if is_dir else self.file_rules_lt
+            rules_ge = self.dir_rules_ge if is_dir else self.file_rules_ge
 
-            matching_thresholds = []
-            for pattern, threshold in rules.items():
+            matching_thresholds_lt = []
+            matching_thresholds_ge = []
+            
+            for pattern, threshold in rules_lt.items():
                 if match_pattern(name, pattern):
                     # 如果阈值是 ALL (inf)，直接命中，无需检查大小
                     if threshold == float("inf"):
                         return True
-                    matching_thresholds.append(threshold)
+                    matching_thresholds_lt.append(threshold)
+
+            for pattern, threshold in rules_ge.items():
+                if match_pattern(name, pattern):
+                    if threshold == float("inf"):
+                        return True
+                    matching_thresholds_ge.append(threshold)
 
             # 只有在没有命中 ALL 且命中了其他有大小限制的规则时，才获取并检查大小
-            if matching_thresholds:
+            if matching_thresholds_lt or matching_thresholds_ge:
                 size = (
                     size_or_callable()
                     if callable(size_or_callable)
                     else size_or_callable
                 )
-                for threshold in matching_thresholds:
+                for threshold in matching_thresholds_lt:
                     if size < threshold:
+                        return True
+                for threshold in matching_thresholds_ge:
+                    if size >= threshold:
                         return True
 
             return False

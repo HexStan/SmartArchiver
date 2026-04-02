@@ -77,7 +77,8 @@ remove_empty_dirs = true
 #    - 可以通过 preferred_rule 配置项修改此行为。
 #
 # 3. 大小阈值:
-#    - 仅当文件/目录大小【小于】设定的阈值时，规则才会生效。
+#    - 仅当文件/目录大小【小于/大于等于】设定的阈值时，规则才会生效。
+#    - lt 为小于，ge 为大于等于。
 #    - 使用 "ALL" 表示匹配所有大小。
 #    - 支持单位: B, KB, MB, GB, TB (例如: "10MB", "1.5GB")。
 
@@ -93,6 +94,9 @@ remove_empty_dirs = true
 [tasks.keep_rules.files]
 # "*.raw" = "ALL"              # 始终保留所有 .raw 文件
 
+[tasks.keep_rules.files.ge]
+# "*.mp4" = "1GB"              # 保留大于等于 1GB 的 .mp4 文件
+
 # 【选填】删除规则：命中的文件/目录将被直接删除，不移动到目标目录
 [tasks.delete_rules.dirs]
 # "*temp*" = "ALL"              # 删除所有包含 temp 的目录
@@ -100,6 +104,9 @@ remove_empty_dirs = true
 [tasks.delete_rules.files]
 # "desktop.ini" = "ALL"        # 删除所有 desktop.ini 文件
 # "*.DS_Store" = "ALL"         # 删除所有后缀为 .DS_Store 的文件
+
+[tasks.delete_rules.files.lt]
+# "*.mp4" = "1MB"              # 删除小于 1MB 的 .mp4 文件
 
 # --------------------------------------------------
 
