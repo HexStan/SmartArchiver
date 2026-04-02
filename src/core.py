@@ -139,40 +139,30 @@ class FileFilterPolicy:
 
     def __init__(self, config):
         self.is_whitelist_mode = config.get("is_whitelist_mode", False)
-        self.delete_rules = self._RuleSet(config.get("delete_rules", {}))
-        self.preferred_rule = config.get("preferred_rule", "keep")
-
         if self.is_whitelist_mode:
             self.whitelist_rules = self._RuleSet(config.get("whitelist_rules", {}))
         else:
-            # 加载 保留规则
+            # 分别加载 删除规则 和 保留规则
+            self.delete_rules = self._RuleSet(config.get("delete_rules", {}))
             self.keep_rules = self._RuleSet(config.get("keep_rules", {}))
+            self.preferred_rule = config.get("preferred_rule", "keep")
 
     def decide(self, name, size_or_callable, is_dir=False):
         """
         根据名称和大小，返回 FileAction 决策。
         size_or_callable 可以是一个数值，也可以是一个返回数值的可调用对象（用于惰性求值）。
         """
-        match_delete = self.delete_rules.matches(name, size_or_callable, is_dir)
-
         if self.is_whitelist_mode:
             match_whitelist = self.whitelist_rules.matches(
                 name, size_or_callable, is_dir
             )
-
-            if match_whitelist and match_delete:
-                if self.preferred_rule == "delete":
-                    return FileAction.DELETE
-                else:
-                    return FileAction.TRANSFER
-            elif match_delete:
-                return FileAction.DELETE
-            elif match_whitelist:
+            if match_whitelist:
                 return FileAction.TRANSFER
             else:
                 return FileAction.SKIP
 
         match_keep = self.keep_rules.matches(name, size_or_callable, is_dir)
+        match_delete = self.delete_rules.matches(name, size_or_callable, is_dir)
 
         # 1. 如果同时命中保留和删除规则，根据配置项处理
         if match_keep and match_delete:
