@@ -345,6 +345,18 @@ def get_dir_size_and_mtime(dir_path):
 def _validate_task_config(task, task_mode, logger):
     if task_mode == "sync":
         required_fields = ["mode"]
+    elif task_mode in ["rotate_by_size", "rotate_by_count"]:
+        required_fields = [
+            "mode",
+            "conflict_policy",
+            "remove_empty_dirs",
+        ]
+        if task_mode == "rotate_by_size" and "size_limit" not in task:
+            logger.error("rotate_by_size 模式下必须配置 size_limit，跳过该任务。")
+            return False
+        if task_mode == "rotate_by_count" and "count_limit" not in task:
+            logger.error("rotate_by_count 模式下必须配置 count_limit，跳过该任务。")
+            return False
     else:
         required_fields = [
             "mode",
@@ -381,13 +393,22 @@ def _print_task_header(
         mode_str = "复制"
     elif task_mode == "whitelist_move":
         mode_str = "移动 (白名单)"
-    if task_mode == "whitelist_copy":
+    elif task_mode == "whitelist_copy":
         mode_str = "复制 (白名单)"
+    elif task_mode == "rotate_by_size":
+        mode_str = "按大小轮转"
+    elif task_mode == "rotate_by_count":
+        mode_str = "按数量轮转"
 
     logger.info(f" - 任务模式: {mode_str}")
     logger.info(f" - 源路径: {source_root}")
     logger.info(f" - 目标路径: {dest_root}")
-    logger.info(f" - 时间阈值: {format_timespan(age_threshold_seconds)}")
+    if task_mode not in ["rotate_by_size", "rotate_by_count"]:
+        logger.info(f" - 时间阈值: {format_timespan(age_threshold_seconds)}")
+    if task_mode == "rotate_by_size":
+        logger.info(f" - 大小限制: {task.get('size_limit')}")
+    if task_mode == "rotate_by_count":
+        logger.info(f" - 数量限制: {task.get('count_limit')}")
 
 
 def _process_directories(
@@ -538,6 +559,156 @@ def _print_task_summary(local_stats, duration_str, total_size_str, speed_str, lo
         )
 
 
+def handle_rotate_mode(
+    task, config, logger, history_mgr, source_root, dest_root, task_mode
+):
+    local_stats = MoverStats()
+    max_retries = config.get("max_retries", 3)
+    conflict_policy = task["conflict_policy"].lower()
+    remove_empty_dirs = task["remove_empty_dirs"]
+
+    _print_task_header(task, task_mode, source_root, dest_root, 0, logger)
+
+    if not os.path.exists(source_root):
+        logger.error(f"源目录不存在: {source_root}")
+        return
+
+    if not os.path.isdir(dest_root):
+        logger.error("!!! CRUCIAL: 目标目录不存在 !!!")
+        return
+
+    task_delete_rules = task.get("delete_rules", {})
+    task_keep_rules = task.get("keep_rules", {})
+    preferred_rule = task.get("preferred_rule", "keep")
+    whitelist_rules = task.get("whitelist_rules", {})
+    is_whitelist_mode = task_mode in ["whitelist_copy", "whitelist_move"]
+
+    merged_config = {
+        "delete_rules": task_delete_rules,
+        "keep_rules": task_keep_rules,
+        "preferred_rule": preferred_rule,
+        "whitelist_rules": whitelist_rules,
+        "is_whitelist_mode": is_whitelist_mode,
+    }
+    policy = FileFilterPolicy(merged_config)
+
+    limit_value = 0
+    if task_mode == "rotate_by_size":
+        limit_value = parse_size_string(task.get("size_limit"))
+    else:
+        limit_value = int(task.get("count_limit"))
+
+    start_time = time.time()
+
+    all_files = []
+    current_total_size = 0
+    current_total_count = 0
+
+    for root, dirs, files in os.walk(source_root):
+        for file in files:
+            src_path = os.path.join(root, file)
+            try:
+                file_stat = os.stat(src_path)
+                size = file_stat.st_size
+                mtime = file_stat.st_mtime
+                all_files.append(
+                    {"name": file, "path": src_path, "size": size, "mtime": mtime}
+                )
+                current_total_size += size
+                current_total_count += 1
+            except OSError:
+                continue
+
+    is_exceeded = False
+    if task_mode == "rotate_by_size" and current_total_size > limit_value:
+        is_exceeded = True
+    elif task_mode == "rotate_by_count" and current_total_count > limit_value:
+        is_exceeded = True
+
+    if not is_exceeded:
+        logger.info("当前未超过限制，无需轮转。")
+        end_time = time.time()
+        duration_str, total_size_str, speed_str = local_stats.calculate_speed(
+            start_time, end_time
+        )
+        _print_task_summary(
+            local_stats, duration_str, total_size_str, speed_str, logger
+        )
+        return
+
+    candidates = []
+    for f in all_files:
+        should_skip, fail_count = history_mgr.should_skip(f["path"], max_retries)
+        if should_skip:
+            local_stats.dropped += 1
+            logger.warning(f"跳过文件 (多次失败): {f['path']}")
+            continue
+
+        if is_file_locked(f["path"]):
+            local_stats.locked_skipped += 1
+            logger.warning(
+                f"跳过文件 (被锁定): {os.path.relpath(f['path'], source_root)}"
+            )
+            continue
+
+        action = policy.decide(f["name"], f["size"])
+        if action == FileAction.DELETE:
+            delete_file(
+                f["path"], f["size"], source_root, logger, local_stats, history_mgr
+            )
+            current_total_size -= f["size"]
+            current_total_count -= 1
+        elif action == FileAction.SKIP:
+            local_stats.kept += 1
+            logger.debug(
+                f"保留文件 (匹配规则): {os.path.relpath(f['path'], source_root)} ({format_size(f['size'], binary=True)})"
+            )
+        elif action == FileAction.TRANSFER:
+            candidates.append(f)
+
+    candidates.sort(key=lambda x: x["mtime"])
+
+    for f in candidates:
+        if task_mode == "rotate_by_size" and current_total_size <= limit_value:
+            break
+        if task_mode == "rotate_by_count" and current_total_count <= limit_value:
+            break
+
+        move_file(
+            f["path"],
+            f["size"],
+            source_root,
+            dest_root,
+            logger,
+            local_stats,
+            history_mgr,
+            conflict_policy,
+            "move",
+        )
+
+        if not os.path.exists(f["path"]):
+            current_total_size -= f["size"]
+            current_total_count -= 1
+
+    if task_mode == "rotate_by_size" and current_total_size > limit_value:
+        logger.warning(
+            f"警告：由于 keep_rules 冲突或其他原因，已无可处理文件，但目录体积 ({format_size(current_total_size, binary=True)}) 仍未满足限制 ({format_size(limit_value, binary=True)})。"
+        )
+    elif task_mode == "rotate_by_count" and current_total_count > limit_value:
+        logger.warning(
+            f"警告：由于 keep_rules 冲突或其他原因，已无可处理文件，但文件数量 ({current_total_count}) 仍未满足限制 ({limit_value})。"
+        )
+
+    if remove_empty_dirs:
+        clean_empty_dirs(source_root, logger)
+
+    end_time = time.time()
+    duration_str, total_size_str, speed_str = local_stats.calculate_speed(
+        start_time, end_time
+    )
+    _print_task_summary(local_stats, duration_str, total_size_str, speed_str, logger)
+
+
 def process_directory_pair(task, config, logger, history_mgr):
     """
     处理单个目录对：遍历、移动文件
@@ -555,7 +726,13 @@ def process_directory_pair(task, config, logger, history_mgr):
         handle_sync_mode(task, config, logger, source_root, dest_root)
         return
 
-    min_age_minutes = task["min_age_minutes"]
+    if task_mode in ["rotate_by_size", "rotate_by_count"]:
+        handle_rotate_mode(
+            task, config, logger, history_mgr, source_root, dest_root, task_mode
+        )
+        return
+
+    min_age_minutes = task.get("min_age_minutes", 0)
     max_retries = config.get("max_retries", 3)
     conflict_policy = task["conflict_policy"].lower()
     remove_empty_dirs = task["remove_empty_dirs"]

@@ -498,3 +498,81 @@ class TestProcessDirectoryPair:
 
         error_messages = [msg for level, msg in logger.messages if level == "ERROR"]
         assert any("目标目录不存在" in msg for msg in error_messages)
+
+    def test_rotate_by_size(self, tmp_path):
+        source_dir = tmp_path / "source"
+        dest_dir = tmp_path / "dest"
+        source_dir.mkdir()
+        dest_dir.mkdir()
+
+        # Create 3 files, 10 bytes each. Total 30 bytes.
+        f1 = source_dir / "f1.txt"
+        f1.write_text("1234567890")
+        os.utime(str(f1), (1000, 1000))
+
+        f2 = source_dir / "f2.txt"
+        f2.write_text("1234567890")
+        os.utime(str(f2), (2000, 2000))
+
+        f3 = source_dir / "f3.txt"
+        f3.write_text("1234567890")
+        os.utime(str(f3), (3000, 3000))
+
+        task = {
+            "source": str(source_dir),
+            "dest": str(dest_dir),
+            "mode": "rotate_by_size",
+            "size_limit": "20B",
+            "conflict_policy": "overwrite",
+            "remove_empty_dirs": True,
+        }
+        config = {"max_retries": 3}
+        logger = MockLogger()
+        history_mgr = HistoryManager(str(tmp_path))
+
+        process_directory_pair(task, config, logger, history_mgr)
+
+        # f1 is the oldest, should be moved.
+        assert not f1.exists()
+        assert f2.exists()
+        assert f3.exists()
+        assert (dest_dir / "f1.txt").exists()
+
+    def test_rotate_by_count(self, tmp_path):
+        source_dir = tmp_path / "source"
+        dest_dir = tmp_path / "dest"
+        source_dir.mkdir()
+        dest_dir.mkdir()
+
+        # Create 3 files
+        f1 = source_dir / "f1.txt"
+        f1.write_text("a")
+        os.utime(str(f1), (1000, 1000))
+
+        f2 = source_dir / "f2.txt"
+        f2.write_text("b")
+        os.utime(str(f2), (2000, 2000))
+
+        f3 = source_dir / "f3.txt"
+        f3.write_text("c")
+        os.utime(str(f3), (3000, 3000))
+
+        task = {
+            "source": str(source_dir),
+            "dest": str(dest_dir),
+            "mode": "rotate_by_count",
+            "count_limit": 2,
+            "conflict_policy": "overwrite",
+            "remove_empty_dirs": True,
+        }
+        config = {"max_retries": 3}
+        logger = MockLogger()
+        history_mgr = HistoryManager(str(tmp_path))
+
+        process_directory_pair(task, config, logger, history_mgr)
+
+        # f1 is the oldest, should be moved.
+        assert not f1.exists()
+        assert f2.exists()
+        assert f3.exists()
+        assert (dest_dir / "f1.txt").exists()
