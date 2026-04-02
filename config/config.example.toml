@@ -77,28 +77,20 @@ remove_empty_dirs = true
 
 # 【选填】保留规则：命中的文件/目录将留在原处，不进行移动、复制或删除
 # 用不到的规则块可直接删除
-[tasks.keep_rules.dirs.lt]
-# "*" = "1B"                  # 保留小于 1B 的所有目录
-# "example" = "1KB"           # 保留名称完全符合 example 且小于 1KB 的目录
-# "*example*" = "1MB"         # 保留名称中连续地包含 example 且小于 1MB 的目录
-# "example*" = "1GB"          # 保留名称前缀为 example 且小于 1GB 的目录
-# "*example" = "1TB"          # 保留名称后缀为 example 且小于 1TB 的目录
+[tasks.keep_rules.dirs]
+# lt."*" = "1B"                  # 保留小于 1B 的所有目录
+# lt."example" = "1KB"           # 保留名称完全符合 example 且小于 1KB 的目录
+# lt."*example*" = "1MB"         # 保留名称中连续地包含 example 且小于 1MB 的目录
+# gt."example*" = "1GB"          # 保留名称前缀为 example 且大于等于 1GB 的目录
+# gt."*example" = "1TB"          # 保留名称后缀为 example 且大于等于 1TB 的目录
 
-[tasks.keep_rules.dirs.ge]
-
-[tasks.keep_rules.files.lt]
-# "example" = "0"             # 保留名称完全符合 example 的所有文件
-
-[tasks.keep_rules.files.ge]
+[tasks.keep_rules.files]
+# gt."example" = "0"             # 保留名称完全符合 example 的所有文件
 
 # 【选填】删除规则：命中的文件/目录将被直接删除，不移动到目标目录
-[tasks.delete_rules.dirs.lt]
+[tasks.delete_rules.dirs]
 
-[tasks.delete_rules.dirs.ge]
-
-[tasks.delete_rules.files.lt]
-
-[tasks.delete_rules.files.ge]
+[tasks.delete_rules.files]
 
 # 【选填】当文件/目录同时命中保留规则和删除规则时的处理方式：
 # "keep" - 遵循保留规则（默认）
@@ -125,21 +117,13 @@ count_limit = 20    # 目录文件总数量限制，0 表示不限制。
 conflict_policy = "overwrite"
 remove_empty_dirs = true
 
-[tasks.keep_rules.dirs.lt]
+[tasks.keep_rules.dirs]
 
-[tasks.keep_rules.dirs.ge]
+[tasks.keep_rules.files]
 
-[tasks.keep_rules.files.lt]
+[tasks.delete_rules.dirs]
 
-[tasks.keep_rules.files.ge]
-
-[tasks.delete_rules.dirs.lt]
-
-[tasks.delete_rules.dirs.ge]
-
-[tasks.delete_rules.files.lt]
-
-[tasks.delete_rules.files.ge]
+[tasks.delete_rules.files]
 
 preferred_rule = "keep"
 
@@ -163,31 +147,19 @@ remove_empty_dirs = true
 # 【whitelist_rules.dirs 或 whitelist_rules.files 必填至少一项】
 # 白名单规则（仅在 whitelist_move 和 whitelist_copy 模式下生效）：
 # 命中的文件/目录将被移动或复制，未命中的将被忽略
-[tasks.whitelist_rules.dirs.lt]
+[tasks.whitelist_rules.dirs]
 
-[tasks.whitelist_rules.dirs.ge]
-
-[tasks.whitelist_rules.files.lt]
-
-[tasks.whitelist_rules.files.ge]
+[tasks.whitelist_rules.files]
 
 # 【选填】保留规则，用于指定在命中了白名单规则时，哪些文件/目录需要保留
-[tasks.keep_rules.dirs.lt]
+[tasks.keep_rules.dirs]
 
-[tasks.keep_rules.dirs.ge]
-
-[tasks.keep_rules.files.lt]
-
-[tasks.keep_rules.files.ge]
+[tasks.keep_rules.files]
 
 # 【选填】删除规则，只有同时满足白名单规则和删除规则的文件/目录才会被删除
-[tasks.delete_rules.dirs.lt]
+[tasks.delete_rules.dirs]
 
-[tasks.delete_rules.dirs.ge]
-
-[tasks.delete_rules.files.lt]
-
-[tasks.delete_rules.files.ge]
+[tasks.delete_rules.files]
 
 preferred_rule = "keep"
 
