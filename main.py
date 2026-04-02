@@ -28,7 +28,7 @@ def run_tasks(config, logger, history_mgr):
     for idx, task in enumerate(tasks):
         logger.info(f"-----开始 {len(tasks)} 个任务中的第 {idx + 1} 个-----")
 
-        process_directory_pair(task, config, logger, history_mgr)
+        process_directory_pair(task, config, logger, history_mgr, now=start_time)
 
         logger.info("当前任务结束。")
 

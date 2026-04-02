@@ -717,7 +717,7 @@ def handle_rotate_mode(
     _print_task_summary(local_stats, duration_str, total_size_str, speed_str, logger)
 
 
-def process_directory_pair(task, config, logger, history_mgr):
+def process_directory_pair(task, config, logger, history_mgr, now=None):
     """
     处理单个目录对：遍历、移动文件
     """
@@ -745,7 +745,8 @@ def process_directory_pair(task, config, logger, history_mgr):
     conflict_policy = task["conflict_policy"].lower()
     remove_empty_dirs = task["remove_empty_dirs"]
 
-    now = time.time()
+    if now is None:
+        now = time.time()
     age_threshold_seconds = min_age_minutes * 60
 
     _print_task_header(
