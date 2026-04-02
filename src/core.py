@@ -691,11 +691,11 @@ def handle_rotate_mode(
 
     if size_limit > 0 and current_total_size > size_limit:
         logger.warning(
-            f"警告：由于配置冲突或其他原因，已无可处理文件，但目录体积 ({format_size(current_total_size, binary=True)}) 仍未满足限制 ({format_size(size_limit, binary=True)})。"
+            f"已无可处理文件，但目录体积 ({format_size(current_total_size, binary=True)}) 仍未满足限制 ({format_size(size_limit, binary=True)})，请检查配置。"
         )
     if count_limit > 0 and current_total_count > count_limit:
         logger.warning(
-            f"警告：由于配置冲突或其他原因，已无可处理文件，但文件数量 ({current_total_count}) 仍未满足限制 ({count_limit})。"
+            f"已无可处理文件，但文件数量 ({current_total_count}) 仍未满足限制 ({count_limit})，请检查配置。"
         )
 
     if remove_empty_dirs:
