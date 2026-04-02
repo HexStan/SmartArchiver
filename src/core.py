@@ -100,7 +100,7 @@ class FileFilterPolicy:
                 for pattern, size_str in raw_rules.get("ge", {}).items():
                     ge_dict[pattern] = parse_size_string(size_str)
             else:
-                # 兼容旧版本配置，默认作为 lt 规则
+                # 默认作为 lt 规则
                 for pattern, size_str in raw_rules.items():
                     lt_dict[pattern] = parse_size_string(size_str)
 
@@ -114,7 +114,7 @@ class FileFilterPolicy:
 
             matching_thresholds_lt = []
             matching_thresholds_ge = []
-            
+
             for pattern, threshold in rules_lt.items():
                 if match_pattern(name, pattern):
                     # 如果阈值是 ALL (inf)，直接命中，无需检查大小
@@ -124,8 +124,6 @@ class FileFilterPolicy:
 
             for pattern, threshold in rules_ge.items():
                 if match_pattern(name, pattern):
-                    if threshold == float("inf"):
-                        return True
                     matching_thresholds_ge.append(threshold)
 
             # 只有在没有命中 ALL 且命中了其他有大小限制的规则时，才获取并检查大小
