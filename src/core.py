@@ -94,20 +94,15 @@ class FileFilterPolicy:
             self._parse_rules(raw_files, self.file_rules_lt, self.file_rules_ge)
 
         def _parse_rules(self, raw_rules, lt_dict, ge_dict):
-            if "lt" in raw_rules or "ge" in raw_rules:
-                for pattern, size_str in raw_rules.get("lt", {}).items():
-                    lt_dict[pattern] = parse_size_string(size_str)
-                for pattern, size_str in raw_rules.get("ge", {}).items():
-                    ge_dict[pattern] = parse_size_string(size_str)
-            else:
-                # 默认作为 lt 规则
-                for pattern, size_str in raw_rules.items():
-                    lt_dict[pattern] = parse_size_string(size_str)
+            for pattern, size_str in raw_rules.get("lt", {}).items():
+                lt_dict[pattern] = parse_size_string(size_str)
+            for pattern, size_str in raw_rules.get("ge", {}).items():
+                ge_dict[pattern] = parse_size_string(size_str)
 
         def matches(self, name, size_or_callable, is_dir=False):
             """
             判断文件或目录是否命中该组规则。
-            支持惰性求值：如果命中 "ALL" 规则，则不调用 size_or_callable 获取大小。
+            支持惰性求值：如果命中 ge 且阈值为 0，则不调用 size_or_callable 获取大小。
             """
             rules_lt = self.dir_rules_lt if is_dir else self.file_rules_lt
             rules_ge = self.dir_rules_ge if is_dir else self.file_rules_ge
@@ -117,16 +112,16 @@ class FileFilterPolicy:
 
             for pattern, threshold in rules_lt.items():
                 if match_pattern(name, pattern):
-                    # 如果阈值是 ALL (inf)，直接命中，无需检查大小
-                    if threshold == float("inf"):
-                        return True
                     matching_thresholds_lt.append(threshold)
 
             for pattern, threshold in rules_ge.items():
                 if match_pattern(name, pattern):
+                    # 如果 ge 规则阈值为 0，必然命中，无需检查大小
+                    if threshold == 0:
+                        return True
                     matching_thresholds_ge.append(threshold)
 
-            # 只有在没有命中 ALL 且命中了其他有大小限制的规则时，才获取并检查大小
+            # 只有在没有命中 ge 0 且命中了其他有大小限制的规则时，才获取并检查大小
             if matching_thresholds_lt or matching_thresholds_ge:
                 size = (
                     size_or_callable()

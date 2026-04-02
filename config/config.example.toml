@@ -78,8 +78,8 @@ remove_empty_dirs = true
 #
 # 3. 大小阈值:
 #    - 仅当文件/目录大小【小于/大于等于】设定的阈值时，规则才会生效。
-#    - lt 为小于，ge 为大于等于。在不指定时，默认按小于（lt）来过滤。
-#    - 使用 "ALL" 表示匹配所有大小。
+#    - lt 为小于，ge 为大于等于。
+#    - 如果希望匹配所有大小，请使用 ge 规则并设置为 "0"（例如: "*.log" = "0"）。
 #    - 支持单位: B, KB, MB, GB, TB (例如: "10MB", "1.5GB")。
 
 # 【选填】当文件/目录同时命中保留规则和删除规则时的处理方式：
@@ -88,22 +88,20 @@ remove_empty_dirs = true
 # preferred_rule = "keep"
 
 # 【选填】保留规则：命中的文件/目录将留在原处，不进行移动、复制或删除
-[tasks.keep_rules.dirs]
-# "Favorites" = "ALL"          # 始终保留名为 Favorites 的目录
-
-[tasks.keep_rules.files]
-# "*.raw" = "ALL"              # 始终保留所有 .raw 文件
+[tasks.keep_rules.dirs.ge]
+# "Favorites" = "0"          # 始终保留名为 Favorites 的目录
 
 [tasks.keep_rules.files.ge]
+# "*.raw" = "0"              # 始终保留所有 .raw 文件
 # "*.mp4" = "1GB"              # 保留大于等于 1GB 的 .mp4 文件
 
 # 【选填】删除规则：命中的文件/目录将被直接删除，不移动到目标目录
-[tasks.delete_rules.dirs]
-# "*temp*" = "ALL"              # 删除所有包含 temp 的目录
+[tasks.delete_rules.dirs.ge]
+# "*temp*" = "0"              # 删除所有包含 temp 的目录
 
-[tasks.delete_rules.files]
-# "desktop.ini" = "ALL"        # 删除所有 desktop.ini 文件
-# "*.DS_Store" = "ALL"         # 删除所有后缀为 .DS_Store 的文件
+[tasks.delete_rules.files.ge]
+# "desktop.ini" = "0"        # 删除所有 desktop.ini 文件
+# "*.DS_Store" = "0"         # 删除所有后缀为 .DS_Store 的文件
 
 [tasks.delete_rules.files.lt]
 # "*.mp4" = "1MB"              # 删除小于 1MB 的 .mp4 文件
@@ -128,13 +126,13 @@ count_limit = 20    # 目录文件总数量限制，0 表示不限制。
 conflict_policy = "overwrite"
 remove_empty_dirs = true
 
-[tasks.keep_rules.dirs]
+[tasks.keep_rules.dirs.lt]
 
-[tasks.keep_rules.files]
+[tasks.keep_rules.files.lt]
 
-[tasks.delete_rules.dirs]
+[tasks.delete_rules.dirs.lt]
 
-[tasks.delete_rules.files]
+[tasks.delete_rules.files.lt]
 
 # --------------------------------------------------
 
@@ -155,11 +153,11 @@ remove_empty_dirs = true
 
 # 【必填至少一项】白名单规则（仅在 whitelist_move 和 whitelist_copy 模式下生效）：
 # 命中的文件/目录将被移动或复制，未命中的将被忽略
-[tasks.whitelist_rules.dirs]
-# "Important" = "ALL"          # 仅处理名为 Important 的目录
+[tasks.whitelist_rules.dirs.ge]
+# "Important" = "0"          # 仅处理名为 Important 的目录
 
-[tasks.whitelist_rules.files]
-# "*.pdf" = "ALL"              # 仅处理所有 .pdf 文件
+[tasks.whitelist_rules.files.ge]
+# "*.pdf" = "0"              # 仅处理所有 .pdf 文件
 
 # --------------------------------------------------
 

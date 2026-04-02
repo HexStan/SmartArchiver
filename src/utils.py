@@ -97,10 +97,6 @@ def parse_size_string(size_str):
     # 转换为字符串并去除空格
     s = str(size_str).strip()
 
-    # ALL 返回无穷大
-    if s.upper() == "ALL":
-        return float("inf")
-
     try:
         # binary=True 表示使用 1024 进位 (MiB, KiB)
         return parse_size(s, binary=True)
