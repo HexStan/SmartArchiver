@@ -110,15 +110,13 @@ source = "./source"
 dest = "./dest"
 
 # 【必填】任务执行模式：
-# "rotate_by_size" - 按大小轮转，当源目录总体积超过 size_limit 时，将最旧的文件移动到目标目录
-# "rotate_by_count" - 按数量轮转，当源目录文件总数超过 count_limit 时，将最旧的文件移动到目标目录
-mode = "rotate_by_size"
+# "rotate" - 轮转模式
+# 当源目录总体积超过 size_limit 或文件总数超过 count_limit 时，将最旧的文件移动到目标目录
+mode = "rotate"
 
-# 【rotate_by_size 模式必填】 目录总体积限制，支持单位: B, KB, MB, GB, TB (例如: "10MB", "1.5GB")
-# size_limit = "1GB"
-
-# 【rotate_by_count 模式必填】 目录文件总数量限制
-# count_limit = 20
+#【以下两项必填至少一项】
+size_limit = "1GB"    # 目录总体积限制，支持单位: B, KB, MB, GB, TB，0 表示不限制。
+count_limit = 20    # 目录文件总数量限制，0 表示不限制。
 
 conflict_policy = "overwrite"
 remove_empty_dirs = true

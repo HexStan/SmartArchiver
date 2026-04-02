@@ -499,7 +499,7 @@ class TestProcessDirectoryPair:
         error_messages = [msg for level, msg in logger.messages if level == "ERROR"]
         assert any("目标目录不存在" in msg for msg in error_messages)
 
-    def test_rotate_by_size(self, tmp_path):
+    def test_rotate_mode_by_size(self, tmp_path):
         source_dir = tmp_path / "source"
         dest_dir = tmp_path / "dest"
         source_dir.mkdir()
@@ -521,7 +521,7 @@ class TestProcessDirectoryPair:
         task = {
             "source": str(source_dir),
             "dest": str(dest_dir),
-            "mode": "rotate_by_size",
+            "mode": "rotate",
             "size_limit": "20B",
             "conflict_policy": "overwrite",
             "remove_empty_dirs": True,
@@ -538,7 +538,7 @@ class TestProcessDirectoryPair:
         assert f3.exists()
         assert (dest_dir / "f1.txt").exists()
 
-    def test_rotate_by_count(self, tmp_path):
+    def test_rotate_mode_by_count(self, tmp_path):
         source_dir = tmp_path / "source"
         dest_dir = tmp_path / "dest"
         source_dir.mkdir()
@@ -560,7 +560,7 @@ class TestProcessDirectoryPair:
         task = {
             "source": str(source_dir),
             "dest": str(dest_dir),
-            "mode": "rotate_by_count",
+            "mode": "rotate",
             "count_limit": 2,
             "conflict_policy": "overwrite",
             "remove_empty_dirs": True,
@@ -576,3 +576,49 @@ class TestProcessDirectoryPair:
         assert f2.exists()
         assert f3.exists()
         assert (dest_dir / "f1.txt").exists()
+
+    def test_rotate_mode_both_limits(self, tmp_path):
+        source_dir = tmp_path / "source"
+        dest_dir = tmp_path / "dest"
+        source_dir.mkdir()
+        dest_dir.mkdir()
+
+        # Create 4 files, 10 bytes each. Total 40 bytes.
+        f1 = source_dir / "f1.txt"
+        f1.write_text("1234567890")
+        os.utime(str(f1), (1000, 1000))
+
+        f2 = source_dir / "f2.txt"
+        f2.write_text("1234567890")
+        os.utime(str(f2), (2000, 2000))
+
+        f3 = source_dir / "f3.txt"
+        f3.write_text("1234567890")
+        os.utime(str(f3), (3000, 3000))
+
+        f4 = source_dir / "f4.txt"
+        f4.write_text("1234567890")
+        os.utime(str(f4), (4000, 4000))
+
+        task = {
+            "source": str(source_dir),
+            "dest": str(dest_dir),
+            "mode": "rotate",
+            "size_limit": "30B",  # Needs to remove 1 file to meet size limit
+            "count_limit": 2,  # Needs to remove 2 files to meet count limit
+            "conflict_policy": "overwrite",
+            "remove_empty_dirs": True,
+        }
+        config = {"max_retries": 3}
+        logger = MockLogger()
+        history_mgr = HistoryManager(str(tmp_path))
+
+        process_directory_pair(task, config, logger, history_mgr)
+
+        # f1 and f2 are the oldest, should be moved to meet count limit.
+        assert not f1.exists()
+        assert not f2.exists()
+        assert f3.exists()
+        assert f4.exists()
+        assert (dest_dir / "f1.txt").exists()
+        assert (dest_dir / "f2.txt").exists()

@@ -345,17 +345,18 @@ def get_dir_size_and_mtime(dir_path):
 def _validate_task_config(task, task_mode, logger):
     if task_mode == "sync":
         required_fields = ["mode"]
-    elif task_mode in ["rotate_by_size", "rotate_by_count"]:
+    elif task_mode == "rotate":
         required_fields = [
             "mode",
             "conflict_policy",
             "remove_empty_dirs",
         ]
-        if task_mode == "rotate_by_size" and "size_limit" not in task:
-            logger.error("rotate_by_size 模式下必须配置 size_limit，跳过该任务。")
-            return False
-        if task_mode == "rotate_by_count" and "count_limit" not in task:
-            logger.error("rotate_by_count 模式下必须配置 count_limit，跳过该任务。")
+        size_limit = parse_size_string(task.get("size_limit", "0"))
+        count_limit = int(task.get("count_limit", 0))
+        if size_limit == 0 and count_limit == 0:
+            logger.error(
+                "rotate 模式下必须配置 size_limit 或 count_limit，且不能都为 0，跳过该任务。"
+            )
             return False
     else:
         required_fields = [
@@ -395,20 +396,21 @@ def _print_task_header(
         mode_str = "移动 (白名单)"
     elif task_mode == "whitelist_copy":
         mode_str = "复制 (白名单)"
-    elif task_mode == "rotate_by_size":
-        mode_str = "按大小轮转"
-    elif task_mode == "rotate_by_count":
-        mode_str = "按数量轮转"
+    elif task_mode == "rotate":
+        mode_str = "轮转"
 
     logger.info(f" - 任务模式: {mode_str}")
     logger.info(f" - 源路径: {source_root}")
     logger.info(f" - 目标路径: {dest_root}")
-    if task_mode not in ["rotate_by_size", "rotate_by_count"]:
+    if task_mode != "rotate":
         logger.info(f" - 时间阈值: {format_timespan(age_threshold_seconds)}")
-    if task_mode == "rotate_by_size":
-        logger.info(f" - 大小限制: {task.get('size_limit')}")
-    if task_mode == "rotate_by_count":
-        logger.info(f" - 数量限制: {task.get('count_limit')}")
+    if task_mode == "rotate":
+        size_limit = task.get("size_limit")
+        count_limit = task.get("count_limit")
+        if size_limit and parse_size_string(size_limit) > 0:
+            logger.info(f" - 大小限制: {size_limit}")
+        if count_limit and int(count_limit) > 0:
+            logger.info(f" - 数量限制: {count_limit}")
 
 
 def _process_directories(
@@ -592,11 +594,8 @@ def handle_rotate_mode(
     }
     policy = FileFilterPolicy(merged_config)
 
-    limit_value = 0
-    if task_mode == "rotate_by_size":
-        limit_value = parse_size_string(task.get("size_limit"))
-    else:
-        limit_value = int(task.get("count_limit"))
+    size_limit = parse_size_string(task.get("size_limit", "0"))
+    count_limit = int(task.get("count_limit", 0))
 
     start_time = time.time()
 
@@ -620,9 +619,9 @@ def handle_rotate_mode(
                 continue
 
     is_exceeded = False
-    if task_mode == "rotate_by_size" and current_total_size > limit_value:
+    if size_limit > 0 and current_total_size > size_limit:
         is_exceeded = True
-    elif task_mode == "rotate_by_count" and current_total_count > limit_value:
+    if count_limit > 0 and current_total_count > count_limit:
         is_exceeded = True
 
     if not is_exceeded:
@@ -669,9 +668,9 @@ def handle_rotate_mode(
     candidates.sort(key=lambda x: x["mtime"])
 
     for f in candidates:
-        if task_mode == "rotate_by_size" and current_total_size <= limit_value:
-            break
-        if task_mode == "rotate_by_count" and current_total_count <= limit_value:
+        size_ok = size_limit == 0 or current_total_size <= size_limit
+        count_ok = count_limit == 0 or current_total_count <= count_limit
+        if size_ok and count_ok:
             break
 
         move_file(
@@ -690,13 +689,13 @@ def handle_rotate_mode(
             current_total_size -= f["size"]
             current_total_count -= 1
 
-    if task_mode == "rotate_by_size" and current_total_size > limit_value:
+    if size_limit > 0 and current_total_size > size_limit:
         logger.warning(
-            f"警告：由于 keep_rules 冲突或其他原因，已无可处理文件，但目录体积 ({format_size(current_total_size, binary=True)}) 仍未满足限制 ({format_size(limit_value, binary=True)})。"
+            f"警告：由于配置冲突或其他原因，已无可处理文件，但目录体积 ({format_size(current_total_size, binary=True)}) 仍未满足限制 ({format_size(size_limit, binary=True)})。"
         )
-    elif task_mode == "rotate_by_count" and current_total_count > limit_value:
+    if count_limit > 0 and current_total_count > count_limit:
         logger.warning(
-            f"警告：由于 keep_rules 冲突或其他原因，已无可处理文件，但文件数量 ({current_total_count}) 仍未满足限制 ({limit_value})。"
+            f"警告：由于配置冲突或其他原因，已无可处理文件，但文件数量 ({current_total_count}) 仍未满足限制 ({count_limit})。"
         )
 
     if remove_empty_dirs:
@@ -726,7 +725,7 @@ def process_directory_pair(task, config, logger, history_mgr):
         handle_sync_mode(task, config, logger, source_root, dest_root)
         return
 
-    if task_mode in ["rotate_by_size", "rotate_by_count"]:
+    if task_mode == "rotate":
         handle_rotate_mode(
             task, config, logger, history_mgr, source_root, dest_root, task_mode
         )
