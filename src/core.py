@@ -139,13 +139,11 @@ class FileFilterPolicy:
 
     def __init__(self, config):
         self.is_whitelist_mode = config.get("is_whitelist_mode", False)
+        self.keep_rules = self._RuleSet(config.get("keep_rules", {}))
+        self.delete_rules = self._RuleSet(config.get("delete_rules", {}))
+        self.preferred_rule = config.get("preferred_rule", "keep")
         if self.is_whitelist_mode:
             self.whitelist_rules = self._RuleSet(config.get("whitelist_rules", {}))
-        else:
-            # 分别加载 删除规则 和 保留规则
-            self.delete_rules = self._RuleSet(config.get("delete_rules", {}))
-            self.keep_rules = self._RuleSet(config.get("keep_rules", {}))
-            self.preferred_rule = config.get("preferred_rule", "keep")
 
     def decide(self, name, size_or_callable, is_dir=False):
         """
@@ -157,6 +155,17 @@ class FileFilterPolicy:
                 name, size_or_callable, is_dir
             )
             if match_whitelist:
+                match_keep = self.keep_rules.matches(name, size_or_callable, is_dir)
+                match_delete = self.delete_rules.matches(name, size_or_callable, is_dir)
+                if match_keep and match_delete:
+                    if self.preferred_rule == "delete":
+                        return FileAction.DELETE
+                    else:
+                        return FileAction.SKIP
+                elif match_keep:
+                    return FileAction.SKIP
+                elif match_delete:
+                    return FileAction.DELETE
                 return FileAction.TRANSFER
             else:
                 return FileAction.SKIP

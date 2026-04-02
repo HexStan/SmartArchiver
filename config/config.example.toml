@@ -64,46 +64,46 @@ conflict_policy = "overwrite"
 remove_empty_dirs = true
 
 # 匹配规则说明 (适用于 move 和 copy 模式)：
-# 1. 匹配方式 (大小写不敏感):
-#    - "example.txt" : 完全匹配
-#    - "example*"    : 前缀匹配
-#    - "*example"    : 后缀匹配
-#    - "*example*"   : 包含匹配
-#    - "*"           : 匹配所有
 #
-# 2. 优先级逻辑:
+# 1. 优先级逻辑:
 #    - 默认情况下：保留规则 (keep_rules) > 删除规则 (delete_rules) > 正常传输
 #    - 如果一个文件同时命中保留和删除规则，默认将被【保留】。
 #    - 可以通过 preferred_rule 配置项修改此行为。
 #
-# 3. 大小阈值:
+# 2. 大小阈值:
 #    - 仅当文件/目录大小【小于/大于等于】设定的阈值时，规则才会生效。lt 为小于，ge 为大于等于。
 #    - 如果希望匹配所有大小，请使用 ge 规则并设置为 "0"（例如: "*.log" = "0"）。
 #    - 支持单位: B, KB, MB, GB, TB (例如: "10MB", "1.5GB")。
 
 # 【选填】当文件/目录同时命中保留规则和删除规则时的处理方式：
-# "keep" - 保留文件（默认）
-# "delete" - 删除文件
+# "keep" - 遵循保留规则（默认）
+# "delete" - 遵循删除规则
 preferred_rule = "keep"
 
 # 【选填】保留规则：命中的文件/目录将留在原处，不进行移动、复制或删除
+# 用不到的规则块可直接删除
+[tasks.keep_rules.dirs.lt]
+# "*" = "1B"                  # 保留小于 1B 的所有目录
+# "example" = "1KB"           # 保留名称完全符合 example 且小于 1KB 的目录
+# "*example*" = "1MB"         # 保留名称中连续地包含 example 且小于 1MB 的目录
+# "example*" = "1GB"          # 保留名称前缀为 example 且小于 1GB 的目录
+# "*example" = "1TB"          # 保留名称后缀为 example 且小于 1TB 的目录
+
 [tasks.keep_rules.dirs.ge]
-# "Favorites" = "0"          # 始终保留名为 Favorites 的目录
+
+[tasks.keep_rules.files.lt]
+# "example" = "0"             # 保留名称完全符合 example 的所有文件
 
 [tasks.keep_rules.files.ge]
-# "*.raw" = "0"              # 始终保留所有 .raw 文件
-# "*.mp4" = "1GB"              # 保留大于等于 1GB 的 .mp4 文件
 
 # 【选填】删除规则：命中的文件/目录将被直接删除，不移动到目标目录
-[tasks.delete_rules.dirs.ge]
-# "*temp*" = "0"              # 删除所有包含 temp 的目录
+[tasks.delete_rules.dirs.lt]
 
-[tasks.delete_rules.files.ge]
-# "desktop.ini" = "0"        # 删除所有 desktop.ini 文件
-# "*.DS_Store" = "0"         # 删除所有后缀为 .DS_Store 的文件
+[tasks.delete_rules.dirs.ge]
 
 [tasks.delete_rules.files.lt]
-# "*.mp4" = "1MB"              # 删除小于 1MB 的 .mp4 文件
+
+[tasks.delete_rules.files.ge]
 
 # --------------------------------------------------
 
@@ -128,11 +128,19 @@ preferred_rule = "keep"
 
 [tasks.keep_rules.dirs.lt]
 
+[tasks.keep_rules.dirs.ge]
+
 [tasks.keep_rules.files.lt]
+
+[tasks.keep_rules.files.ge]
 
 [tasks.delete_rules.dirs.lt]
 
+[tasks.delete_rules.dirs.ge]
+
 [tasks.delete_rules.files.lt]
+
+[tasks.delete_rules.files.ge]
 
 # --------------------------------------------------
 
@@ -143,21 +151,34 @@ source = "./source"
 dest = "./dest"
 
 # 【必填】任务执行模式：
-# "whitelist_move" - 白名单移动模式（仅移动命中 whitelist_rules 的文件/目录，忽略 keep_rules 和 delete_rules）
-# "whitelist_copy" - 白名单复制模式（仅复制命中 whitelist_rules 的文件/目录，忽略 keep_rules 和 delete_rules）
+# "whitelist_move" - 白名单移动模式（仅移动命中 whitelist_rules 的文件/目录）
+# "whitelist_copy" - 白名单复制模式（仅复制命中 whitelist_rules 的文件/目录）
 mode = "whitelist_copy"
 
 min_age_minutes = 180
 conflict_policy = "overwrite"
 remove_empty_dirs = true
 
-# 【必填至少一项】白名单规则（仅在 whitelist_move 和 whitelist_copy 模式下生效）：
+# 【dirs 或 files 中必填至少一项】白名单规则（仅在 whitelist_move 和 whitelist_copy 模式下生效）：
 # 命中的文件/目录将被移动或复制，未命中的将被忽略
+[tasks.whitelist_rules.dirs.lt]
+
 [tasks.whitelist_rules.dirs.ge]
-# "Important" = "0"          # 仅处理名为 Important 的目录
+
+[tasks.whitelist_rules.files.lt]
 
 [tasks.whitelist_rules.files.ge]
-# "*.pdf" = "0"              # 仅处理所有 .pdf 文件
+
+# 【选填】删除规则，只有同时满足白名单规则和删除规则的文件/目录才会被删除
+[tasks.delete_rules.dirs.lt]
+
+[tasks.delete_rules.dirs.ge]
+
+[tasks.delete_rules.files.lt]
+
+[tasks.delete_rules.files.ge]
+
+# 白名单模式下不支持配置 keep_rules
 
 # --------------------------------------------------
 
@@ -179,3 +200,5 @@ mode = "sync"
 
 # 【选填】最多保留的副本份数（0 表示不限制）
 # max_backups = 5
+
+# 同步模式下不支持配置 rules，请在 exclude 中指定
