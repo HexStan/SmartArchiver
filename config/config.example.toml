@@ -169,6 +169,15 @@ remove_empty_dirs = true
 
 [tasks.whitelist_rules.files.ge]
 
+# 【选填】保留规则，用于指定在命中了白名单规则时，哪些文件/目录需要保留
+[tasks.keep_rules.dirs.lt]
+
+[tasks.keep_rules.dirs.ge]
+
+[tasks.keep_rules.files.lt]
+
+[tasks.keep_rules.files.ge]
+
 # 【选填】删除规则，只有同时满足白名单规则和删除规则的文件/目录才会被删除
 [tasks.delete_rules.dirs.lt]
 
@@ -177,8 +186,6 @@ remove_empty_dirs = true
 [tasks.delete_rules.files.lt]
 
 [tasks.delete_rules.files.ge]
-
-# 白名单模式下不支持配置 keep_rules
 
 # --------------------------------------------------
 
