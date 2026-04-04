@@ -78,12 +78,22 @@ remove_empty_dirs = true
 # 【选填】保留规则：命中的文件/目录将留在原处，不进行移动、复制或删除
 # 用不到的规则块可直接删除
 [tasks.keep_rules]
-# ge."*alpha*" = "0"  # 匹配source目录下所有名称中包含alpha的文件        
-# ge."*/*alpha*" = "0"  # 作用同上一条 
-# lt."*bravo/" = "1MB"  # 匹配所有后缀为bravo且小于1MB的目录。如果末尾没有`/`，则匹配文件而不是目录 
-# lt."charlie*/delta*" = "10MB"  # 在所有前缀为charlie的目录中匹配前缀为delta且小于10MB的文件 
-# lt."echo*/foxtrot*/" = "100MB"  # 在所有前缀为echo的目录中匹配前缀为foxtrot且大于100MB的目录 
-# lt."golf/hotel/india.mp4" = "1GB"    # 多级目录匹配，在golf/hotel目录下匹配名称为`india.mp4`且大于1GB的文件 
+# 文件匹配示例（末尾没有`/`时匹配文件）：
+# lt."alpha.txt" = "1MB"          # 完全匹配：匹配名为 alpha.txt 且小于 1MB 的文件
+# lt."*.log" = "10MB"               # 后缀匹配：匹配 .log 后缀且小于 10MB 的文件
+# ge."beta*" = "100MB"              # 前缀匹配：匹配 beta 开头且大于等于 100MB 的文件
+# ge."*charlie*" = "1GB"             # 部分匹配：匹配名称中包含 charlie 且大于等于 1GB 的文件
+# ge."delta.db" = "0"          # 匹配名称为 delta.db 的文件
+
+# 目录匹配示例（末尾有`/`时匹配目录）：
+# lt."*echo*/" = "500MB"           # 部分匹配：匹配名称中包含 echo 且小于 500MB 的目录
+# lt."*/foxtrot/" = "1GB"              # 后缀匹配：匹配以 foxtrot 结尾且小于 1GB 的目录
+# ge."golf*/" = "2GB"              # 前缀匹配：匹配 golf 开头且大于等于 2GB 的目录
+
+# 多级路径匹配示例：
+# lt."hotel/india/juliett/" = "5GB"    # 匹配 hotel/india/ 下小于 5GB 的 juliet 目录
+# lt."kilo/*.pdf" = "100MB"             # 匹配 kilo 目录下 .pdf 后缀且小于 100MB 的文件
+# lt."lima/*/mike*" = "50MB"             # 匹配 lima 下一级子目录中 mike 开头且小于 50MB 的文件
 
 # 【选填】删除规则：命中的文件/目录将被直接删除，不移动到目标目录
 [tasks.delete_rules]
