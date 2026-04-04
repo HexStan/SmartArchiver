@@ -357,7 +357,7 @@ class TestProcessDirectoryPair:
             "min_age_minutes": 0,
             "conflict_policy": "overwrite",
             "remove_empty_dirs": True,
-            "delete_rules": {"files": {"*.tmp": "ALL"}},
+            "delete_rules": {"lt": {"*.tmp": "ALL"}},
         }
         config = {"max_retries": 3}
         logger = MockLogger()
@@ -386,7 +386,7 @@ class TestProcessDirectoryPair:
             "min_age_minutes": 0,
             "conflict_policy": "overwrite",
             "remove_empty_dirs": True,
-            "keep_rules": {"files": {"*.raw": "ALL"}},
+            "keep_rules": {"lt": {"*.raw": "ALL"}},
         }
         config = {"max_retries": 3}
         logger = MockLogger()
@@ -415,7 +415,7 @@ class TestProcessDirectoryPair:
             "min_age_minutes": 0,
             "conflict_policy": "overwrite",
             "remove_empty_dirs": True,
-            "whitelist_rules": {"files": {"*.pdf": "ALL"}},
+            "whitelist_rules": {"lt": {"*.pdf": "ALL"}},
         }
         config = {"max_retries": 3}
         logger = MockLogger()

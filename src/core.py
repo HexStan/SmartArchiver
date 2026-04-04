@@ -2,6 +2,7 @@ import os
 import shutil
 import time
 import subprocess
+import fnmatch
 from datetime import datetime
 from enum import Enum
 
@@ -13,26 +14,16 @@ from src.utils import parse_size_string, is_file_locked
 def match_pattern(name, pattern):
     """
     匹配模式：
-    - "example": 完全匹配
-    - "*example*": 部分连续匹配
-    - "example*": 前缀匹配
-    - "*example": 后缀匹配
-    - "*": 匹配所有
+    支持通配符 * 和 ?，支持多级目录匹配
     大小写不敏感
     """
-    name = name.lower()
-    pattern = pattern.lower()
+    name = name.replace("\\", "/").lower()
+    pattern = pattern.replace("\\", "/").lower()
 
-    if pattern == "*":
-        return True
-    elif pattern.startswith("*") and pattern.endswith("*") and len(pattern) >= 2:
-        return pattern[1:-1] in name
-    elif pattern.startswith("*"):
-        return name.endswith(pattern[1:])
-    elif pattern.endswith("*"):
-        return name.startswith(pattern[:-1])
-    else:
-        return name == pattern
+    if "/" not in pattern:
+        name = name.split("/")[-1]
+
+    return fnmatch.fnmatch(name, pattern)
 
 
 # 定义操作枚举，提高代码可读性
@@ -85,19 +76,31 @@ class FileFilterPolicy:
 
             self.dir_rules_lt = {}
             self.dir_rules_ge = {}
-            raw_dirs = rules_config.get("dirs", {})
-            self._parse_rules(raw_dirs, self.dir_rules_lt, self.dir_rules_ge)
-
             self.file_rules_lt = {}
             self.file_rules_ge = {}
-            raw_files = rules_config.get("files", {})
-            self._parse_rules(raw_files, self.file_rules_lt, self.file_rules_ge)
 
-        def _parse_rules(self, raw_rules, lt_dict, ge_dict):
+            self._parse_rules(
+                rules_config,
+                self.dir_rules_lt,
+                self.dir_rules_ge,
+                self.file_rules_lt,
+                self.file_rules_ge,
+            )
+
+        def _parse_rules(self, raw_rules, dir_lt, dir_ge, file_lt, file_ge):
             for pattern, size_str in raw_rules.get("lt", {}).items():
-                lt_dict[pattern] = parse_size_string(size_str)
+                size = parse_size_string(size_str)
+                if pattern.endswith("/"):
+                    dir_lt[pattern[:-1]] = size
+                else:
+                    file_lt[pattern] = size
+
             for pattern, size_str in raw_rules.get("ge", {}).items():
-                ge_dict[pattern] = parse_size_string(size_str)
+                size = parse_size_string(size_str)
+                if pattern.endswith("/"):
+                    dir_ge[pattern[:-1]] = size
+                else:
+                    file_ge[pattern] = size
 
         def matches(self, name, size_or_callable, is_dir=False):
             """
@@ -382,10 +385,8 @@ def _validate_task_config(task, task_mode, logger):
 
     if task_mode in ["whitelist_copy", "whitelist_move"]:
         whitelist_rules = task.get("whitelist_rules", {})
-        if not whitelist_rules.get("dirs") and not whitelist_rules.get("files"):
-            logger.error(
-                "白名单模式下必须配置 whitelist_rules.dirs 或 whitelist_rules.files，跳过该任务。"
-            )
+        if not whitelist_rules:
+            logger.error("白名单模式下必须配置 whitelist_rules，跳过该任务。")
             return False
 
     return True
@@ -441,7 +442,7 @@ def _process_directories(
                 dir_mtime_cache.append(m)
             return dir_size_cache[0]
 
-        action = policy.decide(d, get_size, is_dir=True)
+        action = policy.decide(rel_dir_path, get_size, is_dir=True)
 
         if action == FileAction.DELETE:
             # 如果之前没获取过大小（例如命中 ALL 规则），则在此处获取以进行时间检查
@@ -520,7 +521,7 @@ def _process_files(
             continue
 
         # 核心决策逻辑
-        action = policy.decide(file, size)
+        action = policy.decide(rel_path, size)
 
         # 执行动作
         if action == FileAction.TRANSFER:
@@ -659,7 +660,8 @@ def handle_rotate_mode(
             )
             continue
 
-        action = policy.decide(f["name"], f["size"])
+        rel_path = os.path.relpath(f["path"], source_root)
+        action = policy.decide(rel_path, f["size"])
         if action == FileAction.DELETE:
             delete_file(
                 f["path"], f["size"], source_root, logger, local_stats, history_mgr
