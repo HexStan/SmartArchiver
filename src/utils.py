@@ -97,6 +97,10 @@ def parse_size_string(size_str):
     # 转换为字符串并去除空格
     s = str(size_str).strip()
 
+    # 特殊处理：支持 -1 作为全匹配标志
+    if s == "-1":
+        return -1
+
     try:
         # binary=True 表示使用 1024 进位 (MiB, KiB)
         return parse_size(s, binary=True)
