@@ -119,12 +119,12 @@ class FileFilterPolicy:
 
             for pattern, threshold in rules_ge.items():
                 if match_pattern(name, pattern):
-                    # 如果 ge 规则阈值为 0，必然命中，无需检查大小
-                    if threshold == 0:
+                    # 如果 ge 规则阈值为 -1，必然命中，无需检查大小
+                    if threshold == -1:
                         return True
                     matching_thresholds_ge.append(threshold)
 
-            # 只有在没有命中 ge 0 且命中了其他有大小限制的规则时，才获取并检查大小
+            # 只有在没有命中 ge -1 且命中了其他有大小限制的规则时，才获取并检查大小
             if matching_thresholds_lt or matching_thresholds_ge:
                 size = (
                     size_or_callable()
