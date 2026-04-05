@@ -268,7 +268,7 @@ class TestProcessDirectoryPair:
             "source": str(source_dir),
             "dest": str(dest_dir),
             "mode": "move",
-            "min_age_minutes": 0,
+            "mtime_threshold_minutes": 0,
             "conflict_policy": "overwrite",
             "remove_empty_dirs": True,
         }
@@ -295,7 +295,7 @@ class TestProcessDirectoryPair:
             "source": str(source_dir),
             "dest": str(dest_dir),
             "mode": "copy",
-            "min_age_minutes": 0,
+            "mtime_threshold_minutes": 0,
             "conflict_policy": "overwrite",
             "remove_empty_dirs": True,
         }
@@ -308,7 +308,7 @@ class TestProcessDirectoryPair:
         assert (source_dir / "file1.txt").exists()
         assert (dest_dir / "file1.txt").exists()
 
-    def test_age_threshold(self, tmp_path):
+    def test_mtime_threshold(self, tmp_path):
         source_dir = tmp_path / "source"
         dest_dir = tmp_path / "dest"
         source_dir.mkdir()
@@ -326,7 +326,7 @@ class TestProcessDirectoryPair:
             "source": str(source_dir),
             "dest": str(dest_dir),
             "mode": "move",
-            "min_age_minutes": 30,
+            "mtime_threshold_minutes": 30,
             "conflict_policy": "overwrite",
             "remove_empty_dirs": True,
         }
@@ -354,7 +354,7 @@ class TestProcessDirectoryPair:
             "source": str(source_dir),
             "dest": str(dest_dir),
             "mode": "move",
-            "min_age_minutes": 0,
+            "mtime_threshold_minutes": 0,
             "conflict_policy": "overwrite",
             "remove_empty_dirs": True,
             "delete_rules": {"lt": {"*.tmp": "ALL"}},
@@ -383,7 +383,7 @@ class TestProcessDirectoryPair:
             "source": str(source_dir),
             "dest": str(dest_dir),
             "mode": "move",
-            "min_age_minutes": 0,
+            "mtime_threshold_minutes": 0,
             "conflict_policy": "overwrite",
             "remove_empty_dirs": True,
             "keep_rules": {"lt": {"*.raw": "ALL"}},
@@ -412,7 +412,7 @@ class TestProcessDirectoryPair:
             "source": str(source_dir),
             "dest": str(dest_dir),
             "mode": "whitelist_move",
-            "min_age_minutes": 0,
+            "mtime_threshold_minutes": 0,
             "conflict_policy": "overwrite",
             "remove_empty_dirs": True,
             "whitelist_rules": {"lt": {"*.pdf": "ALL"}},
@@ -442,7 +442,7 @@ class TestProcessDirectoryPair:
             "source": str(source_dir),
             "dest": str(dest_dir),
             "mode": "move",
-            "min_age_minutes": 0,
+            "mtime_threshold_minutes": 0,
             "conflict_policy": "overwrite",
             "remove_empty_dirs": True,
         }
@@ -463,7 +463,7 @@ class TestProcessDirectoryPair:
             "source": str(source_dir),
             "dest": str(dest_dir),
             "mode": "move",
-            "min_age_minutes": 0,
+            "mtime_threshold_minutes": 0,
             "conflict_policy": "overwrite",
             "remove_empty_dirs": True,
         }
@@ -486,7 +486,7 @@ class TestProcessDirectoryPair:
             "source": str(source_dir),
             "dest": str(dest_dir),
             "mode": "move",
-            "min_age_minutes": 0,
+            "mtime_threshold_minutes": 0,
             "conflict_policy": "overwrite",
             "remove_empty_dirs": True,
         }

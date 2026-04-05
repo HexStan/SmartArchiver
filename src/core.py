@@ -373,7 +373,7 @@ def _validate_task_config(task, task_mode, logger):
     else:
         required_fields = [
             "mode",
-            "min_age_minutes",
+            "mtime_threshold_minutes",
             "conflict_policy",
             "remove_empty_dirs",
         ]
@@ -393,7 +393,7 @@ def _validate_task_config(task, task_mode, logger):
 
 
 def _print_task_header(
-    task, task_mode, source_root, dest_root, age_threshold_seconds, logger
+    task, task_mode, source_root, dest_root, mtime_threshold_seconds, logger
 ):
     task_name = task.get("name")
     if task_name:
@@ -413,7 +413,7 @@ def _print_task_header(
     logger.info(f" - 源路径: {source_root}")
     logger.info(f" - 目标路径: {dest_root}")
     if task_mode != "rotate":
-        logger.info(f" - 时间阈值: {format_timespan(age_threshold_seconds)}")
+        logger.info(f" - 时间阈值: {format_timespan(mtime_threshold_seconds)}")
     if task_mode == "rotate":
         size_limit = task.get("size_limit")
         count_limit = task.get("count_limit")
@@ -424,7 +424,7 @@ def _print_task_header(
 
 
 def _process_directories(
-    dirs, root, source_root, policy, now, age_threshold_seconds, local_stats, logger
+    dirs, root, source_root, policy, now, mtime_threshold_seconds, local_stats, logger
 ):
     dirs_to_remove = []
     for d in dirs:
@@ -453,7 +453,7 @@ def _process_directories(
             dir_mtime = dir_mtime_cache[0]
             dir_size = dir_size_cache[0]
 
-            if (now - dir_mtime) > age_threshold_seconds:
+            if (now - dir_mtime) > mtime_threshold_seconds:
                 try:
                     shutil.rmtree(dir_path)
                     logger.success(
@@ -484,7 +484,7 @@ def _process_files(
     dest_root,
     policy,
     now,
-    age_threshold_seconds,
+    mtime_threshold_seconds,
     local_stats,
     history_mgr,
     max_retries,
@@ -512,7 +512,7 @@ def _process_files(
             continue
 
         # 所有操作（包括删除垃圾文件）都必须满足时间阈值
-        if (now - mtime) <= age_threshold_seconds:
+        if (now - mtime) <= mtime_threshold_seconds:
             continue
 
         if is_file_locked(src_path):
@@ -742,17 +742,17 @@ def process_directory_pair(task, config, logger, history_mgr, now=None):
         )
         return
 
-    min_age_minutes = task.get("min_age_minutes", 0)
+    mtime_threshold_minutes = task.get("mtime_threshold_minutes", 0)
     max_retries = config.get("max_retries", 3)
     conflict_policy = task["conflict_policy"].lower()
     remove_empty_dirs = task["remove_empty_dirs"]
 
     if now is None:
         now = time.time()
-    age_threshold_seconds = min_age_minutes * 60
+    mtime_threshold_seconds = mtime_threshold_minutes * 60
 
     _print_task_header(
-        task, task_mode, source_root, dest_root, age_threshold_seconds, logger
+        task, task_mode, source_root, dest_root, mtime_threshold_seconds, logger
     )
 
     if not os.path.exists(source_root):
@@ -791,7 +791,7 @@ def process_directory_pair(task, config, logger, history_mgr, now=None):
             source_root,
             policy,
             now,
-            age_threshold_seconds,
+            mtime_threshold_seconds,
             local_stats,
             logger,
         )
@@ -802,7 +802,7 @@ def process_directory_pair(task, config, logger, history_mgr, now=None):
             dest_root,
             policy,
             now,
-            age_threshold_seconds,
+            mtime_threshold_seconds,
             local_stats,
             history_mgr,
             max_retries,

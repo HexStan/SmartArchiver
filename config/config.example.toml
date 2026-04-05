@@ -50,9 +50,9 @@ dest = "./dest"     # 目标目录路径
 # "copy" - 复制文件到目标目录
 mode = "copy"
 
-# 【必填】文件最小年龄（分钟），只有修改时间超过此时间的文件才会被处理
+# 【必填】修改时间阈值（分钟），只有修改时间超过此时间的文件才会被处理
 # 注意：所有操作（包括删除规则）都必须满足此时间阈值
-min_age_minutes = 180
+mtime_threshold_minutes = 180
 
 # 【必填】文件冲突处理策略：
 # "overwrite" - 覆盖目标文件
@@ -142,7 +142,7 @@ dest = "./dest"
 # "whitelist_copy" - 白名单复制模式（仅复制命中 whitelist_rules 的文件/目录）
 mode = "whitelist_copy"
 
-min_age_minutes = 180
+mtime_threshold_minutes = 180
 conflict_policy = "overwrite"
 remove_empty_dirs = true
 
