@@ -411,7 +411,10 @@ def _print_task_header(
 
     logger.info(f" - 任务模式: {mode_str}")
     logger.info(f" - 源路径: {source_root}")
-    logger.info(f" - 目标路径: {dest_root}")
+    if str(dest_root) == "-1" and task_mode == "rotate":
+        logger.info(" - 目标路径: 无 (直接删除)")
+    else:
+        logger.info(f" - 目标路径: {dest_root}")
     if task_mode != "rotate":
         logger.info(f" - 时间阈值: {format_timespan(mtime_threshold_seconds)}")
     if task_mode == "rotate":
@@ -585,7 +588,9 @@ def handle_rotate_mode(
         logger.error(f"源目录不存在: {source_root}")
         return
 
-    if not os.path.isdir(dest_root):
+    is_delete_mode = str(dest_root) == "-1"
+
+    if not is_delete_mode and not os.path.isdir(dest_root):
         logger.error("!!! CRUCIAL: 目标目录不存在 !!!")
         return
 
@@ -684,17 +689,22 @@ def handle_rotate_mode(
         if size_ok and count_ok:
             break
 
-        move_file(
-            f["path"],
-            f["size"],
-            source_root,
-            dest_root,
-            logger,
-            local_stats,
-            history_mgr,
-            conflict_policy,
-            "move",
-        )
+        if is_delete_mode:
+            delete_file(
+                f["path"], f["size"], source_root, logger, local_stats, history_mgr
+            )
+        else:
+            move_file(
+                f["path"],
+                f["size"],
+                source_root,
+                dest_root,
+                logger,
+                local_stats,
+                history_mgr,
+                conflict_policy,
+                "move",
+            )
 
         if not os.path.exists(f["path"]):
             current_total_size -= f["size"]

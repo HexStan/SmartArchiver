@@ -109,6 +109,8 @@ preferred_rule = "keep"
 name = "轮转移动任务示例"
 
 source = "./source"
+
+# 如果设置为 dest = -1，则在轮转时直接删除旧文件
 dest = "./dest"
 
 # 【必填】任务执行模式：
