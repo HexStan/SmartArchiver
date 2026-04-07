@@ -145,6 +145,7 @@ class FileFilterPolicy:
         self.keep_rules = self._RuleSet(config.get("keep_rules", {}))
         self.delete_rules = self._RuleSet(config.get("delete_rules", {}))
         self.preferred_rule = config.get("preferred_rule", "keep")
+        self.whitelisted_dirs = set()
         if self.is_whitelist_mode:
             self.whitelist_rules = self._RuleSet(config.get("whitelist_rules", {}))
 
@@ -153,10 +154,6 @@ class FileFilterPolicy:
         根据名称和大小，返回 FileAction 决策。
         size_or_callable 可以是一个数值，也可以是一个返回数值的可调用对象（用于惰性求值）。
         """
-        if self.is_whitelist_mode:
-            if not self.whitelist_rules.matches(name, size_or_callable, is_dir):
-                return FileAction.SKIP
-
         match_keep = self.keep_rules.matches(name, size_or_callable, is_dir)
         match_delete = self.delete_rules.matches(name, size_or_callable, is_dir)
 
@@ -174,6 +171,34 @@ class FileFilterPolicy:
         # 3. 如果只命中删除规则，删除目标
         elif match_delete:
             return FileAction.DELETE
+
+        if self.is_whitelist_mode:
+            is_whitelisted = self.whitelist_rules.matches(name, size_or_callable, is_dir)
+            
+            if is_whitelisted and is_dir:
+                # 记录命中的目录，以便其子文件/子目录继承白名单状态
+                # 统一使用正斜杠以避免路径分隔符问题
+                normalized_name = name.replace("\\", "/")
+                self.whitelisted_dirs.add(normalized_name)
+                
+            if not is_whitelisted:
+                # 检查父目录是否在白名单中
+                normalized_name = name.replace("\\", "/")
+                parent = os.path.dirname(normalized_name)
+                while parent:
+                    if parent in self.whitelisted_dirs:
+                        is_whitelisted = True
+                        break
+                    parent = os.path.dirname(parent)
+                    
+            if not is_whitelisted:
+                if not is_dir:
+                    return FileAction.SKIP
+                else:
+                    # 目录未命中白名单，但我们需要遍历它以寻找可能命中白名单的子项
+                    return FileAction.TRANSFER
+            else:
+                return FileAction.TRANSFER
 
         # 4. 都不命中，正常传输
         return FileAction.TRANSFER
