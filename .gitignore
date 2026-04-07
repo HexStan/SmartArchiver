@@ -1,8 +1,10 @@
 .idea/
 .venv/
+test_source/
+test_dest/
+logs/
 deprecated/
 __pycache__/
-tests/
-logs/
 config.toml
+*.log
 failure_history.json

@@ -154,10 +154,7 @@ class FileFilterPolicy:
         size_or_callable 可以是一个数值，也可以是一个返回数值的可调用对象（用于惰性求值）。
         """
         if self.is_whitelist_mode:
-            # 在白名单模式下，默认遍历所有目录，只有文件才会被白名单拦截
-            if not is_dir and not self.whitelist_rules.matches(
-                name, size_or_callable, is_dir
-            ):
+            if not self.whitelist_rules.matches(name, size_or_callable, is_dir):
                 return FileAction.SKIP
 
         match_keep = self.keep_rules.matches(name, size_or_callable, is_dir)
