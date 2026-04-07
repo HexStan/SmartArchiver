@@ -140,8 +140,8 @@ source = "./source"
 dest = "./dest"
 
 # 【必填】任务执行模式：
-# "whitelist_move" - 白名单移动模式（仅移动命中 whitelist_rules 的文件/目录）
-# "whitelist_copy" - 白名单复制模式（仅复制命中 whitelist_rules 的文件/目录）
+# "whitelist_move" - 白名单移动模式（仅移动命中 whitelist_rules 的文件）
+# "whitelist_copy" - 白名单复制模式（仅复制命中 whitelist_rules 的文件）
 mode = "whitelist_copy"
 
 mtime_threshold_minutes = 180
@@ -150,7 +150,8 @@ remove_empty_dirs = true
 
 # 【whitelist_rules 必填】
 # 白名单规则（仅在 whitelist_move 和 whitelist_copy 模式下生效）：
-# 命中的文件/目录将被移动或复制，未命中的将被忽略
+# 命中的文件将被移动或复制，未命中的将被忽略。
+# 注意：白名单模式下默认会遍历所有目录，无需额外指定目录的白名单规则。
 [tasks.whitelist_rules]
 
 # 【选填】保留规则，用于指定在命中了白名单规则时，哪些文件/目录需要保留
