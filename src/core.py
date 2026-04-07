@@ -173,14 +173,16 @@ class FileFilterPolicy:
             return FileAction.DELETE
 
         if self.is_whitelist_mode:
-            is_whitelisted = self.whitelist_rules.matches(name, size_or_callable, is_dir)
-            
+            is_whitelisted = self.whitelist_rules.matches(
+                name, size_or_callable, is_dir
+            )
+
             if is_whitelisted and is_dir:
                 # 记录命中的目录，以便其子文件/子目录继承白名单状态
                 # 统一使用正斜杠以避免路径分隔符问题
                 normalized_name = name.replace("\\", "/")
                 self.whitelisted_dirs.add(normalized_name)
-                
+
             if not is_whitelisted:
                 # 检查父目录是否在白名单中
                 normalized_name = name.replace("\\", "/")
@@ -190,7 +192,7 @@ class FileFilterPolicy:
                         is_whitelisted = True
                         break
                     parent = os.path.dirname(parent)
-                    
+
             if not is_whitelisted:
                 if not is_dir:
                     return FileAction.SKIP
