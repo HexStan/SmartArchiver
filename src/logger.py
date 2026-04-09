@@ -61,6 +61,10 @@ class LoggerWrapper:
     def error(self, msg, raw=False):
         """记录 error 级别日志，raw=True 时不带格式"""
         self._logger.error(self._sanitize(msg), extra={"is_raw": raw})
+    
+    def critical(self, msg, raw=False):
+        """记录 critical 级别日志，raw=True 时不带格式"""
+        self._logger.critical(self._sanitize(msg), extra={"is_raw": raw})
 
     # 如果需要访问底层 logger 的其他方法（如 warning, debug），可以通过 getattr 委托
     def __getattr__(self, name):

@@ -331,7 +331,7 @@ def handle_sync_mode(task, config, logger, source_root, dest_root):
         return
 
     if not os.path.isdir(dest_root):
-        logger.error("!!! CRUCIAL: 目标目录不存在 !!!")
+        logger.critical("!!! CRUCIAL: 目标目录不存在 !!!")
         return
 
     is_windows = os.name == "nt"
@@ -680,7 +680,7 @@ def handle_rotate_mode(
         return
 
     if str(dest_root) != "-1" and not os.path.isdir(dest_root):
-        logger.error("!!! CRUCIAL: 目标目录不存在 !!!")
+        logger.critical("!!! CRUCIAL: 目标目录不存在 !!!")
         return
 
     task_delete_rules = task.get("delete_rules", {})
@@ -947,7 +947,7 @@ def process_directory_pair(task, config, logger, history_mgr, now=None):
         return
 
     if not os.path.isdir(dest_root):
-        logger.error("!!! CRUCIAL: 目标目录不存在 !!!")
+        logger.critical("!!! CRUCIAL: 目标目录不存在 !!!")
         return
 
     task_delete_rules = task.get("delete_rules", {})
