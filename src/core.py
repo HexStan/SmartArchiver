@@ -610,59 +610,184 @@ def _print_task_summary(local_stats, duration_str, total_size_str, speed_str, lo
         )
 
 
-def _get_rotate_groups(rel_path, rotate_size_rules, rotate_count_rules):
+class RotateGroupManager:
     """
-    返回该文件所属的所有轮转组。
-    组的标识为 (group_type, group_subtype, group_key)
+    管理轮转模式下的分组统计和限制逻辑
     """
-    groups = []
 
-    for pattern, limit in rotate_size_rules.items():
-        if pattern == "*":
-            groups.append(("size", "name", os.path.basename(rel_path)))
-        elif pattern == "*/":
-            dir_name = os.path.dirname(rel_path.replace("\\", "/"))
-            dir_name = dir_name + "/" if dir_name else "/"
-            groups.append(("size", "dir", dir_name))
-        else:
-            if match_pattern(rel_path, pattern):
-                groups.append(("size", "pattern", pattern))
+    def __init__(self, size_limit, count_limit, rotate_size_rules, rotate_count_rules):
+        self.group_stats = {}
+        self.group_stats[("global", "global")] = {
+            "size": 0,
+            "count": 0,
+            "size_limit": size_limit,
+            "count_limit": count_limit,
+        }
+        self.rotate_size_rules = rotate_size_rules
+        self.rotate_count_rules = rotate_count_rules
 
-    for pattern, limit in rotate_count_rules.items():
-        if pattern == "*":
-            groups.append(("count", "name", os.path.basename(rel_path)))
-        elif pattern == "*/":
-            dir_name = os.path.dirname(rel_path.replace("\\", "/"))
-            dir_name = dir_name + "/" if dir_name else "/"
-            groups.append(("count", "dir", dir_name))
-        else:
-            if match_pattern(rel_path, pattern):
-                groups.append(("count", "pattern", pattern))
+        # Initialize rule groups
+        for pattern, limit in rotate_size_rules.items():
+            if pattern not in ["*", "*/"]:
+                self.group_stats[("size", "pattern", pattern)] = {
+                    "size": 0,
+                    "count": 0,
+                    "limit": limit,
+                }
+        for pattern, limit in rotate_count_rules.items():
+            if pattern not in ["*", "*/"]:
+                self.group_stats[("count", "pattern", pattern)] = {
+                    "size": 0,
+                    "count": 0,
+                    "limit": limit,
+                }
 
-    return groups
+    def _get_rotate_groups(self, rel_path):
+        """
+        返回该文件所属的所有轮转组。
+        组的标识为 (group_type, group_subtype, group_key)
+        """
+        groups = []
 
+        for pattern, limit in self.rotate_size_rules.items():
+            if pattern == "*":
+                groups.append(("size", "name", os.path.basename(rel_path)))
+            elif pattern == "*/":
+                dir_name = os.path.dirname(rel_path.replace("\\", "/"))
+                dir_name = dir_name + "/" if dir_name else "/"
+                groups.append(("size", "dir", dir_name))
+            else:
+                if match_pattern(rel_path, pattern):
+                    groups.append(("size", "pattern", pattern))
 
-def _is_group_exceeded(g_id, stats):
-    if g_id == ("global", "global"):
-        if stats["size_limit"] > 0 and stats["size"] > stats["size_limit"]:
-            return True
-        if stats["count_limit"] > 0 and stats["count"] > stats["count_limit"]:
-            return True
+        for pattern, limit in self.rotate_count_rules.items():
+            if pattern == "*":
+                groups.append(("count", "name", os.path.basename(rel_path)))
+            elif pattern == "*/":
+                dir_name = os.path.dirname(rel_path.replace("\\", "/"))
+                dir_name = dir_name + "/" if dir_name else "/"
+                groups.append(("count", "dir", dir_name))
+            else:
+                if match_pattern(rel_path, pattern):
+                    groups.append(("count", "pattern", pattern))
+
+        return groups
+
+    def add_file(self, rel_path, size):
+        """
+        将文件加入统计，并返回其所属的组列表
+        """
+        groups = [("global", "global")]
+        self.group_stats[("global", "global")]["size"] += size
+        self.group_stats[("global", "global")]["count"] += 1
+
+        matched_groups = self._get_rotate_groups(rel_path)
+        for g_type, g_subtype, g_key in matched_groups:
+            g_id = (g_type, g_subtype, g_key)
+            groups.append(g_id)
+            if g_id not in self.group_stats:
+                limit = (
+                    self.rotate_size_rules.get(g_key)
+                    if g_type == "size"
+                    else self.rotate_count_rules.get(g_key)
+                )
+                if g_subtype == "name":
+                    limit = (
+                        self.rotate_size_rules.get("*")
+                        if g_type == "size"
+                        else self.rotate_count_rules.get("*")
+                    )
+                elif g_subtype == "dir":
+                    limit = (
+                        self.rotate_size_rules.get("*/")
+                        if g_type == "size"
+                        else self.rotate_count_rules.get("*/")
+                    )
+                self.group_stats[g_id] = {"size": 0, "count": 0, "limit": limit}
+            self.group_stats[g_id]["size"] += size
+            self.group_stats[g_id]["count"] += 1
+
+        return groups
+
+    def _is_group_exceeded(self, g_id, stats):
+        if g_id == ("global", "global"):
+            if stats["size_limit"] > 0 and stats["size"] > stats["size_limit"]:
+                return True
+            if stats["count_limit"] > 0 and stats["count"] > stats["count_limit"]:
+                return True
+            return False
+
+        g_type = g_id[0]
+        if g_type == "size":
+            return stats["limit"] > 0 and stats["size"] > stats["limit"]
+        elif g_type == "count":
+            return stats["limit"] > 0 and stats["count"] > stats["limit"]
         return False
 
-    g_type = g_id[0]
-    if g_type == "size":
-        return stats["limit"] > 0 and stats["size"] > stats["limit"]
-    elif g_type == "count":
-        return stats["limit"] > 0 and stats["count"] > stats["limit"]
-    return False
+    def is_any_group_exceeded(self):
+        """
+        检查是否任意一个组超出了限制
+        """
+        for g_id, stats in self.group_stats.items():
+            if self._is_group_exceeded(g_id, stats):
+                return True
+        return False
 
+    def is_file_needs_rotation(self, groups):
+        """
+        检查文件所属的组中是否有超出限制的
+        """
+        for g_id in groups:
+            if self._is_group_exceeded(g_id, self.group_stats[g_id]):
+                return True
+        return False
 
-def _any_group_exceeded(group_stats):
-    for g_id, stats in group_stats.items():
-        if _is_group_exceeded(g_id, stats):
-            return True
-    return False
+    def remove_file(self, groups, size):
+        """
+        文件被轮转后，从统计中扣除
+        """
+        for g_id in groups:
+            self.group_stats[g_id]["size"] -= size
+            self.group_stats[g_id]["count"] -= 1
+
+    def log_unmet_limits(self, logger):
+        """
+        记录最终仍未满足限制的警告信息
+        """
+        global_stats = self.group_stats[("global", "global")]
+        if (
+            global_stats["size_limit"] > 0
+            and global_stats["size"] > global_stats["size_limit"]
+        ):
+            logger.warning(
+                f"已无可处理文件，但目录体积 ({format_size(global_stats['size'], binary=True)}) 仍未满足限制 ({format_size(global_stats['size_limit'], binary=True)})，请检查配置。"
+            )
+        if (
+            global_stats["count_limit"] > 0
+            and global_stats["count"] > global_stats["count_limit"]
+        ):
+            logger.warning(
+                f"已无可处理文件，但文件数量 ({global_stats['count']}) 仍未满足限制 ({global_stats['count_limit']})，请检查配置。"
+            )
+
+        for g_id, stats in self.group_stats.items():
+            if g_id == ("global", "global"):
+                continue
+            if self._is_group_exceeded(g_id, stats):
+                g_type, g_subtype, g_key = g_id
+                limit_str = (
+                    format_size(stats["limit"], binary=True)
+                    if g_type == "size"
+                    else str(stats["limit"])
+                )
+                current_str = (
+                    format_size(stats["size"], binary=True)
+                    if g_type == "size"
+                    else str(stats["count"])
+                )
+                logger.warning(
+                    f"已无可处理文件，但规则 {g_key} ({g_type}) 仍未满足限制 (当前: {current_str}, 限制: {limit_str})，请检查配置。"
+                )
 
 
 def handle_rotate_mode(
@@ -713,31 +838,11 @@ def handle_rotate_mode(
     for k, v in raw_rotate_count.items():
         rotate_count_rules[k] = int(v)
 
+    rotate_mgr = RotateGroupManager(
+        size_limit, count_limit, rotate_size_rules, rotate_count_rules
+    )
+
     start_time = time.time()
-
-    group_stats = {}
-    group_stats[("global", "global")] = {
-        "size": 0,
-        "count": 0,
-        "size_limit": size_limit,
-        "count_limit": count_limit,
-    }
-
-    # Initialize rule groups
-    for pattern, limit in rotate_size_rules.items():
-        if pattern not in ["*", "*/"]:
-            group_stats[("size", "pattern", pattern)] = {
-                "size": 0,
-                "count": 0,
-                "limit": limit,
-            }
-    for pattern, limit in rotate_count_rules.items():
-        if pattern not in ["*", "*/"]:
-            group_stats[("count", "pattern", pattern)] = {
-                "size": 0,
-                "count": 0,
-                "limit": limit,
-            }
 
     all_files = []
     for root, dirs, files in os.walk(source_root):
@@ -749,51 +854,22 @@ def handle_rotate_mode(
                 mtime = file_stat.st_mtime
                 rel_path = os.path.relpath(src_path, source_root)
 
-                f_info = {
-                    "name": file,
-                    "path": src_path,
-                    "rel_path": rel_path,
-                    "size": size,
-                    "mtime": mtime,
-                    "groups": [("global", "global")],
-                }
+                groups = rotate_mgr.add_file(rel_path, size)
 
-                group_stats[("global", "global")]["size"] += size
-                group_stats[("global", "global")]["count"] += 1
-
-                groups = _get_rotate_groups(
-                    rel_path, rotate_size_rules, rotate_count_rules
+                all_files.append(
+                    {
+                        "name": file,
+                        "path": src_path,
+                        "rel_path": rel_path,
+                        "size": size,
+                        "mtime": mtime,
+                        "groups": groups,
+                    }
                 )
-                for g_type, g_subtype, g_key in groups:
-                    g_id = (g_type, g_subtype, g_key)
-                    f_info["groups"].append(g_id)
-                    if g_id not in group_stats:
-                        limit = (
-                            rotate_size_rules.get(g_key)
-                            if g_type == "size"
-                            else rotate_count_rules.get(g_key)
-                        )
-                        if g_subtype == "name":
-                            limit = (
-                                rotate_size_rules.get("*")
-                                if g_type == "size"
-                                else rotate_count_rules.get("*")
-                            )
-                        elif g_subtype == "dir":
-                            limit = (
-                                rotate_size_rules.get("*/")
-                                if g_type == "size"
-                                else rotate_count_rules.get("*/")
-                            )
-                        group_stats[g_id] = {"size": 0, "count": 0, "limit": limit}
-                    group_stats[g_id]["size"] += size
-                    group_stats[g_id]["count"] += 1
-
-                all_files.append(f_info)
             except OSError:
                 continue
 
-    if not _any_group_exceeded(group_stats):
+    if not rotate_mgr.is_any_group_exceeded():
         logger.info("当前未超过限制，无需轮转。")
         end_time = time.time()
         duration_str, total_size_str, speed_str = local_stats.calculate_speed(
@@ -807,16 +883,10 @@ def handle_rotate_mode(
     all_files.sort(key=lambda x: x["mtime"])
 
     for f in all_files:
-        if not _any_group_exceeded(group_stats):
+        if not rotate_mgr.is_any_group_exceeded():
             break
 
-        file_needs_rotation = False
-        for g_id in f["groups"]:
-            if _is_group_exceeded(g_id, group_stats[g_id]):
-                file_needs_rotation = True
-                break
-
-        if not file_needs_rotation:
+        if not rotate_mgr.is_file_needs_rotation(f["groups"]):
             continue
 
         should_skip, fail_count = history_mgr.should_skip(f["path"], max_retries)
@@ -857,44 +927,9 @@ def handle_rotate_mode(
             )
 
         if not os.path.exists(f["path"]):
-            for g_id in f["groups"]:
-                group_stats[g_id]["size"] -= f["size"]
-                group_stats[g_id]["count"] -= 1
+            rotate_mgr.remove_file(f["groups"], f["size"])
 
-    global_stats = group_stats[("global", "global")]
-    if (
-        global_stats["size_limit"] > 0
-        and global_stats["size"] > global_stats["size_limit"]
-    ):
-        logger.warning(
-            f"已无可处理文件，但目录体积 ({format_size(global_stats['size'], binary=True)}) 仍未满足限制 ({format_size(global_stats['size_limit'], binary=True)})，请检查配置。"
-        )
-    if (
-        global_stats["count_limit"] > 0
-        and global_stats["count"] > global_stats["count_limit"]
-    ):
-        logger.warning(
-            f"已无可处理文件，但文件数量 ({global_stats['count']}) 仍未满足限制 ({global_stats['count_limit']})，请检查配置。"
-        )
-
-    for g_id, stats in group_stats.items():
-        if g_id == ("global", "global"):
-            continue
-        if _is_group_exceeded(g_id, stats):
-            g_type, g_subtype, g_key = g_id
-            limit_str = (
-                format_size(stats["limit"], binary=True)
-                if g_type == "size"
-                else str(stats["limit"])
-            )
-            current_str = (
-                format_size(stats["size"], binary=True)
-                if g_type == "size"
-                else str(stats["count"])
-            )
-            logger.warning(
-                f"已无可处理文件，但规则 {g_key} ({g_type}) 仍未满足限制 (当前: {current_str}, 限制: {limit_str})，请检查配置。"
-            )
+    rotate_mgr.log_unmet_limits(logger)
 
     if remove_empty_dirs:
         clean_empty_dirs(source_root, logger)
