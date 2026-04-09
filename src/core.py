@@ -65,83 +65,6 @@ class MoverStats:
         return duration_str, total_size_str, speed_str
 
 
-class RotateRuleSet:
-    def __init__(self, rules_config):
-        self.count_rules = []
-        for pattern, limit in rules_config.get("count", {}).items():
-            is_dir = pattern.endswith("/")
-            clean_pattern = pattern[:-1] if is_dir else pattern
-            self.count_rules.append((pattern, clean_pattern, is_dir, int(limit)))
-            
-        self.size_rules = []
-        for pattern, size_str in rules_config.get("size", {}).items():
-            is_dir = pattern.endswith("/")
-            clean_pattern = pattern[:-1] if is_dir else pattern
-            limit = parse_size_string(str(size_str))
-            self.size_rules.append((pattern, clean_pattern, is_dir, limit))
-
-    def get_buckets(self, file_rel_path):
-        normalized_path = file_rel_path.replace("\\", "/")
-        parts = normalized_path.split("/")
-        filename = parts[-1]
-        parent_dirs = []
-        current = ""
-        for part in parts[:-1]:
-            current = f"{current}/{part}" if current else part
-            parent_dirs.append(current)
-            
-        count_bucket = None
-        count_limit = None
-        for pattern, clean_pattern, is_dir, limit in self.count_rules:
-            if is_dir:
-                matched_dir = None
-                for p_dir in reversed(parent_dirs):
-                    if match_pattern(p_dir, clean_pattern):
-                        matched_dir = p_dir
-                        break
-                if matched_dir:
-                    if pattern == "*/":
-                        count_bucket = f"count_*/:{matched_dir}"
-                    else:
-                        count_bucket = f"count_{pattern}"
-                    count_limit = limit
-                    break
-            else:
-                if match_pattern(normalized_path, clean_pattern):
-                    if pattern == "*":
-                        count_bucket = f"count_*:{filename}"
-                    else:
-                        count_bucket = f"count_{pattern}"
-                    count_limit = limit
-                    break
-                    
-        size_bucket = None
-        size_limit = None
-        for pattern, clean_pattern, is_dir, limit in self.size_rules:
-            if is_dir:
-                matched_dir = None
-                for p_dir in reversed(parent_dirs):
-                    if match_pattern(p_dir, clean_pattern):
-                        matched_dir = p_dir
-                        break
-                if matched_dir:
-                    if pattern == "*/":
-                        size_bucket = f"size_*/:{matched_dir}"
-                    else:
-                        size_bucket = f"size_{pattern}"
-                    size_limit = limit
-                    break
-            else:
-                if match_pattern(normalized_path, clean_pattern):
-                    if pattern == "*":
-                        size_bucket = f"size_*:{filename}"
-                    else:
-                        size_bucket = f"size_{pattern}"
-                    size_limit = limit
-                    break
-                    
-        return count_bucket, count_limit, size_bucket, size_limit
-
 class FileFilterPolicy:
     """
     负责解析过滤规则并决定文件或目录的处理方式
@@ -467,15 +390,11 @@ def _validate_task_config(task, task_mode, logger):
             "conflict_policy",
             "remove_empty_dirs",
         ]
-        
         size_limit = parse_size_string(task.get("size_limit", "0"))
         count_limit = int(task.get("count_limit", 0))
-        rotate_rules = task.get("rotate_rules", {})
-        has_rotate_rules = bool(rotate_rules.get("count") or rotate_rules.get("size"))
-
-        if size_limit == 0 and count_limit == 0 and not has_rotate_rules:
+        if size_limit == 0 and count_limit == 0:
             logger.error(
-                "rotate 模式下必须配置 size_limit、count_limit 或 rotate_rules 中的至少一项，跳过该任务。"
+                "rotate 模式下必须配置 size_limit 或 count_limit，且不能都为 0，跳过该任务。"
             )
             return False
     else:
@@ -519,8 +438,8 @@ def _print_task_header(
 
     logger.info(f" - 任务模式: {mode_str}")
     logger.info(f" - 源路径: {source_root}")
-    if task_mode == "rotate" and not dest_root:
-        logger.info(" - 目标路径: 无 (仅应用规则)")
+    if str(dest_root) == "-1" and task_mode == "rotate":
+        logger.info(" - 目标路径: 无 (直接删除)")
     else:
         logger.info(f" - 目标路径: {dest_root}")
     if task_mode != "rotate":
@@ -687,8 +606,8 @@ def handle_rotate_mode(
 ):
     local_stats = MoverStats()
     max_retries = config.get("max_retries", 3)
-    conflict_policy = task.get("conflict_policy", "skip").lower()
-    remove_empty_dirs = task.get("remove_empty_dirs", False)
+    conflict_policy = task["conflict_policy"].lower()
+    remove_empty_dirs = task["remove_empty_dirs"]
 
     _print_task_header(task, task_mode, source_root, dest_root, 0, logger)
 
@@ -696,7 +615,9 @@ def handle_rotate_mode(
         logger.error(f"源目录不存在: {source_root}")
         return
 
-    if dest_root and not os.path.isdir(dest_root):
+    is_delete_mode = str(dest_root) == "-1"
+
+    if not is_delete_mode and not os.path.isdir(dest_root):
         logger.error("!!! CRUCIAL: 目标目录不存在 !!!")
         return
 
@@ -704,7 +625,7 @@ def handle_rotate_mode(
     task_keep_rules = task.get("keep_rules", {})
     preferred_rule = task.get("preferred_rule", "keep")
     whitelist_rules = task.get("whitelist_rules", {})
-    is_whitelist_mode = False
+    is_whitelist_mode = task_mode in ["whitelist_copy", "whitelist_move"]
 
     merged_config = {
         "delete_rules": task_delete_rules,
@@ -715,23 +636,14 @@ def handle_rotate_mode(
     }
     policy = FileFilterPolicy(merged_config)
 
-    global_size_limit = parse_size_string(task.get("size_limit", "0"))
-    global_count_limit = int(task.get("count_limit", 0))
-    
-    rotate_rules_config = task.get("rotate_rules", {})
-    has_rotate_rules = bool(rotate_rules_config.get("count") or rotate_rules_config.get("size"))
-    rotate_rules = RotateRuleSet(rotate_rules_config)
+    size_limit = parse_size_string(task.get("size_limit", "0"))
+    count_limit = int(task.get("count_limit", 0))
 
     start_time = time.time()
 
-    considered_files = []
-    global_size = 0
-    global_count = 0
-    
-    bucket_counts = {}
-    bucket_sizes = {}
-    bucket_count_limits = {}
-    bucket_size_limits = {}
+    all_files = []
+    current_total_size = 0
+    current_total_count = 0
 
     for root, dirs, files in os.walk(source_root):
         for file in files:
@@ -740,49 +652,21 @@ def handle_rotate_mode(
                 file_stat = os.stat(src_path)
                 size = file_stat.st_size
                 mtime = file_stat.st_mtime
-                rel_path = os.path.relpath(src_path, source_root)
-                
-                count_bucket, rule_count_limit, size_bucket, rule_size_limit = rotate_rules.get_buckets(rel_path)
-                
-                if has_rotate_rules and not (count_bucket or size_bucket):
-                    continue
-                    
-                if count_bucket:
-                    bucket_counts[count_bucket] = bucket_counts.get(count_bucket, 0) + 1
-                    bucket_count_limits[count_bucket] = rule_count_limit
-                if size_bucket:
-                    bucket_sizes[size_bucket] = bucket_sizes.get(size_bucket, 0) + size
-                    bucket_size_limits[size_bucket] = rule_size_limit
-                    
-                global_size += size
-                global_count += 1
-                
-                considered_files.append({
-                    "name": file,
-                    "path": src_path,
-                    "size": size,
-                    "mtime": mtime,
-                    "rel_path": rel_path,
-                    "count_bucket": count_bucket,
-                    "size_bucket": size_bucket
-                })
+                all_files.append(
+                    {"name": file, "path": src_path, "size": size, "mtime": mtime}
+                )
+                current_total_size += size
+                current_total_count += 1
             except OSError:
                 continue
 
-    def check_exceeded():
-        if global_size_limit > 0 and global_size > global_size_limit:
-            return True
-        if global_count_limit > 0 and global_count > global_count_limit:
-            return True
-        for bucket, count in bucket_counts.items():
-            if bucket_count_limits[bucket] > 0 and count > bucket_count_limits[bucket]:
-                return True
-        for bucket, size in bucket_sizes.items():
-            if bucket_size_limits[bucket] > 0 and size > bucket_size_limits[bucket]:
-                return True
-        return False
+    is_exceeded = False
+    if size_limit > 0 and current_total_size > size_limit:
+        is_exceeded = True
+    if count_limit > 0 and current_total_count > count_limit:
+        is_exceeded = True
 
-    if not check_exceeded():
+    if not is_exceeded:
         logger.info("当前未超过限制，无需轮转。")
         end_time = time.time()
         duration_str, total_size_str, speed_str = local_stats.calculate_speed(
@@ -793,25 +677,8 @@ def handle_rotate_mode(
         )
         return
 
-    considered_files.sort(key=lambda x: x["mtime"])
-
-    for f in considered_files:
-        if not check_exceeded():
-            break
-
-        needs_rotation = False
-        if global_size_limit > 0 and global_size > global_size_limit:
-            needs_rotation = True
-        elif global_count_limit > 0 and global_count > global_count_limit:
-            needs_rotation = True
-        elif f["count_bucket"] and bucket_count_limits[f["count_bucket"]] > 0 and bucket_counts[f["count_bucket"]] > bucket_count_limits[f["count_bucket"]]:
-            needs_rotation = True
-        elif f["size_bucket"] and bucket_size_limits[f["size_bucket"]] > 0 and bucket_sizes[f["size_bucket"]] > bucket_size_limits[f["size_bucket"]]:
-            needs_rotation = True
-            
-        if not needs_rotation:
-            continue
-
+    candidates = []
+    for f in all_files:
         should_skip, fail_count = history_mgr.should_skip(f["path"], max_retries)
         if should_skip:
             local_stats.dropped += 1
@@ -821,34 +688,39 @@ def handle_rotate_mode(
         if is_file_locked(f["path"]):
             local_stats.locked_skipped += 1
             logger.warning(
-                f"跳过文件 (被锁定): {f['rel_path']}"
+                f"跳过文件 (被锁定): {os.path.relpath(f['path'], source_root)}"
             )
             continue
 
-        action = policy.decide(f["rel_path"], f["size"])
-        
+        rel_path = os.path.relpath(f["path"], source_root)
+        action = policy.decide(rel_path, f["size"])
         if action == FileAction.DELETE:
             delete_file(
                 f["path"], f["size"], source_root, logger, local_stats, history_mgr
             )
-            if not os.path.exists(f["path"]):
-                global_size -= f["size"]
-                global_count -= 1
-                if f["count_bucket"]:
-                    bucket_counts[f["count_bucket"]] -= 1
-                if f["size_bucket"]:
-                    bucket_sizes[f["size_bucket"]] -= f["size"]
+            current_total_size -= f["size"]
+            current_total_count -= 1
         elif action == FileAction.SKIP:
             local_stats.kept += 1
             logger.debug(
-                f"保留文件 (匹配规则): {f['rel_path']} ({format_size(f['size'], binary=True)})"
+                f"保留文件 (匹配规则): {os.path.relpath(f['path'], source_root)} ({format_size(f['size'], binary=True)})"
             )
         elif action == FileAction.TRANSFER:
-            if not dest_root:
-                logger.warning(f"需要移动文件但未配置目标路径(dest)，跳过: {f['rel_path']}")
-                local_stats.dropped += 1
-                continue
-                
+            candidates.append(f)
+
+    candidates.sort(key=lambda x: x["mtime"])
+
+    for f in candidates:
+        size_ok = size_limit == 0 or current_total_size <= size_limit
+        count_ok = count_limit == 0 or current_total_count <= count_limit
+        if size_ok and count_ok:
+            break
+
+        if is_delete_mode:
+            delete_file(
+                f["path"], f["size"], source_root, logger, local_stats, history_mgr
+            )
+        else:
             move_file(
                 f["path"],
                 f["size"],
@@ -860,21 +732,18 @@ def handle_rotate_mode(
                 conflict_policy,
                 "move",
             )
-            if not os.path.exists(f["path"]):
-                global_size -= f["size"]
-                global_count -= 1
-                if f["count_bucket"]:
-                    bucket_counts[f["count_bucket"]] -= 1
-                if f["size_bucket"]:
-                    bucket_sizes[f["size_bucket"]] -= f["size"]
 
-    if global_size_limit > 0 and global_size > global_size_limit:
+        if not os.path.exists(f["path"]):
+            current_total_size -= f["size"]
+            current_total_count -= 1
+
+    if size_limit > 0 and current_total_size > size_limit:
         logger.warning(
-            f"已无可处理文件，但目录总体积 ({format_size(global_size, binary=True)}) 仍未满足限制 ({format_size(global_size_limit, binary=True)})，请检查配置。"
+            f"已无可处理文件，但目录体积 ({format_size(current_total_size, binary=True)}) 仍未满足限制 ({format_size(size_limit, binary=True)})，请检查配置。"
         )
-    if global_count_limit > 0 and global_count > global_count_limit:
+    if count_limit > 0 and current_total_count > count_limit:
         logger.warning(
-            f"已无可处理文件，但总文件数量 ({global_count}) 仍未满足限制 ({global_count_limit})，请检查配置。"
+            f"已无可处理文件，但文件数量 ({current_total_count}) 仍未满足限制 ({count_limit})，请检查配置。"
         )
 
     if remove_empty_dirs:
