@@ -110,7 +110,8 @@ name = "轮转移动任务示例"
 
 source = "./source"
 
-# 如果设置为 dest = -1，则在轮转时直接删除旧文件
+# 【选填】目标路径：
+# 如果不配置 dest，则必须配置 delete_rules 才能处理超出限制的文件（例如配置 delete_rules.ge = { "*" = -1 } 达到轮转删除的效果）
 dest = "./dest"
 
 # 【必填】任务执行模式：
@@ -118,9 +119,26 @@ dest = "./dest"
 # 当源目录总体积超过 size_limit 或文件总数超过 count_limit 时，将最旧的文件移动到目标目录
 mode = "rotate"
 
-#【以下两项必填至少一项】
+#【以下两项选填】
+# 注意：如果未配置 rotate_rules，则必须配置 size_limit 或 count_limit 中的至少一项。
 size_limit = "1GB"    # 目录总体积限制，支持单位: B、KB、MB、GB、TB，0 表示不限制。
 count_limit = 20    # 目录文件总数量限制，0 表示不限制。
+
+# 【选填】轮转规则：
+# 只有命中规则的文件/目录才会进入轮转处理流程。
+# 如果配置了轮转规则，未命中的文件将被忽略。
+# 注意：如果未配置 size_limit 和 count_limit，则必须配置 rotate_rules 中的至少一项。
+[tasks.rotate_rules.count]
+"Videos/" = 10  # Videos目录的轮转阈值为10个文件
+"Camera/*.mp4" = 100  # Camera目录中MP4文件的轮转阈值为100个
+"*.log" = 10  # 整个目录下LOG格式文件的轮转阈值为10个
+"temp.zip" = 20  # 整个目录下名称为temp.zip文件的轮转阈值为20个
+"*" = 1000  # 整个目录下任何一个名称的文件的轮转阈值都是1000个
+"*/" = 500  # 任何一个目录的轮转阈值是500个文件数
+
+[tasks.rotate_rules.size]
+"logs/" = "10MB"  # logs目录的轮转阈值为10MB
+"backup.iso" = "100MB"  # 整个目录下名称为backup.iso文件的轮转阈值为100MB
 
 conflict_policy = "overwrite"
 remove_empty_dirs = true
