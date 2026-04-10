@@ -3,6 +3,7 @@ import shutil
 from humanfriendly import format_size, format_timespan
 from src.utils import parse_size_string, get_unique_dest
 
+
 def _validate_task_config(task, task_mode, logger):
     if task_mode == "sync":
         required_fields = ["mode"]

@@ -5,6 +5,7 @@ import subprocess
 from datetime import datetime
 from humanfriendly import format_timespan
 
+
 def _setup_backup_dir(dest_root, max_backups, exclude_list, logger):
     backup_base = os.path.join(dest_root, ".smart-archiver.backups")
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")

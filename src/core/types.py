@@ -1,6 +1,7 @@
 from enum import Enum
 from humanfriendly import format_size, format_timespan
 
+
 # 定义操作枚举，提高代码可读性
 class FileAction(Enum):
     TRANSFER = "transfer"  # 正常移动

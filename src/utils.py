@@ -190,4 +190,3 @@ def clean_empty_dirs(source_root, logger):
                 logger.debug(f"删除空目录: {rel_dir}")
         except OSError:
             pass  # 目录非空，跳过
-

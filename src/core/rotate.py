@@ -4,7 +4,13 @@ from humanfriendly import format_size
 from src.utils import parse_size_string, match_pattern, is_file_locked, clean_empty_dirs
 from src.core.types import FileAction, MoverStats
 from src.core.filters import FileFilterPolicy
-from src.core.actions import _print_task_header, _print_task_summary, delete_file, move_file
+from src.core.actions import (
+    _print_task_header,
+    _print_task_summary,
+    delete_file,
+    move_file,
+)
+
 
 class RotateGroupManager:
     """

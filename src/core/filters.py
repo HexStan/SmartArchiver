@@ -2,6 +2,7 @@ import os
 from src.utils import parse_size_string, match_pattern
 from src.core.types import FileAction
 
+
 class FileFilterPolicy:
     """
     负责解析过滤规则并决定文件或目录的处理方式

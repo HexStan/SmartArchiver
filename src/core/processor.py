@@ -16,6 +16,7 @@ from src.core.actions import (
     move_file,
 )
 
+
 def _process_directories(
     dirs, root, source_root, policy, now, mtime_threshold_seconds, local_stats, logger
 ):
