@@ -5,8 +5,8 @@ from src.utils import parse_size_string, match_pattern, is_file_locked, clean_em
 from src.core.types import FileAction, MoverStats
 from src.core.filters import FileFilterPolicy
 from src.core.actions import (
-    _print_task_header,
-    _print_task_summary,
+    print_task_header,
+    print_task_summary,
     delete_file,
     move_file,
 )
@@ -200,7 +200,7 @@ def handle_rotate_mode(
     conflict_policy = task["conflict_policy"].lower()
     remove_empty_dirs = task["remove_empty_dirs"]
 
-    _print_task_header(task, task_mode, source_root, dest_root, 0, logger)
+    print_task_header(task, task_mode, source_root, dest_root, 0, logger)
 
     if not os.path.exists(source_root):
         logger.error(f"源目录不存在: {source_root}")
@@ -277,7 +277,7 @@ def handle_rotate_mode(
         duration_str, total_size_str, speed_str = local_stats.calculate_speed(
             start_time, end_time
         )
-        _print_task_summary(
+        print_task_summary(
             local_stats, duration_str, total_size_str, speed_str, logger
         )
         return
@@ -340,4 +340,4 @@ def handle_rotate_mode(
     duration_str, total_size_str, speed_str = local_stats.calculate_speed(
         start_time, end_time
     )
-    _print_task_summary(local_stats, duration_str, total_size_str, speed_str, logger)
+    print_task_summary(local_stats, duration_str, total_size_str, speed_str, logger)

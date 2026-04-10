@@ -9,9 +9,9 @@ from src.core.filters import FileFilterPolicy
 from src.core.sync import handle_sync_mode
 from src.core.rotate import handle_rotate_mode
 from src.core.actions import (
-    _validate_task_config,
-    _print_task_header,
-    _print_task_summary,
+    validate_task_config,
+    print_task_header,
+    print_task_summary,
     delete_file,
     move_file,
 )
@@ -149,7 +149,7 @@ def process_directory_pair(task, config, logger, history_mgr, now=None):
     dest_root = task.get("dest")
     task_mode = task.get("mode", "").lower()
 
-    if not _validate_task_config(task, task_mode, logger):
+    if not validate_task_config(task, task_mode, logger):
         return
 
     if task_mode == "sync":
@@ -171,7 +171,7 @@ def process_directory_pair(task, config, logger, history_mgr, now=None):
         now = time.time()
     mtime_threshold_seconds = mtime_threshold_minutes * 60
 
-    _print_task_header(
+    print_task_header(
         task, task_mode, source_root, dest_root, mtime_threshold_seconds, logger
     )
 
@@ -243,4 +243,4 @@ def process_directory_pair(task, config, logger, history_mgr, now=None):
         start_time, end_time
     )
 
-    _print_task_summary(local_stats, duration_str, total_size_str, speed_str, logger)
+    print_task_summary(local_stats, duration_str, total_size_str, speed_str, logger)

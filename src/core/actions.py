@@ -4,7 +4,7 @@ from humanfriendly import format_size, format_timespan
 from src.utils import parse_size_string, get_unique_dest
 
 
-def _validate_task_config(task, task_mode, logger):
+def validate_task_config(task, task_mode, logger):
     if task_mode == "sync":
         required_fields = ["mode"]
     elif task_mode == "rotate":
@@ -51,7 +51,7 @@ def _validate_task_config(task, task_mode, logger):
     return True
 
 
-def _print_task_header(
+def print_task_header(
     task, task_mode, source_root, dest_root, mtime_threshold_seconds, logger
 ):
     task_name = task.get("name")
@@ -85,7 +85,7 @@ def _print_task_header(
             logger.info(f" - 数量限制: {count_limit}")
 
 
-def _print_task_summary(local_stats, duration_str, total_size_str, speed_str, logger):
+def print_task_summary(local_stats, duration_str, total_size_str, speed_str, logger):
     tail_msg = [f"成功 {local_stats.success} 项"]
     if local_stats.conflict_skipped > 0:
         tail_msg.append(f"因重复而跳过 {local_stats.conflict_skipped} 项")
