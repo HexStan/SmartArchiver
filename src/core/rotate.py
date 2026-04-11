@@ -9,6 +9,7 @@ from src.core.actions import (
     print_task_summary,
     delete_file,
     move_file,
+    process_directories,
 )
 
 
@@ -206,7 +207,7 @@ def handle_rotate_mode(
         logger.error(f"源目录不存在: {source_root}")
         return
 
-    if str(dest_root) != "-1" and not os.path.isdir(dest_root):
+    if dest_root and not os.path.isdir(dest_root):
         logger.critical("!!! CRUCIAL: 目标目录不存在 !!!")
         return
 
@@ -244,10 +245,21 @@ def handle_rotate_mode(
         size_limit, count_limit, rotate_size_rules, rotate_count_rules
     )
 
+    now = time.time()
     start_time = time.time()
 
     all_files = []
     for root, dirs, files in os.walk(source_root):
+        process_directories(
+            dirs,
+            root,
+            source_root,
+            policy,
+            now,
+            0,
+            local_stats,
+            logger,
+        )
         for file in files:
             src_path = os.path.join(root, file)
             try:
@@ -277,9 +289,7 @@ def handle_rotate_mode(
         duration_str, total_size_str, speed_str = local_stats.calculate_speed(
             start_time, end_time
         )
-        print_task_summary(
-            local_stats, duration_str, total_size_str, speed_str, logger
-        )
+        print_task_summary(local_stats, duration_str, total_size_str, speed_str, logger)
         return
 
     all_files.sort(key=lambda x: x["mtime"])
@@ -316,6 +326,9 @@ def handle_rotate_mode(
                 f["path"], f["size"], source_root, logger, local_stats, history_mgr
             )
         elif action == FileAction.TRANSFER:
+            if not dest_root:
+                logger.warning(f"跳过文件 (目标目录非法): {f['rel_path']}")
+                continue
             move_file(
                 f["path"],
                 f["size"],

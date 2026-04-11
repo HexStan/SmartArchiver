@@ -1,9 +1,8 @@
 import os
-import shutil
 import time
 from humanfriendly import format_size
 
-from src.utils import is_file_locked, get_dir_size_and_mtime, clean_empty_dirs
+from src.utils import is_file_locked, clean_empty_dirs
 from src.core.types import FileAction, MoverStats
 from src.core.filters import FileFilterPolicy
 from src.core.sync import handle_sync_mode
@@ -14,61 +13,8 @@ from src.core.actions import (
     print_task_summary,
     delete_file,
     move_file,
+    process_directories,
 )
-
-
-def _process_directories(
-    dirs, root, source_root, policy, now, mtime_threshold_seconds, local_stats, logger
-):
-    dirs_to_remove = []
-    for d in dirs:
-        dir_path = os.path.join(root, d)
-        rel_dir_path = os.path.relpath(dir_path, source_root)
-
-        dir_size_cache = []
-        dir_mtime_cache = []
-
-        # 惰性获取目录大小和修改时间，仅在规则匹配需要时调用
-        def get_size():
-            if not dir_size_cache:
-                s, m = get_dir_size_and_mtime(dir_path)
-                dir_size_cache.append(s)
-                dir_mtime_cache.append(m)
-            return dir_size_cache[0]
-
-        action = policy.decide(rel_dir_path, get_size, is_dir=True)
-
-        if action == FileAction.DELETE:
-            # 如果之前没获取过大小（例如命中 ALL 规则），则在此处获取以进行时间检查
-            if not dir_mtime_cache:
-                s, m = get_dir_size_and_mtime(dir_path)
-                dir_size_cache.append(s)
-                dir_mtime_cache.append(m)
-            dir_mtime = dir_mtime_cache[0]
-            dir_size = dir_size_cache[0]
-
-            if (now - dir_mtime) > mtime_threshold_seconds:
-                try:
-                    shutil.rmtree(dir_path)
-                    logger.success(
-                        f"删除目录: {rel_dir_path} ({format_size(dir_size, binary=True)})"
-                    )
-                    local_stats.deleted += 1
-                except OSError as e:
-                    logger.error(f"删除目录失败: {rel_dir_path}\nError: {e}")
-            dirs_to_remove.append(d)
-        elif action == FileAction.SKIP:
-            size_str = (
-                f" ({format_size(dir_size_cache[0], binary=True)})"
-                if dir_size_cache
-                else ""
-            )
-            logger.debug(f"保留目录 (匹配规则): {rel_dir_path}{size_str}")
-            local_stats.kept += 1
-            dirs_to_remove.append(d)
-
-    for d in dirs_to_remove:
-        dirs.remove(d)
 
 
 def _process_files(
@@ -205,7 +151,7 @@ def process_directory_pair(task, config, logger, history_mgr, now=None):
 
     # 遍历文件
     for root, dirs, files in os.walk(source_root):
-        _process_directories(
+        process_directories(
             dirs,
             root,
             source_root,
