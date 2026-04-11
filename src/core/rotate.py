@@ -328,7 +328,7 @@ class RotateModeHandler(BaseModeHandler):
             )
 
             if action == FileAction.TRANSFER and not self.dest_root:
-                self.logger.warning(f"跳过（未配置目标路径）：{item['rel_path']}")
+                self.logger.warning(f"跳过 (未配置目标路径): {item['rel_path']}")
                 continue
 
             if item.get("is_dir", False):
