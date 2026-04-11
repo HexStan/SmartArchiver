@@ -1,5 +1,5 @@
 import os
-import shutil
+from src.core.io_ops import delete_file as io_delete_file
 from humanfriendly import format_size, format_timespan
 from src.utils import parse_size_string, get_unique_dest
 
@@ -10,10 +10,9 @@ def validate_task_config(task, task_mode, logger):
     elif task_mode == "rotate":
         required_fields = [
             "mode",
-            "conflict_policy",
             "remove_empty_dirs",
         ]
-        size_limit = parse_size_string(task.get("size_limit", "0"))
+        size_limit = parse_size_string(str(task.get("size_limit", "0")))
         count_limit = int(task.get("count_limit", 0))
         rotate_rules = task.get("rotate_rules", {})
         rotate_size_rules = rotate_rules.get("size", {})
@@ -67,6 +66,8 @@ def print_task_header(
         mode_str = "复制 (白名单)"
     elif task_mode == "rotate":
         mode_str = "轮转"
+    elif task_mode == "sync":
+        mode_str = "同步"
 
     logger.info(f" - 任务模式: {mode_str}")
     logger.info(f" - 源路径: {source_root}")
@@ -74,7 +75,7 @@ def print_task_header(
         logger.info(" - 目标路径: 无 (直接删除)")
     else:
         logger.info(f" - 目标路径: {dest_root}")
-    if task_mode != "rotate":
+    if task_mode not in ["rotate", "sync"]:
         logger.info(f" - 时间阈值: {format_timespan(mtime_threshold_seconds)}")
     if task_mode == "rotate":
         size_limit = task.get("size_limit")
@@ -115,7 +116,7 @@ def delete_file(src_path, file_size, source_root, logger, stats, history_mgr):
     rel_path = os.path.relpath(src_path, source_root)
     """删除逻辑"""
     try:
-        os.remove(src_path)
+        io_delete_file(src_path)
         logger.success(f"删除文件: {rel_path}  ({format_size(file_size, binary=True)})")
         history_mgr.record_success(src_path)
         stats.deleted += 1
@@ -124,7 +125,7 @@ def delete_file(src_path, file_size, source_root, logger, stats, history_mgr):
         logger.error(f"删除文件失败 ({count} 次): {rel_path}\nError: {e}")
 
 
-def move_file(
+def transfer_file(
     src_path,
     file_size,
     source_root,
@@ -133,7 +134,8 @@ def move_file(
     stats,
     history_mgr,
     conflict_policy,
-    task_mode,
+    transfer_func,
+    action_name,
 ):
     """
     执行具体的移动或复制操作
@@ -141,13 +143,8 @@ def move_file(
     # 计算相对路径
     rel_path = os.path.relpath(src_path, source_root)
     dest_path = os.path.join(dest_root, rel_path)
-    dest_dir = os.path.dirname(dest_path)
 
     try:
-        # 创建目标目录
-        if not os.path.exists(dest_dir):
-            os.makedirs(dest_dir, exist_ok=True)
-
         file_exists = os.path.exists(dest_path)
         new_dest_path = dest_path
 
@@ -164,18 +161,14 @@ def move_file(
 
             elif conflict_policy == "overwrite":
                 # 默认逻辑：删除目标
-                os.remove(dest_path)
+                io_delete_file(dest_path)
 
             else:
                 # 未知策略默认跳过
                 return
 
-        # 使用 shutil.move 或 shutil.copy2
-        if task_mode in ["copy", "whitelist_copy"]:
-            shutil.copy2(src_path, new_dest_path)
-        else:
-            # 同一文件系统下为原子重命名，跨文件系统自动降级为复制后删除
-            shutil.move(src_path, new_dest_path)
+        # 使用传入的传输函数
+        transfer_func(src_path, new_dest_path)
 
         # 统计传输流量
         stats.total_bytes += file_size
@@ -184,20 +177,18 @@ def move_file(
         history_mgr.record_success(src_path)
 
         size_str = format_size(file_size, binary=True)
-        action_str = "复制" if task_mode in ["copy", "whitelist_copy"] else "移动"
         if file_exists and conflict_policy == "overwrite":
             logger.success(f"覆盖同名文件: {rel_path} ({size_str})")
         elif file_exists and conflict_policy == "copy":
             new_rel = os.path.relpath(new_dest_path, dest_root)
             logger.success(f"目标存在，创建副本: {new_rel} ({size_str})")
         else:
-            logger.success(f"{action_str}文件: {rel_path} ({size_str})")
+            logger.success(f"{action_name}文件: {rel_path} ({size_str})")
 
         stats.success += 1
 
     except Exception as e:
         # 失败时记录
         count = history_mgr.record_failure(src_path)
-        action_str = "复制" if task_mode in ["copy", "whitelist_copy"] else "文件"
-        logger.error(f"{action_str}文件失败 ({count} 次): {rel_path}\n{e}")
+        logger.error(f"{action_name}文件失败 ({count} 次): {rel_path}\n{e}")
         stats.error += 1

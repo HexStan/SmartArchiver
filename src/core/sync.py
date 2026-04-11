@@ -94,16 +94,16 @@ def _run_rsync_sync(source_root, dest_root, exclude_list, backup_dir, logger):
     _run_sync_command(cmd, logger, "rsync", prepend_timestamp=True)
 
 
+from src.core.actions import print_task_header, validate_task_config
+
 def handle_sync_mode(task, config, logger, source_root, dest_root):
     """
     处理 sync 模式：使用 rsync 或 rclone 镜像同步目录
     """
-    task_name = task.get("name")
-    if task_name:
-        logger.info(f" - 名称：{task_name}")
-    logger.info(" - 任务模式: 同步")
-    logger.info(f" - 源路径: {source_root}")
-    logger.info(f" - 目标路径: {dest_root}")
+    if not validate_task_config(task, "sync", logger):
+        return
+
+    print_task_header(task, "sync", source_root, dest_root, 0, logger)
 
     if not os.path.exists(source_root):
         logger.error(f"源目录不存在: {source_root}")
