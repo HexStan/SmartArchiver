@@ -4,6 +4,7 @@ import time
 import subprocess
 from datetime import datetime
 from humanfriendly import format_timespan
+from src.core.actions import print_task_header, validate_task_config
 
 
 def _setup_backup_dir(dest_root, max_backups, exclude_list, logger):
@@ -93,8 +94,6 @@ def _run_rsync_sync(source_root, dest_root, exclude_list, backup_dir, logger):
 
     _run_sync_command(cmd, logger, "rsync", prepend_timestamp=True)
 
-
-from src.core.actions import print_task_header, validate_task_config
 
 def handle_sync_mode(task, config, logger, source_root, dest_root):
     """

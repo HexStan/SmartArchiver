@@ -7,10 +7,12 @@ from src.core.actions import print_task_header, print_task_summary
 from src.core.handlers import BaseModeHandler
 from src.core.io_ops import move_file
 
+
 class RotateGroupManager:
     """
     管理轮转模式下的分组统计和限制逻辑
     """
+
     def __init__(self, size_limit, count_limit, rotate_size_rules, rotate_count_rules):
         self.group_stats = {}
         self.group_stats[("global", "global")] = {
@@ -157,18 +159,25 @@ class RotateGroupManager:
                     f"已无可处理文件，但规则 {g_key} ({g_type}) 仍未满足限制 (当前: {current_str}, 限制: {limit_str})，请检查配置。"
                 )
 
+
 class RotateModeHandler(BaseModeHandler):
     def execute(self):
         if not self.validate():
             return
 
-        print_task_header(self.task, self.task_mode, self.source_root, self.dest_root, 0, self.logger)
+        print_task_header(
+            self.task, self.task_mode, self.source_root, self.dest_root, 0, self.logger
+        )
 
         if not os.path.exists(self.source_root):
             self.logger.error(f"源目录不存在: {self.source_root}")
             return
 
-        if self.dest_root and str(self.dest_root) != "-1" and not os.path.isdir(self.dest_root):
+        if (
+            self.dest_root
+            and str(self.dest_root) != "-1"
+            and not os.path.isdir(self.dest_root)
+        ):
             self.logger.critical("!!! CRUCIAL: 目标目录不存在 !!!")
             return
 
@@ -179,7 +188,9 @@ class RotateModeHandler(BaseModeHandler):
         raw_rotate_size = rotate_rules.get("size", {})
         raw_rotate_count = rotate_rules.get("count", {})
 
-        rotate_size_rules = {k: parse_size_string(v) for k, v in raw_rotate_size.items()}
+        rotate_size_rules = {
+            k: parse_size_string(v) for k, v in raw_rotate_size.items()
+        }
         rotate_count_rules = {k: int(v) for k, v in raw_rotate_count.items()}
 
         rotate_mgr = RotateGroupManager(
@@ -216,8 +227,12 @@ class RotateModeHandler(BaseModeHandler):
         if not rotate_mgr.is_any_group_exceeded():
             self.logger.info("当前未超过限制，无需轮转。")
             end_time = time.time()
-            duration_str, total_size_str, speed_str = self.local_stats.calculate_speed(start_time, end_time)
-            print_task_summary(self.local_stats, duration_str, total_size_str, speed_str, self.logger)
+            duration_str, total_size_str, speed_str = self.local_stats.calculate_speed(
+                start_time, end_time
+            )
+            print_task_summary(
+                self.local_stats, duration_str, total_size_str, speed_str, self.logger
+            )
             return
 
         all_files.sort(key=lambda x: x["mtime"])
@@ -229,16 +244,20 @@ class RotateModeHandler(BaseModeHandler):
             if not rotate_mgr.is_file_needs_rotation(f["groups"]):
                 continue
 
-            if self.check_file_common(f["path"], f["rel_path"], f["size"], f["mtime"], 0):
+            if self.check_file_common(
+                f["path"], f["rel_path"], f["size"], f["mtime"], 0
+            ):
                 continue
 
             action = self.policy.decide(f["rel_path"], f["size"])
-            
+
             # If dest_root is "-1", it means delete directly
             if action == FileAction.TRANSFER and str(self.dest_root) == "-1":
                 action = FileAction.DELETE
 
-            self.execute_action(action, f["path"], f["rel_path"], f["size"], move_file, "移动")
+            self.execute_action(
+                action, f["path"], f["rel_path"], f["size"], move_file, "移动"
+            )
 
             if not os.path.exists(f["path"]):
                 rotate_mgr.remove_file(f["groups"], f["size"])
@@ -249,9 +268,16 @@ class RotateModeHandler(BaseModeHandler):
             clean_empty_dirs(self.source_root, self.logger)
 
         end_time = time.time()
-        duration_str, total_size_str, speed_str = self.local_stats.calculate_speed(start_time, end_time)
-        print_task_summary(self.local_stats, duration_str, total_size_str, speed_str, self.logger)
+        duration_str, total_size_str, speed_str = self.local_stats.calculate_speed(
+            start_time, end_time
+        )
+        print_task_summary(
+            self.local_stats, duration_str, total_size_str, speed_str, self.logger
+        )
 
-def handle_rotate_mode(task, config, logger, history_mgr, source_root, dest_root, task_mode):
+
+def handle_rotate_mode(
+    task, config, logger, history_mgr, source_root, dest_root, task_mode
+):
     handler = RotateModeHandler(task, config, logger, history_mgr)
     handler.execute()

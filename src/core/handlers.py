@@ -14,6 +14,7 @@ from src.core.actions import (
 )
 from src.core.io_ops import copy_file, move_file, delete_dir
 
+
 class BaseModeHandler:
     def __init__(self, task, config, logger, history_mgr, now=None):
         self.task = task
@@ -28,7 +29,7 @@ class BaseModeHandler:
         self.max_retries = config.get("max_retries", 3)
         self.conflict_policy = task.get("conflict_policy", "").lower()
         self.remove_empty_dirs = task.get("remove_empty_dirs", False)
-        
+
         task_delete_rules = task.get("delete_rules", {})
         task_keep_rules = task.get("keep_rules", {})
         preferred_rule = task.get("preferred_rule", "keep")
@@ -47,12 +48,16 @@ class BaseModeHandler:
     def validate(self):
         return validate_task_config(self.task, self.task_mode, self.logger)
 
-    def check_file_common(self, src_path, rel_path, size, mtime, mtime_threshold_seconds=0):
+    def check_file_common(
+        self, src_path, rel_path, size, mtime, mtime_threshold_seconds=0
+    ):
         """
         通用文件检查：历史失败次数、时间阈值、文件锁
         返回 True 表示应该跳过，False 表示可以继续处理
         """
-        should_skip, fail_count = self.history_mgr.should_skip(src_path, self.max_retries)
+        should_skip, fail_count = self.history_mgr.should_skip(
+            src_path, self.max_retries
+        )
         if should_skip:
             self.local_stats.dropped += 1
             self.logger.warning(f"跳过文件 (多次失败): {src_path}")
@@ -68,7 +73,9 @@ class BaseModeHandler:
 
         return False
 
-    def execute_action(self, action, src_path, rel_path, size, transfer_func, action_name):
+    def execute_action(
+        self, action, src_path, rel_path, size, transfer_func, action_name
+    ):
         if action == FileAction.TRANSFER:
             if not self.dest_root:
                 self.logger.warning(f"跳过文件 (目标目录非法): {rel_path}")
@@ -86,15 +93,26 @@ class BaseModeHandler:
                 action_name,
             )
         elif action == FileAction.DELETE:
-            delete_file(src_path, size, self.source_root, self.logger, self.local_stats, self.history_mgr)
+            delete_file(
+                src_path,
+                size,
+                self.source_root,
+                self.logger,
+                self.local_stats,
+                self.history_mgr,
+            )
         elif action == FileAction.SKIP:
             self.local_stats.kept += 1
-            self.logger.debug(f"保留文件 (匹配规则): {rel_path}  ({format_size(size, binary=True)})")
+            self.logger.debug(
+                f"保留文件 (匹配规则): {rel_path}  ({format_size(size, binary=True)})"
+            )
+
 
 class StandardModeHandler(BaseModeHandler):
     """
     处理 move, copy, whitelist_move, whitelist_copy
     """
+
     def execute(self):
         if not self.validate():
             return
@@ -103,7 +121,12 @@ class StandardModeHandler(BaseModeHandler):
         mtime_threshold_seconds = mtime_threshold_minutes * 60
 
         print_task_header(
-            self.task, self.task_mode, self.source_root, self.dest_root, mtime_threshold_seconds, self.logger
+            self.task,
+            self.task_mode,
+            self.source_root,
+            self.dest_root,
+            mtime_threshold_seconds,
+            self.logger,
         )
 
         if not os.path.exists(self.source_root):
@@ -122,14 +145,20 @@ class StandardModeHandler(BaseModeHandler):
 
         for root, dirs, files in os.walk(self.source_root):
             self._process_directories(dirs, root, mtime_threshold_seconds)
-            self._process_files(files, root, mtime_threshold_seconds, transfer_func, action_name)
+            self._process_files(
+                files, root, mtime_threshold_seconds, transfer_func, action_name
+            )
 
         if self.remove_empty_dirs and not is_copy:
             clean_empty_dirs(self.source_root, self.logger)
 
         end_time = time.time()
-        duration_str, total_size_str, speed_str = self.local_stats.calculate_speed(start_time, end_time)
-        print_task_summary(self.local_stats, duration_str, total_size_str, speed_str, self.logger)
+        duration_str, total_size_str, speed_str = self.local_stats.calculate_speed(
+            start_time, end_time
+        )
+        print_task_summary(
+            self.local_stats, duration_str, total_size_str, speed_str, self.logger
+        )
 
     def _process_directories(self, dirs, root, mtime_threshold_seconds):
         dirs_to_remove = []
@@ -160,13 +189,19 @@ class StandardModeHandler(BaseModeHandler):
                 if (self.now - dir_mtime) > mtime_threshold_seconds:
                     try:
                         delete_dir(dir_path)
-                        self.logger.success(f"删除目录: {rel_dir_path} ({format_size(dir_size, binary=True)})")
+                        self.logger.success(
+                            f"删除目录: {rel_dir_path} ({format_size(dir_size, binary=True)})"
+                        )
                         self.local_stats.deleted += 1
                     except OSError as e:
                         self.logger.error(f"删除目录失败: {rel_dir_path}\nError: {e}")
                 dirs_to_remove.append(d)
             elif action == FileAction.SKIP:
-                size_str = f" ({format_size(dir_size_cache[0], binary=True)})" if dir_size_cache else ""
+                size_str = (
+                    f" ({format_size(dir_size_cache[0], binary=True)})"
+                    if dir_size_cache
+                    else ""
+                )
                 self.logger.debug(f"保留目录 (匹配规则): {rel_dir_path}{size_str}")
                 self.local_stats.kept += 1
                 dirs_to_remove.append(d)
@@ -174,7 +209,9 @@ class StandardModeHandler(BaseModeHandler):
         for d in dirs_to_remove:
             dirs.remove(d)
 
-    def _process_files(self, files, root, mtime_threshold_seconds, transfer_func, action_name):
+    def _process_files(
+        self, files, root, mtime_threshold_seconds, transfer_func, action_name
+    ):
         for file in files:
             src_path = os.path.join(root, file)
             rel_path = os.path.relpath(src_path, self.source_root)
@@ -186,8 +223,12 @@ class StandardModeHandler(BaseModeHandler):
             except OSError:
                 continue
 
-            if self.check_file_common(src_path, rel_path, size, mtime, mtime_threshold_seconds):
+            if self.check_file_common(
+                src_path, rel_path, size, mtime, mtime_threshold_seconds
+            ):
                 continue
 
             action = self.policy.decide(rel_path, size)
-            self.execute_action(action, src_path, rel_path, size, transfer_func, action_name)
+            self.execute_action(
+                action, src_path, rel_path, size, transfer_func, action_name
+            )

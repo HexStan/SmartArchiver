@@ -1,9 +1,7 @@
-import os
-import time
-
 from src.core.sync import handle_sync_mode
 from src.core.rotate import handle_rotate_mode
 from src.core.handlers import StandardModeHandler
+
 
 def process_directory_pair(task, config, logger, history_mgr, now=None):
     """
