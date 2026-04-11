@@ -71,8 +71,8 @@ def print_task_header(
 
     logger.info(f" - 任务模式: {mode_str}")
     logger.info(f" - 源路径: {source_root}")
-    if str(dest_root) == "-1" and task_mode == "rotate":
-        logger.info(" - 目标路径: 无 (直接删除)")
+    if not dest_root and task_mode == "rotate":
+        logger.info(" - 目标路径: 无")
     else:
         logger.info(f" - 目标路径: {dest_root}")
     if task_mode not in ["rotate", "sync"]:

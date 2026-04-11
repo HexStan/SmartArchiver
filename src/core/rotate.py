@@ -173,11 +173,7 @@ class RotateModeHandler(BaseModeHandler):
             self.logger.error(f"源目录不存在: {self.source_root}")
             return
 
-        if (
-            self.dest_root
-            and str(self.dest_root) != "-1"
-            and not os.path.isdir(self.dest_root)
-        ):
+        if self.dest_root and not os.path.isdir(self.dest_root):
             self.logger.critical("!!! CRUCIAL: 目标目录不存在 !!!")
             return
 
@@ -251,9 +247,9 @@ class RotateModeHandler(BaseModeHandler):
 
             action = self.policy.decide(f["rel_path"], f["size"])
 
-            # If dest_root is "-1", it means delete directly
-            if action == FileAction.TRANSFER and str(self.dest_root) == "-1":
-                action = FileAction.DELETE
+            if action == FileAction.TRANSFER and not self.dest_root:
+                self.logger.warning(f"跳过（未配置目标路径）：{f['rel_path']}")
+                continue
 
             self.execute_action(
                 action, f["path"], f["rel_path"], f["size"], move_file, "移动"
