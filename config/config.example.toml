@@ -109,9 +109,7 @@ preferred_rule = "keep"
 name = "轮转移动任务示例"
 
 source = "./source"
-
-# 如果设置为 dest = -1，则在轮转时作为占位符，配合 delete_rules 可实现直接删除
-dest = "./dest"
+dest = "./dest"     # 【该模式下选填】
 
 # 【必填】任务执行模式：
 # "rotate" - 轮转模式
@@ -131,8 +129,6 @@ count_limit = 20    # 全局目录文件总数量限制，0 表示不限制。
 "Camera/*.mp4" = 100  # Camera 目录中 MP4 文件的轮转阈值为 100 个
 "*.log" = 10          # 整个目录下所有 .log 文件的总轮转阈值为 10 个
 "temp.zip" = 20       # 整个目录下名称为 temp.zip 文件的轮转阈值为 20 个
-"*" = 1000            # 任意一个名称的文件，其同名文件的轮转阈值都是 1000 个
-"*/" = 500            # 任意一个目录的轮转阈值是 500 个文件
 
 [tasks.rotate_rules.size]
 "logs/" = "10MB"      # logs 目录的轮转阈值为 10MB

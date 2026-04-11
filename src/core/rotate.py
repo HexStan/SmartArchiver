@@ -206,7 +206,7 @@ def handle_rotate_mode(
         logger.error(f"源目录不存在: {source_root}")
         return
 
-    if str(dest_root) != "-1" and not os.path.isdir(dest_root):
+    if dest_root and not os.path.isdir(dest_root):
         logger.critical("!!! CRUCIAL: 目标目录不存在 !!!")
         return
 
@@ -316,6 +316,9 @@ def handle_rotate_mode(
                 f["path"], f["size"], source_root, logger, local_stats, history_mgr
             )
         elif action == FileAction.TRANSFER:
+            if not dest_root:
+                logger.warning(f"跳过文件 (目标目录非法): {f['rel_path']}")
+                continue
             move_file(
                 f["path"],
                 f["size"],
