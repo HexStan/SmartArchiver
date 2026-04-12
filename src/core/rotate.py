@@ -186,7 +186,7 @@ class RotateGroupManager:
                     else str(stats["count"])
                 )
                 logger.warning(
-                    f"已无可处理文件，但规则 {g_key} ({g_type}) 仍未满足限制 (当前: {current_str}, 限制: {limit_str})，请检查配置。"
+                    f"已无可处理文件，但规则 {g_key}: {g_type} 仍未满足限制 (当前 {current_str}，限制 {limit_str})，请检查配置。"
                 )
 
 
