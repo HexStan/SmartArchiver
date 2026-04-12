@@ -178,15 +178,28 @@ def clean_empty_dirs(source_root, logger):
     """
     递归深度优先删除空目录
     """
-    # topdown=False 确保自底向上遍历 (对应 -depth)
+    if not os.path.exists(source_root):
+        return
+
+    # topdown=False 确保自底向上遍历
     for root, dirs, files in os.walk(source_root, topdown=False):
         if root == source_root:
             continue
+
+        # 避免处理符号链接或挂载点（防止误删指向非空目录的链接/挂载点）
+        if os.path.islink(root) or os.path.ismount(root):
+            continue
+
         try:
-            # os.rmdir 只有在目录为空时才成功，如果不为空会抛异常（我们捕获并忽略）
+            # 显式检查目录是否为空，避免仅依赖 os.rmdir 的异常处理
+            with os.scandir(root) as it:
+                if any(it):
+                    continue
+
             os.rmdir(root)
             if logger:
                 rel_dir = os.path.relpath(root, source_root)
                 logger.debug(f"删除空目录: {rel_dir}")
-        except OSError:
-            pass  # 目录非空，跳过
+        except OSError as e:
+            if logger:
+                logger.debug(f"跳过删除空目录: {root}\n{e}")
