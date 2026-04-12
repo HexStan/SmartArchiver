@@ -1,17 +1,11 @@
 import os
 import time
 from humanfriendly import format_size
-from src.utils import (
-    parse_size_string,
-    match_pattern,
-    clean_empty_dirs,
-    get_dir_size_and_mtime,
-    get_unique_dest,
-)
+from src.utils import parse_size_string, match_pattern, clean_empty_dirs
 from src.core.types import FileAction
 from src.core.actions import print_task_header, print_task_summary
 from src.core.handlers import BaseModeHandler
-from src.core.io_ops import move_file, delete_dir
+from src.core.io_ops import move_file
 
 
 class RotateGroupManager:
@@ -27,82 +21,58 @@ class RotateGroupManager:
             "size_limit": size_limit,
             "count_limit": count_limit,
         }
-
-        self.dir_size_rules = {}
-        self.file_size_rules = {}
-        self.dir_count_rules = {}
-        self.file_count_rules = {}
+        self.rotate_size_rules = rotate_size_rules
+        self.rotate_count_rules = rotate_count_rules
 
         # Initialize rule groups
         for pattern, limit in rotate_size_rules.items():
-            if pattern.endswith("/"):
-                self.dir_size_rules[pattern[:-1]] = limit
-            else:
-                self.file_size_rules[pattern] = limit
             self.group_stats[("size", "pattern", pattern)] = {
                 "size": 0,
                 "count": 0,
                 "limit": limit,
             }
-
         for pattern, limit in rotate_count_rules.items():
-            if pattern.endswith("/"):
-                self.dir_count_rules[pattern[:-1]] = limit
-            else:
-                self.file_count_rules[pattern] = limit
             self.group_stats[("count", "pattern", pattern)] = {
                 "size": 0,
                 "count": 0,
                 "limit": limit,
             }
 
-    def _get_rotate_groups(self, rel_path, is_dir=False):
+    def _get_rotate_groups(self, rel_path):
         """
-        返回该文件或目录所属的所有轮转组。
+        返回该文件所属的所有轮转组。
         组的标识为 (group_type, group_subtype, group_key)
         """
         groups = []
 
-        size_rules = self.dir_size_rules if is_dir else self.file_size_rules
-        count_rules = self.dir_count_rules if is_dir else self.file_count_rules
-
-        for pattern, limit in size_rules.items():
+        for pattern, limit in self.rotate_size_rules.items():
             if match_pattern(rel_path, pattern):
-                original_pattern = pattern + "/" if is_dir else pattern
-                groups.append(("size", "pattern", original_pattern))
+                groups.append(("size", "pattern", pattern))
 
-        for pattern, limit in count_rules.items():
+        for pattern, limit in self.rotate_count_rules.items():
             if match_pattern(rel_path, pattern):
-                original_pattern = pattern + "/" if is_dir else pattern
-                groups.append(("count", "pattern", original_pattern))
+                groups.append(("count", "pattern", pattern))
 
         return groups
 
-    def add_file(self, rel_path, size, is_dir=False):
+    def add_file(self, rel_path, size):
         """
-        将文件或目录加入统计，并返回其所属的组列表
+        将文件加入统计，并返回其所属的组列表
         """
         groups = [("global", "global")]
         self.group_stats[("global", "global")]["size"] += size
         self.group_stats[("global", "global")]["count"] += 1
 
-        matched_groups = self._get_rotate_groups(rel_path, is_dir)
+        matched_groups = self._get_rotate_groups(rel_path)
         for g_id in matched_groups:
             groups.append(g_id)
             if g_id not in self.group_stats:
                 g_type, g_subtype, g_key = g_id
-                if g_type == "size":
-                    limit = (
-                        self.dir_size_rules.get(g_key[:-1])
-                        if is_dir
-                        else self.file_size_rules.get(g_key)
-                    )
-                else:
-                    limit = (
-                        self.dir_count_rules.get(g_key[:-1])
-                        if is_dir
-                        else self.file_count_rules.get(g_key)
-                    )
+                limit = (
+                    self.rotate_size_rules.get(g_key)
+                    if g_type == "size"
+                    else self.rotate_count_rules.get(g_key)
+                )
                 self.group_stats[g_id] = {"size": 0, "count": 0, "limit": limit}
             self.group_stats[g_id]["size"] += size
             self.group_stats[g_id]["count"] += 1
@@ -225,55 +195,8 @@ class RotateModeHandler(BaseModeHandler):
 
         start_time = time.time()
 
-        all_items = []
+        all_files = []
         for root, dirs, files in os.walk(self.source_root):
-            dirs_to_remove = []
-            for d in dirs:
-                dir_path = os.path.join(root, d)
-                rel_dir_path = os.path.relpath(dir_path, self.source_root)
-
-                dir_size_cache = []
-                dir_mtime_cache = []
-
-                def get_size():
-                    if not dir_size_cache:
-                        s, m = get_dir_size_and_mtime(dir_path)
-                        dir_size_cache.append(s)
-                        dir_mtime_cache.append(m)
-                    return dir_size_cache[0]
-
-                action = self.policy.decide(rel_dir_path, get_size, is_dir=True)
-                rotate_groups = rotate_mgr._get_rotate_groups(rel_dir_path, is_dir=True)
-
-                is_candidate = bool(rotate_groups) or action != FileAction.TRANSFER
-
-                if is_candidate:
-                    if not dir_size_cache:
-                        s, m = get_dir_size_and_mtime(dir_path)
-                        dir_size_cache.append(s)
-                        dir_mtime_cache.append(m)
-
-                    size = dir_size_cache[0]
-                    mtime = dir_mtime_cache[0]
-
-                    groups = rotate_mgr.add_file(rel_dir_path, size, is_dir=True)
-
-                    all_items.append(
-                        {
-                            "name": d,
-                            "path": dir_path,
-                            "rel_path": rel_dir_path,
-                            "size": size,
-                            "mtime": mtime,
-                            "groups": groups,
-                            "is_dir": True,
-                        }
-                    )
-                    dirs_to_remove.append(d)
-
-            for d in dirs_to_remove:
-                dirs.remove(d)
-
             for file in files:
                 src_path = os.path.join(root, file)
                 try:
@@ -282,9 +205,9 @@ class RotateModeHandler(BaseModeHandler):
                     mtime = file_stat.st_mtime
                     rel_path = os.path.relpath(src_path, self.source_root)
 
-                    groups = rotate_mgr.add_file(rel_path, size, is_dir=False)
+                    groups = rotate_mgr.add_file(rel_path, size)
 
-                    all_items.append(
+                    all_files.append(
                         {
                             "name": file,
                             "path": src_path,
@@ -292,7 +215,6 @@ class RotateModeHandler(BaseModeHandler):
                             "size": size,
                             "mtime": mtime,
                             "groups": groups,
-                            "is_dir": False,
                         }
                     )
                 except OSError:
@@ -309,78 +231,32 @@ class RotateModeHandler(BaseModeHandler):
             )
             return
 
-        all_items.sort(key=lambda x: x["mtime"])
+        all_files.sort(key=lambda x: x["mtime"])
 
-        for item in all_items:
+        for f in all_files:
             if not rotate_mgr.is_any_group_exceeded():
                 break
 
-            if not rotate_mgr.is_file_needs_rotation(item["groups"]):
+            if not rotate_mgr.is_file_needs_rotation(f["groups"]):
                 continue
 
             if self.check_file_common(
-                item["path"], item["rel_path"], item["size"], item["mtime"], 0
+                f["path"], f["rel_path"], f["size"], f["mtime"], 0
             ):
                 continue
 
-            action = self.policy.decide(
-                item["rel_path"], item["size"], is_dir=item.get("is_dir", False)
-            )
+            action = self.policy.decide(f["rel_path"], f["size"])
 
             if action == FileAction.TRANSFER and not self.dest_root:
                 self.logger.warning(f"跳过 (未配置目标路径): {item['rel_path']}")
                 continue
 
-            if item.get("is_dir", False):
-                if action == FileAction.DELETE:
-                    try:
-                        delete_dir(item["path"])
-                        self.logger.success(
-                            f"删除目录: {item['rel_path']} ({format_size(item['size'], binary=True)})"
-                        )
-                        self.history_mgr.record_success(item["path"])
-                        self.local_stats.deleted += 1
-                    except OSError as e:
-                        count = self.history_mgr.record_failure(item["path"])
-                        self.logger.error(
-                            f"删除目录失败 ({count} 次): {item['rel_path']}\nError: {e}"
-                        )
-                elif action == FileAction.TRANSFER:
-                    dest_path = os.path.join(self.dest_root, item["rel_path"])
-                    try:
-                        if os.path.exists(dest_path):
-                            dest_path = get_unique_dest(dest_path)
+            self.execute_action(
+                action, f["path"], f["rel_path"], f["size"], move_file, "移动"
+            )
 
-                        move_file(item["path"], dest_path)
-                        self.logger.success(
-                            f"移动目录: {item['rel_path']} ({format_size(item['size'], binary=True)})"
-                        )
-                        self.history_mgr.record_success(item["path"])
-                        self.local_stats.success += 1
-                        self.local_stats.total_bytes += item["size"]
-                    except Exception as e:
-                        count = self.history_mgr.record_failure(item["path"])
-                        self.logger.error(
-                            f"移动目录失败 ({count} 次): {item['rel_path']}\nError: {e}"
-                        )
-                        self.local_stats.error += 1
-                elif action == FileAction.SKIP:
-                    self.local_stats.kept += 1
-                    self.logger.debug(
-                        f"保留目录 (匹配规则): {item['rel_path']}  ({format_size(item['size'], binary=True)})"
-                    )
-            else:
-                self.execute_action(
-                    action,
-                    item["path"],
-                    item["rel_path"],
-                    item["size"],
-                    move_file,
-                    "移动",
-                )
-
-            if not os.path.exists(item["path"]):
-                rotate_mgr.remove_file(item["groups"], item["size"])
+            if not os.path.exists(f["path"]):
+                rotate_mgr.remove_file(f["groups"], f["size"])
 
         rotate_mgr.log_unmet_limits(self.logger)
 
