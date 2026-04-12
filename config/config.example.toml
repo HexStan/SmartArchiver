@@ -22,9 +22,10 @@ max_log_files = 30
 # ==================================================
 # 定时任务配置（可选）
 # ==================================================
-# 如果不配置 [schedule] 块，程序将作为一次性脚本执行
 
 # [schedule]
+# 如果不配置 [schedule] 块，程序将作为一次性脚本执行
+
 # 定时模式："cron" 或 "interval"
 # mode = "cron"
 
@@ -66,18 +67,19 @@ remove_empty_dirs = true
 # 匹配规则说明 (适用于 move 和 copy 模式)：
 #
 # 1. 优先级逻辑:
-#    - 默认情况下：保留规则 (keep_rules) > 删除规则 (delete_rules) > 正常传输
-#    - 如果一个文件同时命中保留和删除规则，默认将被【保留】。
-#    - 可以通过 preferred_rule 配置项修改此行为。
+#   - 默认情况下：保留规则 (keep_rules) > 删除规则 (delete_rules) > 正常传输
+#   - 如果一个文件同时命中保留和删除规则，默认将被【保留】。
+#   - 可以通过 preferred_rule 配置项修改此行为。
 #
 # 2. 大小阈值:
-#    - 仅当文件/目录大小【小于/大于等于】设定的阈值时，规则才会生效。lt 为小于，ge 为大于等于。
-#    - 如果希望匹配所有大小，请使用 ge 规则并设置为 -1（例如: "*.log" = -1）。
-#    - 支持单位: B、KB、MB、GB、TB，-1 表示不限制。
+#   - 仅当文件/目录大小【小于/大于等于】设定的阈值时，规则才会生效。lt 为小于，ge 为大于等于。
+#   - 如果希望匹配所有大小，请使用 ge 规则并设置为 -1（例如: "*.log" = -1）。
+#   - 支持单位: B、KB、MB、GB、TB，-1 表示不限制。
 
 # 【选填】保留规则：命中的文件/目录将留在原处，不进行移动、复制或删除
 # 用不到的规则块可直接删除
 [tasks.keep_rules]
+
 # 文件匹配示例（末尾没有`/`时匹配文件）：
 # lt."alpha.txt" = "1MB"          # 完全匹配：匹配名为 alpha.txt 且小于 1MB 的文件
 # lt."*.log" = "10MB"               # 后缀匹配：匹配 .log 后缀且小于 10MB 的文件
@@ -116,30 +118,30 @@ dest = "./dest"     # 【该模式下选填】
 # 当满足以下任一限制条件时，将最旧的文件移动到目标目录（或删除）：
 # 1. 源目录总体积超过 size_limit
 # 2. 源目录文件总数超过 count_limit
-# 3. 命中 rotate_rules 中的特定目录/文件限制
+# 3. 命中 rotate_rules 中的特定文件限制
 mode = "rotate"
+
+conflict_policy = "overwrite"
+remove_empty_dirs = true
 
 #【以下四项必填至少一项】
 size_limit = "1GB"    # 全局目录总体积限制，支持单位: B、KB、MB、GB、TB，0 表示不限制。
 count_limit = 20    # 全局目录文件总数量限制，0 表示不限制。
 
-# 【选填】细粒度轮转规则：
+# 细粒度轮转规则：
+# 不支持以 / 结尾来匹配目录。如果需要轮转一个目录，请配置为 /*。
 [tasks.rotate_rules.count]
-"Videos/" = 10        # Videos 目录的轮转阈值为 10 个文件
-"Camera/*.mp4" = 100  # Camera 目录中 MP4 文件的轮转阈值为 100 个
-"*.log" = 10          # 整个目录下所有 .log 文件的总轮转阈值为 10 个
-"temp.zip" = 20       # 整个目录下名称为 temp.zip 文件的轮转阈值为 20 个
+"alpha/*" = 10        # 轮转阈值为 alpha 目录内有 10 个文件
+"beta/*.mp4" = 100    # 轮转阈值为 beta 目录内有 100 个 MP4 文件
+"*.log" = 10          # 轮转阈值为一共有 10 个 .log 文件
+"charlie.zip" = 20    # 轮转阈值为一共有 20 个 charlie.zip 文件
 
 [tasks.rotate_rules.size]
-"logs/" = "10MB"      # logs 目录的轮转阈值为 10MB
-"backup.iso" = "100MB" # 整个目录下名称为 backup.iso 文件的轮转阈值为 100MB
-
-conflict_policy = "overwrite"
-remove_empty_dirs = true
+"logs/*" = "10MB"           # 轮转阈值为 logs 目录达到 10MB
+"backup.iso" = "100MB"      # 轮转阈值为 backup.iso 文件达到 100MB
 
 # 符合轮转要求的文件会继续匹配以下规则：
 [tasks.keep_rules]
-# ge."important/*" = -1 # 即使触发轮转，也保留 important 目录下的文件
 
 [tasks.delete_rules]
 # 如果希望轮转时直接删除而不是移动，可以配置：
