@@ -183,11 +183,14 @@ def clean_empty_dirs(source_root, logger):
 
     # topdown=False 确保自底向上遍历
     for root, dirs, files in os.walk(source_root, topdown=False):
+        rel_dir = os.path.relpath(root, source_root)
+
         if root == source_root:
             continue
 
         # 避免处理符号链接或挂载点（防止误删指向非空目录的链接/挂载点）
         if os.path.islink(root) or os.path.ismount(root):
+            logger.debug(f"跳过删除空目录 (符号链接或挂载点): {rel_dir}")
             continue
 
         try:
@@ -197,9 +200,6 @@ def clean_empty_dirs(source_root, logger):
                     continue
 
             os.rmdir(root)
-            if logger:
-                rel_dir = os.path.relpath(root, source_root)
-                logger.debug(f"删除空目录: {rel_dir}")
+            logger.debug(f"删除空目录: {rel_dir}")
         except OSError as e:
-            if logger:
-                logger.debug(f"跳过删除空目录: {root}\n{e}")
+            logger.debug(f"跳过删除空目录 (出现错误): {rel_dir}\n{e}")
