@@ -173,10 +173,6 @@ class RotateModeHandler(BaseModeHandler):
             self.logger.error(f"源目录不存在: {self.source_root}")
             return
 
-        if self.dest_root and not os.path.isdir(self.dest_root):
-            self.logger.critical("!!! CRUCIAL: 目标目录不存在 !!!")
-            return
-
         size_limit = parse_size_string(self.task.get("size_limit", "0"))
         count_limit = int(self.task.get("count_limit", 0))
 
@@ -251,9 +247,11 @@ class RotateModeHandler(BaseModeHandler):
                 self.logger.warning(f"跳过 (未配置目标目录): {f['rel_path']}")
                 continue
 
-            self.execute_action(
+            success = self.execute_action(
                 action, f["path"], f["rel_path"], f["size"], move_file, "移动"
             )
+            if not success:
+                break
 
             if not os.path.exists(f["path"]):
                 rotate_mgr.remove_file(f["groups"], f["size"])

@@ -44,6 +44,8 @@ class BaseModeHandler:
             "is_whitelist_mode": is_whitelist_mode,
         }
         self.policy = FileFilterPolicy(merged_config)
+        self._dest_checked = False
+        self._dest_valid = False
 
     def validate(self):
         return validate_task_config(self.task, self.task_mode, self.logger)
@@ -79,7 +81,19 @@ class BaseModeHandler:
         if action == FileAction.TRANSFER:
             if not self.dest_root:
                 self.logger.warning(f"跳过文件 (目标目录非法): {rel_path}")
-                return
+                return False
+
+            if not self._dest_checked:
+                self._dest_checked = True
+                if not os.path.isdir(self.dest_root):
+                    self.logger.critical("!!! CRUCIAL: 目标目录不存在 !!!")
+                    self._dest_valid = False
+                    return False
+                self._dest_valid = True
+
+            if not self._dest_valid:
+                return False
+
             transfer_file(
                 src_path,
                 size,
@@ -92,6 +106,7 @@ class BaseModeHandler:
                 transfer_func,
                 action_name,
             )
+            return True
         elif action == FileAction.DELETE:
             delete_file(
                 src_path,
@@ -101,11 +116,14 @@ class BaseModeHandler:
                 self.local_stats,
                 self.history_mgr,
             )
+            return True
         elif action == FileAction.SKIP:
             self.local_stats.kept += 1
             self.logger.debug(
                 f"保留文件 (匹配规则): {rel_path}  ({format_size(size, binary=True)})"
             )
+            return True
+        return True
 
 
 class StandardModeHandler(BaseModeHandler):
@@ -133,10 +151,6 @@ class StandardModeHandler(BaseModeHandler):
             self.logger.error(f"源目录不存在: {self.source_root}")
             return
 
-        if not os.path.isdir(self.dest_root):
-            self.logger.critical("!!! CRUCIAL: 目标目录不存在 !!!")
-            return
-
         is_copy = self.task_mode in ["copy", "whitelist_copy"]
         transfer_func = copy_file if is_copy else move_file
         action_name = "复制" if is_copy else "移动"
@@ -145,9 +159,11 @@ class StandardModeHandler(BaseModeHandler):
 
         for root, dirs, files in os.walk(self.source_root):
             self._process_directories(dirs, root, mtime_threshold_seconds)
-            self._process_files(
+            success = self._process_files(
                 files, root, mtime_threshold_seconds, transfer_func, action_name
             )
+            if not success:
+                break
 
         if self.remove_empty_dirs and not is_copy:
             clean_empty_dirs(self.source_root, self.logger)
@@ -229,6 +245,9 @@ class StandardModeHandler(BaseModeHandler):
                 continue
 
             action = self.policy.decide(rel_path, size)
-            self.execute_action(
+            success = self.execute_action(
                 action, src_path, rel_path, size, transfer_func, action_name
             )
+            if not success:
+                return False
+        return True
