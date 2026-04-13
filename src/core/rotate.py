@@ -248,7 +248,7 @@ class RotateModeHandler(BaseModeHandler):
             action = self.policy.decide(f["rel_path"], f["size"])
 
             if action == FileAction.TRANSFER and not self.dest_root:
-                self.logger.warning(f"跳过 (未配置目标路径): {f['rel_path']}")
+                self.logger.warning(f"跳过 (未配置目标目录): {f['rel_path']}")
                 continue
 
             self.execute_action(

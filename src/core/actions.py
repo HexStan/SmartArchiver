@@ -70,11 +70,11 @@ def print_task_header(
         mode_str = "同步"
 
     logger.info(f" - 任务模式: {mode_str}")
-    logger.info(f" - 源路径: {source_root}")
+    logger.info(f" - 源目录: {source_root}")
     if not dest_root and task_mode == "rotate":
-        logger.info(" - 目标路径: 无")
+        logger.info(" - 目标目录: 无")
     else:
-        logger.info(f" - 目标路径: {dest_root}")
+        logger.info(f" - 目标目录: {dest_root}")
     if task_mode not in ["rotate", "sync"]:
         logger.info(f" - 时间阈值: {format_timespan(mtime_threshold_seconds)}")
     if task_mode == "rotate":
