@@ -67,14 +67,6 @@ def move_file(src_path, dest_path):
     shutil.move(src_path, dest_path)
 
 
-def delete_file(src_path):
-    os.remove(src_path)
-
-
-def delete_dir(dir_path):
-    shutil.rmtree(dir_path)
-
-
 def load_config(config_path):
     with open(config_path, "rb") as f:
         return tomllib.load(f)

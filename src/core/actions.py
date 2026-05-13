@@ -1,5 +1,5 @@
 import os
-from src.utils import delete_file as io_delete_file, parse_size_string, get_unique_dest
+from src.utils import parse_size_string, get_unique_dest
 from src.app_context import AppContext
 from src.presentation import fmt_size
 
@@ -58,7 +58,7 @@ def delete_file(src_path, file_size, source_root, stats):
     ctx = AppContext.get()
     rel_path = os.path.relpath(src_path, source_root)
     try:
-        io_delete_file(src_path)
+        os.remove(src_path)
         ctx.logger.success(
             f"删除文件: {rel_path}  ({fmt_size(file_size, binary=True)})"
         )
@@ -97,7 +97,7 @@ def transfer_file(
                 new_dest_path = get_unique_dest(dest_path)
 
             elif conflict_policy == "overwrite":
-                io_delete_file(dest_path)
+                os.remove(dest_path)
 
             else:
                 return
