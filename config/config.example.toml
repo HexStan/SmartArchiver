@@ -3,6 +3,8 @@
 # ==================================================
 
 # 锁文件路径，防止多个实例同时运行
+# 如果需要同时运行多个实例，可以将程序复制多份，每份设置不同的为实例锁路径
+# 或直接运行多个Docker容器，容器不受实例锁限制且环境互相隔离
 lock_file = "/tmp/smartarchiver.lock"
 
 # 文件操作失败时的最大重试次数
@@ -20,9 +22,10 @@ max_log_files = 30
 # ==================================================
 # 定时任务配置（可选）
 # ==================================================
-# 如果不配置 [schedule] 块，程序将作为一次性脚本执行
 
 # [schedule]
+# 如果不配置 [schedule] 块，程序将作为一次性脚本执行
+
 # 定时模式："cron" 或 "interval"
 # mode = "cron"
 
@@ -32,24 +35,30 @@ max_log_files = 30
 # interval 模式下的间隔秒数（任务执行完毕后开始计时）
 # interval_seconds = 3600
 
+# 是否在程序启动后立即执行一次任务（仅在配置了 mode 时生效）
+# true：启动后立即执行；false：等待到下一个时间点再执行
+# 默认值：cron 模式默认为 false，interval 模式默认为 true
+# run_immediately = false
+
 # ==================================================
 # 任务列表
 # ==================================================
 
-# move、copy 模式示例任务
 [[tasks]]
+# 【选填】任务名称，可自定义
+name = "普通移动/复制任务示例"
+
 source = "./source" # 源目录路径
 dest = "./dest"     # 目标目录路径
 
 # 【必填】任务执行模式：
 # "move" - 移动文件到目标目录
 # "copy" - 复制文件到目标目录
-# "sync" - 将源目录以镜像方式同步到目标目录
 mode = "copy"
 
-# 【必填】文件最小年龄（分钟），只有修改时间超过此时间的文件才会被处理
+# 【必填】修改时间阈值（分钟），只有修改时间超过此时间的文件才会被处理
 # 注意：所有操作（包括删除规则）都必须满足此时间阈值
-min_age_minutes = 180
+mtime_threshold_minutes = 180
 
 # 【必填】文件冲突处理策略：
 # "overwrite" - 覆盖目标文件
@@ -61,47 +70,129 @@ conflict_policy = "overwrite"
 remove_empty_dirs = true
 
 # 匹配规则说明 (适用于 move 和 copy 模式)：
-# 1. 匹配方式 (大小写不敏感):
-#    - "example.txt" : 完全匹配
-#    - "example*"    : 前缀匹配
-#    - "*example"    : 后缀匹配
-#    - "*example*"   : 包含匹配
-#    - "*"           : 匹配所有
 #
-# 2. 优先级逻辑:
-#    - 保留规则 (keep_rules) > 删除规则 (delete_rules) > 正常传输
-#    - 如果一个文件同时命中保留和删除规则，它将被【保留】。
+# 1. 优先级逻辑:
+#   - 默认情况下：保留规则 (keep_rules) > 删除规则 (delete_rules) > 正常传输
+#   - 如果一个文件同时命中保留和删除规则，默认将被【保留】。
+#   - 可以通过 preferred_rule 配置项修改此行为。
 #
-# 3. 大小阈值:
-#    - 仅当文件/目录大小【小于】设定的阈值时，规则才会生效。
-#    - 使用 "ALL" 表示匹配所有大小。
-#    - 支持单位: B, KB, MB, GB, TB (例如: "10MB", "1.5GB")。
+# 2. 大小阈值:
+#   - 仅当文件/目录大小【小于/大于等于】设定的阈值时，规则才会生效。lt 为小于，ge 为大于等于。
+#   - 如果希望匹配所有大小，请使用 ge 规则并设置为 -1（例如: "*.log" = -1）。
+#   - 支持单位: B、KB、MB、GB、TB，-1 表示不限制。
 
 # 【选填】保留规则：命中的文件/目录将留在原处，不进行移动、复制或删除
-[tasks.keep_rules.dirs]
-# "Favorites" = "ALL"          # 始终保留名为 Favorites 的目录
+# 用不到的规则块可直接删除
+[tasks.keep_rules]
 
-[tasks.keep_rules.files]
-# "*.raw" = "ALL"              # 始终保留所有 .raw 文件
+# 文件匹配示例（末尾没有`/`时匹配文件）：
+# lt."alpha.txt" = "1MB"          # 完全匹配：匹配名为 alpha.txt 且小于 1MB 的文件
+# lt."*.log" = "10MB"               # 后缀匹配：匹配 .log 后缀且小于 10MB 的文件
+# ge."beta*" = "100MB"              # 前缀匹配：匹配 beta 开头且大于等于 100MB 的文件
+# ge."*charlie*" = "1GB"             # 部分匹配：匹配名称中包含 charlie 且大于等于 1GB 的文件
+# ge."delta.db" = -1          # 匹配所有名称为 delta.db 的文件
+
+# 目录匹配示例（末尾有`/`时匹配目录）：
+# lt."*echo*/" = "500MB"           # 部分匹配：匹配名称中包含 echo 且小于 500MB 的目录
+# lt."*/foxtrot/" = "1GB"              # 后缀匹配：匹配以 foxtrot 结尾且小于 1GB 的目录
+# ge."golf*/" = "2GB"              # 前缀匹配：匹配 golf 开头且大于等于 2GB 的目录
+
+# 多级路径匹配示例：
+# lt."hotel/india/juliett/" = "5GB"    # 匹配 hotel/india/ 下小于 5GB 的 juliet 目录
+# lt."kilo/*.pdf" = "100MB"             # 匹配 kilo 目录下 .pdf 后缀且小于 100MB 的文件
+# lt."lima/*/mike*" = "50MB"             # 匹配 lima 下一级子目录中 mike 开头且小于 50MB 的文件
 
 # 【选填】删除规则：命中的文件/目录将被直接删除，不移动到目标目录
-[tasks.delete_rules.dirs]
-# "*temp*" = "ALL"              # 删除所有包含 temp 的目录
+[tasks.delete_rules]
 
-[tasks.delete_rules.files]
-# "desktop.ini" = "ALL"        # 删除所有 desktop.ini 文件
-# "*.DS_Store" = "ALL"         # 删除所有后缀为 .DS_Store 的文件
+# 【选填】当文件/目录同时命中保留规则和删除规则时的处理方式：
+# "keep" - 遵循保留规则（默认）
+# "delete" - 遵循删除规则
+preferred_rule = "keep"
 
 # --------------------------------------------------
 
-# sync 模式示例任务
 [[tasks]]
-source = "./source-2" # 源目录路径
-dest = "./dest-2"     # 目标目录路径
+name = "轮转移动任务示例"
+
+source = "./source"
+dest = "./dest"     # 【该模式下选填】
 
 # 【必填】任务执行模式：
-# "move" - 移动文件到目标目录
-# "copy" - 复制文件到目标目录
+# "rotate" - 轮转模式
+# 当满足以下任一限制条件时，将最旧的文件移动到目标目录（或删除）：
+# 1. 源目录总体积超过 size_limit
+# 2. 源目录文件总数超过 count_limit
+# 3. 命中 rotate_rules 中的特定文件限制
+mode = "rotate"
+
+conflict_policy = "overwrite"
+remove_empty_dirs = true
+
+#【以下四项必填至少一项】
+size_limit = "1GB"    # 全局目录总体积限制，支持单位: B、KB、MB、GB、TB，0 表示不限制。
+count_limit = 20    # 全局目录文件总数量限制，0 表示不限制。
+
+# 细粒度轮转规则：
+# 不支持以 / 结尾来匹配目录。如果需要轮转一个目录，请配置为 /*。
+[tasks.rotate_rules.count]
+"alpha/*" = 10        # 轮转阈值为 alpha 目录内有 10 个文件
+"beta/*.mp4" = 100    # 轮转阈值为 beta 目录内有 100 个 MP4 文件
+"*.log" = 10          # 轮转阈值为一共有 10 个 .log 文件
+"charlie.zip" = 20    # 轮转阈值为一共有 20 个 charlie.zip 文件
+
+[tasks.rotate_rules.size]
+"logs/*" = "10MB"           # 轮转阈值为 logs 目录达到 10MB
+"backup.iso" = "100MB"      # 轮转阈值为 backup.iso 文件达到 100MB
+
+# 符合轮转要求的文件会继续匹配以下规则：
+[tasks.keep_rules]
+
+[tasks.delete_rules]
+# 如果希望轮转时直接删除而不是移动，可以配置：
+# ge."*" = -1 
+
+preferred_rule = "keep"
+
+# --------------------------------------------------
+
+[[tasks]]
+name = "白名单移动/复制任务示例"
+
+source = "./source"
+dest = "./dest"
+
+# 【必填】任务执行模式：
+# "whitelist_move" - 白名单移动模式（仅移动命中 whitelist_rules 的文件/目录）
+# "whitelist_copy" - 白名单复制模式（仅复制命中 whitelist_rules 的文件/目录）
+mode = "whitelist_copy"
+
+mtime_threshold_minutes = 180
+conflict_policy = "overwrite"
+remove_empty_dirs = true
+
+# 【whitelist_rules 必填】
+# 白名单规则（仅在 whitelist_move 和 whitelist_copy 模式下生效）：
+# 命中的文件/目录将被移动或复制，未命中的将被忽略
+[tasks.whitelist_rules]
+
+# 【选填】保留规则，用于指定在命中了白名单规则时，哪些文件/目录需要保留
+[tasks.keep_rules]
+
+# 【选填】删除规则，只有同时满足白名单规则和删除规则的文件/目录才会被删除
+[tasks.delete_rules]
+
+preferred_rule = "keep"
+
+# --------------------------------------------------
+
+[[tasks]]
+name = "同步任务示例"
+
+source = "./source-2"
+dest = "./dest-2"
+
+# 【必填】任务执行模式：
 # "sync" - 将源目录以镜像方式同步到目标目录
 mode = "sync"
 
@@ -113,3 +204,5 @@ mode = "sync"
 
 # 【选填】最多保留的副本份数（0 表示不限制）
 # max_backups = 5
+
+# 同步模式下不支持配置 rules，请在 exclude 中指定
