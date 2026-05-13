@@ -83,7 +83,21 @@ def main():
                 print("cron 模式需要配置 cron_expr。")
                 sys.exit(1)
 
+            run_immediately = schedule_config.get("run_immediately", False)
+
             logger.info(f"已设置定时任务 (cron 模式): {cron_expr}。")
+
+            if run_immediately:
+                logger.debug("设置为启动后立即执行一次任务。")
+                try:
+                    with SingleInstance(config["lock_file"], logger):
+                        run_tasks(config, logger, history_mgr)
+                        history_mgr.save()
+                except SystemExit:
+                    logger.warning("获取锁失败，可能有其他实例在运行。")
+                except Exception as e:
+                    logger.error(f"发生未知错误: {e}")
+                    history_mgr.save()
 
             while True:
                 now = datetime.datetime.now()
@@ -117,20 +131,26 @@ def main():
                 print("interval 模式需要配置有效的 interval_seconds (大于0的数字)。")
                 sys.exit(1)
 
+            run_immediately = schedule_config.get("run_immediately", True)
+
             logger.info(
                 f"已设置定时任务 (interval 模式): 每 {interval_seconds} 秒执行一次。"
             )
 
+            first_run = True
             while True:
-                try:
-                    with SingleInstance(config["lock_file"], logger):
-                        run_tasks(config, logger, history_mgr)
+                if not first_run or run_immediately:
+                    try:
+                        with SingleInstance(config["lock_file"], logger):
+                            run_tasks(config, logger, history_mgr)
+                            history_mgr.save()
+                    except SystemExit:
+                        logger.warning("获取锁失败，可能有其他实例在运行。")
+                    except Exception as e:
+                        logger.error(f"发生未知错误: {e}")
                         history_mgr.save()
-                except SystemExit:
-                    logger.warning("获取锁失败，可能有其他实例在运行。")
-                except Exception as e:
-                    logger.error(f"发生未知错误: {e}")
-                    history_mgr.save()
+
+                first_run = False
 
                 next_run = datetime.datetime.now() + datetime.timedelta(
                     seconds=interval_seconds
