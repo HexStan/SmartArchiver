@@ -53,6 +53,28 @@ class SingleInstance:
                 pass
 
 
+def copy_file(src_path, dest_path):
+    dest_dir = os.path.dirname(dest_path)
+    if not os.path.exists(dest_dir):
+        os.makedirs(dest_dir, exist_ok=True)
+    shutil.copy2(src_path, dest_path)
+
+
+def move_file(src_path, dest_path):
+    dest_dir = os.path.dirname(dest_path)
+    if not os.path.exists(dest_dir):
+        os.makedirs(dest_dir, exist_ok=True)
+    shutil.move(src_path, dest_path)
+
+
+def delete_file(src_path):
+    os.remove(src_path)
+
+
+def delete_dir(dir_path):
+    shutil.rmtree(dir_path)
+
+
 def load_config(config_path):
     with open(config_path, "rb") as f:
         return tomllib.load(f)
@@ -201,25 +223,3 @@ def clean_empty_dirs(source_root):
             ctx.logger.debug(f"删除空目录: {rel_dir}")
         except OSError as e:
             ctx.logger.debug(f"跳过删除空目录 (出现错误): {rel_dir}\n{e}")
-
-
-def copy_file(src_path, dest_path):
-    dest_dir = os.path.dirname(dest_path)
-    if not os.path.exists(dest_dir):
-        os.makedirs(dest_dir, exist_ok=True)
-    shutil.copy2(src_path, dest_path)
-
-
-def move_file(src_path, dest_path):
-    dest_dir = os.path.dirname(dest_path)
-    if not os.path.exists(dest_dir):
-        os.makedirs(dest_dir, exist_ok=True)
-    shutil.move(src_path, dest_path)
-
-
-def delete_file(src_path):
-    os.remove(src_path)
-
-
-def delete_dir(dir_path):
-    shutil.rmtree(dir_path)

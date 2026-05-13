@@ -49,7 +49,9 @@ class ActionExecutor:
         self._dest_checked = False
         self._dest_valid = False
 
-    def execute(self, action, src_path, rel_path, size, stats, transfer_func, action_name):
+    def execute(
+        self, action, src_path, rel_path, size, stats, transfer_func, action_name
+    ):
         ctx = AppContext.get()
 
         if action == FileAction.TRANSFER:
@@ -84,9 +86,7 @@ class ActionExecutor:
             return True
         elif action == FileAction.SKIP:
             stats.record_kept()
-            ctx.logger.debug(
-                f"保留文件 (匹配规则): {rel_path}  ({_fmt_size(size)})"
-            )
+            ctx.logger.debug(f"保留文件 (匹配规则): {rel_path}  ({_fmt_size(size)})")
             return True
         return True
 
@@ -124,6 +124,3 @@ class BaseTaskHandler(ABC):
     @abstractmethod
     def execute(self):
         pass
-
-
-

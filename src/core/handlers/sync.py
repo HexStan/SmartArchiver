@@ -106,13 +106,9 @@ class SyncHandler(BaseTaskHandler):
             )
 
         if is_windows:
-            _run_rclone_sync(
-                self.source_root, self.dest_root, exclude_list, backup_dir
-            )
+            _run_rclone_sync(self.source_root, self.dest_root, exclude_list, backup_dir)
         else:
-            _run_rsync_sync(
-                self.source_root, self.dest_root, exclude_list, backup_dir
-            )
+            _run_rsync_sync(self.source_root, self.dest_root, exclude_list, backup_dir)
 
     def _setup_backup_dir(self, dest_root, max_backups, exclude_list):
         ctx = AppContext.get()

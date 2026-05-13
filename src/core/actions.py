@@ -40,7 +40,9 @@ def validate_task_config(task, task_mode):
 
     missing_fields = [field for field in required_fields if field not in task]
     if missing_fields:
-        ctx.logger.error(f"任务配置缺少必填项: {'、'.join(missing_fields)}，跳过该任务。")
+        ctx.logger.error(
+            f"任务配置缺少必填项: {'、'.join(missing_fields)}，跳过该任务。"
+        )
         return False
 
     if task_mode in ["whitelist_copy", "whitelist_move"]:
@@ -57,7 +59,9 @@ def delete_file(src_path, file_size, source_root, stats):
     rel_path = os.path.relpath(src_path, source_root)
     try:
         io_delete_file(src_path)
-        ctx.logger.success(f"删除文件: {rel_path}  ({fmt_size(file_size, binary=True)})")
+        ctx.logger.success(
+            f"删除文件: {rel_path}  ({fmt_size(file_size, binary=True)})"
+        )
         ctx.history_mgr.record_success(src_path)
         stats.record_deleted()
     except OSError as e:
