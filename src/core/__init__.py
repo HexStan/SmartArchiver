@@ -1,3 +1,4 @@
-from src.core.processor import process_directory_pair
+import src.core.handlers
+from src.core.registry import process_task
 
-__all__ = ["process_directory_pair"]
+__all__ = ["process_task"]

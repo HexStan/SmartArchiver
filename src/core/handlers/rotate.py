@@ -1,18 +1,15 @@
 import os
 import time
-from humanfriendly import format_size
-from src.utils import parse_size_string, match_pattern, clean_empty_dirs
+
+from src.app_context import AppContext
+from src.presentation import fmt_size, print_task_header, print_task_summary
 from src.core.types import FileAction
-from src.core.actions import print_task_header, print_task_summary
-from src.core.handlers import BaseModeHandler
-from src.core.io_ops import move_file
+from src.utils import move_file, parse_size_string, match_pattern, clean_empty_dirs
+from src.core.registry import register_handler
+from src.core.handlers.base import BaseTaskHandler
 
 
 class RotateGroupManager:
-    """
-    管理轮转模式下的分组统计和限制逻辑
-    """
-
     def __init__(self, size_limit, count_limit, rotate_size_rules, rotate_count_rules):
         self.group_stats = {}
         self.group_stats[("global", "global")] = {
@@ -24,7 +21,6 @@ class RotateGroupManager:
         self.rotate_size_rules = rotate_size_rules
         self.rotate_count_rules = rotate_count_rules
 
-        # Initialize rule groups
         for pattern, limit in rotate_size_rules.items():
             self.group_stats[("size", "pattern", pattern)] = {
                 "size": 0,
@@ -39,26 +35,16 @@ class RotateGroupManager:
             }
 
     def _get_rotate_groups(self, rel_path):
-        """
-        返回该文件所属的所有轮转组。
-        组的标识为 (group_type, group_subtype, group_key)
-        """
         groups = []
-
         for pattern, limit in self.rotate_size_rules.items():
             if match_pattern(rel_path, pattern):
                 groups.append(("size", "pattern", pattern))
-
         for pattern, limit in self.rotate_count_rules.items():
             if match_pattern(rel_path, pattern):
                 groups.append(("count", "pattern", pattern))
-
         return groups
 
     def add_file(self, rel_path, size):
-        """
-        将文件加入统计，并返回其所属的组列表
-        """
         groups = [("global", "global")]
         self.group_stats[("global", "global")]["size"] += size
         self.group_stats[("global", "global")]["count"] += 1
@@ -95,48 +81,37 @@ class RotateGroupManager:
         return False
 
     def is_any_group_exceeded(self):
-        """
-        检查是否任意一个组超出了限制
-        """
         for g_id, stats in self.group_stats.items():
             if self._is_group_exceeded(g_id, stats):
                 return True
         return False
 
     def is_file_needs_rotation(self, groups):
-        """
-        检查文件所属的组中是否有超出限制的
-        """
         for g_id in groups:
             if self._is_group_exceeded(g_id, self.group_stats[g_id]):
                 return True
         return False
 
     def remove_file(self, groups, size):
-        """
-        文件被轮转后，从统计中扣除
-        """
         for g_id in groups:
             self.group_stats[g_id]["size"] -= size
             self.group_stats[g_id]["count"] -= 1
 
-    def log_unmet_limits(self, logger):
-        """
-        记录最终仍未满足限制的警告信息
-        """
+    def log_unmet_limits(self):
+        ctx = AppContext.get()
         global_stats = self.group_stats[("global", "global")]
         if (
             global_stats["size_limit"] > 0
             and global_stats["size"] > global_stats["size_limit"]
         ):
-            logger.warning(
-                f"已无可处理文件，但目录体积 ({format_size(global_stats['size'], binary=True)}) 仍未满足限制 ({format_size(global_stats['size_limit'], binary=True)})，请检查配置。"
+            ctx.logger.warning(
+                f"已无可处理文件，但目录体积 ({fmt_size(global_stats['size'], binary=True)}) 仍未满足限制 ({fmt_size(global_stats['size_limit'], binary=True)})，请检查配置。"
             )
         if (
             global_stats["count_limit"] > 0
             and global_stats["count"] > global_stats["count_limit"]
         ):
-            logger.warning(
+            ctx.logger.warning(
                 f"已无可处理文件，但文件数量 ({global_stats['count']}) 仍未满足限制 ({global_stats['count_limit']})，请检查配置。"
             )
 
@@ -146,31 +121,32 @@ class RotateGroupManager:
             if self._is_group_exceeded(g_id, stats):
                 g_type, g_subtype, g_key = g_id
                 limit_str = (
-                    format_size(stats["limit"], binary=True)
+                    fmt_size(stats["limit"], binary=True)
                     if g_type == "size"
                     else str(stats["limit"])
                 )
                 current_str = (
-                    format_size(stats["size"], binary=True)
+                    fmt_size(stats["size"], binary=True)
                     if g_type == "size"
                     else str(stats["count"])
                 )
-                logger.warning(
+                ctx.logger.warning(
                     f"已无可处理文件，但规则 {g_key}: {g_type} 仍未满足限制 (当前 {current_str}，限制 {limit_str})，请检查配置。"
                 )
 
 
-class RotateModeHandler(BaseModeHandler):
+@register_handler("rotate")
+class RotateHandler(BaseTaskHandler):
     def execute(self):
         if not self.validate():
             return
 
-        print_task_header(
-            self.task, self.task_mode, self.source_root, self.dest_root, 0, self.logger
-        )
+        print_task_header(self.task)
+
+        ctx = AppContext.get()
 
         if not os.path.exists(self.source_root):
-            self.logger.error(f"源目录不存在: {self.source_root}")
+            ctx.logger.error(f"源目录不存在: {self.source_root}")
             return
 
         size_limit = parse_size_string(self.task.get("size_limit", "0"))
@@ -217,13 +193,12 @@ class RotateModeHandler(BaseModeHandler):
                     continue
 
         if not rotate_mgr.is_any_group_exceeded():
-            self.logger.info("当前未超过限制，无需轮转。")
+            ctx.logger.info("当前未超过限制，无需轮转。")
             end_time = time.time()
-            duration_str, total_size_str, speed_str = self.local_stats.calculate_speed(
-                start_time, end_time
-            )
             print_task_summary(
-                self.local_stats, duration_str, total_size_str, speed_str, self.logger
+                self.stats,
+                end_time - start_time,
+                self.stats.total_bytes,
             )
             return
 
@@ -236,19 +211,25 @@ class RotateModeHandler(BaseModeHandler):
             if not rotate_mgr.is_file_needs_rotation(f["groups"]):
                 continue
 
-            if self.check_file_common(
-                f["path"], f["rel_path"], f["size"], f["mtime"], 0
+            if self.checker.should_skip(
+                f["path"], f["rel_path"], f["mtime"], 0, self.stats
             ):
                 continue
 
             action = self.policy.decide(f["rel_path"], f["size"])
 
             if action == FileAction.TRANSFER and not self.dest_root:
-                self.logger.warning(f"跳过 (未配置目标目录): {f['rel_path']}")
+                ctx.logger.warning(f"跳过 (未配置目标目录): {f['rel_path']}")
                 continue
 
-            success = self.execute_action(
-                action, f["path"], f["rel_path"], f["size"], move_file, "移动"
+            success = self.executor.execute(
+                action,
+                f["path"],
+                f["rel_path"],
+                f["size"],
+                self.stats,
+                move_file,
+                "移动",
             )
             if not success:
                 break
@@ -256,22 +237,14 @@ class RotateModeHandler(BaseModeHandler):
             if not os.path.exists(f["path"]):
                 rotate_mgr.remove_file(f["groups"], f["size"])
 
-        rotate_mgr.log_unmet_limits(self.logger)
+        rotate_mgr.log_unmet_limits()
 
         if self.remove_empty_dirs:
-            clean_empty_dirs(self.source_root, self.logger)
+            clean_empty_dirs(self.source_root)
 
         end_time = time.time()
-        duration_str, total_size_str, speed_str = self.local_stats.calculate_speed(
-            start_time, end_time
-        )
         print_task_summary(
-            self.local_stats, duration_str, total_size_str, speed_str, self.logger
+            self.stats,
+            end_time - start_time,
+            self.stats.total_bytes,
         )
-
-
-def handle_rotate_mode(
-    task, config, logger, history_mgr, source_root, dest_root, task_mode
-):
-    handler = RotateModeHandler(task, config, logger, history_mgr)
-    handler.execute()
