@@ -105,25 +105,6 @@ SmartArchiver/
 └── requirements.txt                # Python 依赖
 ```
 
-### 各模块职责简述
-
-| 模块 | 角色 |
-|------|------|
-| `main.py` | 加载配置 → 初始化日志/历史/上下文 → 根据 `[schedule]` 配置决定运行方式 → 循环调度所有任务 |
-| `app_context.py` | 模块级单例，让各模块无需显式传参即可访问 `logger`、`history_mgr`、`config` |
-| `logger.py` | 自定义 `SUCCESS` 日志级别、`DualFormatter`（支持 raw/带格式两种输出）、按天滚动并自动清理旧日志 |
-| `history.py` | 将文件操作失败次数持久化到 `failure_history.json`；超过 `max_retries` 的文件自动跳过，成功后清除记录 |
-| `presentation.py` | 所有 `humanfriendly` 格式化调用集中于此，避免散落在各模块中 |
-| `utils.py` | 进程级文件锁（防多实例）、`fnmatch` 路径匹配（大小写不敏感）、`humanfriendly` 大小解析、空目录自底向上清理 |
-| `core/types.py` | `FileAction` 枚举：`TRANSFER`（传输）/ `DELETE`（删除）/ `SKIP`（保留）；`MoverStats` 统计每次任务的文件级指标 |
-| `core/filters.py` | **规则引擎**，详见下方「规则系统工作原理」 |
-| `core/actions.py` | 文件传输（含 `overwrite`/`skip`/`copy` 三种冲突策略）和文件删除的具体实现 |
-| `core/registry.py` | `@register_handler` 装饰器将模式名映射到处理器类，`process_task()` 根据任务配置分配处理器 |
-| `core/handlers/base.py` | `BaseTaskHandler` 抽象基类，封装 `FileFilterPolicy`、`FileChecker`、`ActionExecutor` 的初始化 |
-| `core/handlers/standard.py` | 标准模式处理器，详见下方「标准模式工作原理」 |
-| `core/handlers/rotate.py` | 轮转模式处理器 + `RotateGroupManager`（多级分组统计），详见下方「轮转模式工作原理」 |
-| `core/handlers/sync.py` | 同步模式处理器，Linux 调用 `rsync`，Windows 调用 `rclone` |
-
 ---
 
 ## 各模式工作原理
