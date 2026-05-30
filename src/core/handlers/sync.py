@@ -1,0 +1,137 @@
+import os
+import shutil
+import time
+import subprocess
+from datetime import datetime
+
+from src.app_context import AppContext
+from src.presentation import fmt_timespan, print_task_header
+from src.core.registry import register_handler
+from src.core.handlers.base import BaseTaskHandler
+
+
+def _run_sync_command(cmd, tool_name, prepend_timestamp=False):
+    ctx = AppContext.get()
+    ctx.logger.info(f"正在使用 {tool_name} 进行同步……")
+    try:
+        start_time = time.time()
+        process = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+        )
+        for line in process.stdout:
+            if prepend_timestamp:
+                ctx.logger.info(line.strip(), raw=True, prepend_timestamp=True)
+            else:
+                ctx.logger.info(line.strip())
+        process.wait()
+        if process.returncode != 0:
+            ctx.logger.error(f"{tool_name} 同步失败，退出码: {process.returncode}")
+        else:
+            end_time = time.time()
+            exec_time = end_time - start_time
+            ctx.logger.success(
+                f"{tool_name} 同步完成，耗时: {fmt_timespan(exec_time)}。"
+            )
+    except Exception as e:
+        ctx.logger.error(f"执行 {tool_name} 时发生错误: {e}")
+
+
+def _run_rclone_sync(source_root, dest_root, exclude_list, backup_dir):
+    ctx = AppContext.get()
+    if not shutil.which("rclone"):
+        ctx.logger.error("未找到 rclone，无法执行 sync 模式，跳过该任务。")
+        return
+
+    cmd = ["rclone", "sync", source_root, dest_root]
+    for ex in exclude_list:
+        cmd.extend(["--exclude", ex])
+    if backup_dir:
+        cmd.extend(["--backup-dir", backup_dir])
+
+    _run_sync_command(cmd, "rclone")
+
+
+def _run_rsync_sync(source_root, dest_root, exclude_list, backup_dir):
+    ctx = AppContext.get()
+    if not shutil.which("rsync"):
+        ctx.logger.error("未找到 rsync，无法执行 sync 模式，跳过该任务。")
+        return
+
+    src = source_root if source_root.endswith("/") else source_root + "/"
+    cmd = ["rsync", "-av", "--delete", src, dest_root]
+    for ex in exclude_list:
+        cmd.extend(["--exclude", ex])
+    if backup_dir:
+        cmd.extend(["--backup", f"--backup-dir={backup_dir}"])
+
+    _run_sync_command(cmd, "rsync", prepend_timestamp=True)
+
+
+@register_handler("sync")
+class SyncHandler(BaseTaskHandler):
+    def execute(self):
+        if not self.validate():
+            return
+
+        print_task_header(self.task)
+
+        ctx = AppContext.get()
+
+        if not os.path.exists(self.source_root):
+            ctx.logger.error(f"源目录不存在: {self.source_root}")
+            return
+
+        if not os.path.isdir(self.dest_root):
+            ctx.logger.critical("!!! CRUCIAL: 目标目录不存在 !!!")
+            return
+
+        is_windows = os.name == "nt"
+
+        exclude_list = self.task.get("exclude", [])
+        if isinstance(exclude_list, str):
+            exclude_list = [exclude_list]
+
+        backup_enabled = self.task.get("create_backups", False)
+        max_backups = self.task.get("max_backups", 0)
+
+        backup_dir = None
+        if backup_enabled:
+            backup_dir = self._setup_backup_dir(
+                self.dest_root, max_backups, exclude_list
+            )
+
+        if is_windows:
+            _run_rclone_sync(self.source_root, self.dest_root, exclude_list, backup_dir)
+        else:
+            _run_rsync_sync(self.source_root, self.dest_root, exclude_list, backup_dir)
+
+    def _setup_backup_dir(self, dest_root, max_backups, exclude_list):
+        ctx = AppContext.get()
+        backup_base = os.path.join(dest_root, ".smart-archiver.backups")
+        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        backup_dir = os.path.join(backup_base, timestamp)
+
+        exclude_list.append(".smart-archiver.backups/")
+
+        if max_backups > 0 and os.path.exists(backup_base):
+            try:
+                backups = [
+                    os.path.join(backup_base, d)
+                    for d in os.listdir(backup_base)
+                    if os.path.isdir(os.path.join(backup_base, d))
+                ]
+                backups.sort()
+                if len(backups) >= max_backups:
+                    num_to_delete = len(backups) - max_backups + 1
+                    for b in backups[:num_to_delete]:
+                        shutil.rmtree(b)
+                        ctx.logger.debug(f"已删除旧备份: {b}")
+            except Exception as e:
+                ctx.logger.error(f"清理旧备份失败: {e}")
+
+        return backup_dir

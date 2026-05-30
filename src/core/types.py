@@ -1,41 +1,73 @@
 from enum import Enum
-from humanfriendly import format_size, format_timespan
 
 
-# 定义操作枚举，提高代码可读性
 class FileAction(Enum):
-    TRANSFER = "transfer"  # 正常移动
-    DELETE = "delete"  # 命中规则，且配置为删除
-    SKIP = "skip"  # 命中规则（配置为保留）
+    TRANSFER = "transfer"
+    DELETE = "delete"
+    SKIP = "skip"
 
 
 class MoverStats:
     def __init__(self):
-        self.success = 0
-        self.error = 0
-        self.dropped = 0
-        self.kept = 0
-        self.deleted = 0
-        self.conflict_skipped = 0
-        self.locked_skipped = 0
-        self.total_bytes = 0
+        self._success = 0
+        self._error = 0
+        self._dropped = 0
+        self._kept = 0
+        self._deleted = 0
+        self._conflict_skipped = 0
+        self._locked_skipped = 0
+        self._total_bytes = 0
 
-    def calculate_speed(self, start_time, end_time):
-        """
-        计算耗时、总大小和传输速度
-        返回: (duration_str, total_size_str, speed_str)
-        """
-        duration = end_time - start_time
+    @property
+    def success(self):
+        return self._success
 
-        # 防止除以零（如果执行极快）
-        if duration < 0.001:
-            duration = 0.001
+    @property
+    def error(self):
+        return self._error
 
-        # 计算速度 (Bytes per second)
-        speed_bps = self.total_bytes / duration
+    @property
+    def dropped(self):
+        return self._dropped
 
-        total_size_str = format_size(self.total_bytes, binary=True)
-        speed_str = format_size(speed_bps, binary=True) + "/s"
-        duration_str = format_timespan(duration)
+    @property
+    def kept(self):
+        return self._kept
 
-        return duration_str, total_size_str, speed_str
+    @property
+    def deleted(self):
+        return self._deleted
+
+    @property
+    def conflict_skipped(self):
+        return self._conflict_skipped
+
+    @property
+    def locked_skipped(self):
+        return self._locked_skipped
+
+    @property
+    def total_bytes(self):
+        return self._total_bytes
+
+    def record_success(self, bytes_transferred=0):
+        self._success += 1
+        self._total_bytes += bytes_transferred
+
+    def record_error(self):
+        self._error += 1
+
+    def record_dropped(self):
+        self._dropped += 1
+
+    def record_kept(self):
+        self._kept += 1
+
+    def record_deleted(self):
+        self._deleted += 1
+
+    def record_conflict_skipped(self):
+        self._conflict_skipped += 1
+
+    def record_locked_skipped(self):
+        self._locked_skipped += 1

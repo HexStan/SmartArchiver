@@ -5,43 +5,41 @@ import sys
 import time
 
 from croniter import croniter
-from humanfriendly import format_timespan
-
-from src.core import process_directory_pair
+from src.presentation import fmt_timespan
+from src.app_context import AppContext
+from src.core import process_task
 from src.history import HistoryManager
 from src.logger import setup_logger
 from src.utils import load_config, SingleInstance
 
 
-def run_tasks(config, logger, history_mgr):
-    logger.info("=" * 80, raw=True)
-    logger.info("脚本开始执行……")
+def run_tasks():
+    ctx = AppContext.get()
+    ctx.logger.info("=" * 80, raw=True)
+    ctx.logger.info("脚本开始执行……")
     start_time = time.time()
 
-    tasks = config.get("tasks", [])
+    tasks = ctx.config.get("tasks", [])
 
     if not tasks:
-        logger.error("配置文件没有任务可以执行。")
+        ctx.logger.error("配置文件没有任务可以执行。")
         sys.exit(1)
 
-    # 循环处理每个目录对
     for idx, task in enumerate(tasks):
-        logger.info(f"-----开始 {len(tasks)} 个任务中的第 {idx + 1} 个-----")
+        ctx.logger.info(f"-----开始 {len(tasks)} 个任务中的第 {idx + 1} 个-----")
 
-        process_directory_pair(task, config, logger, history_mgr, now=start_time)
+        process_task(task, now=start_time)
 
-        logger.info("当前任务结束。")
+        ctx.logger.info("当前任务结束。")
 
-    # 计算执行时间
     end_time = time.time()
     exec_time = end_time - start_time
-    logger.info(f"所有任务执行完毕，总耗时: {format_timespan(exec_time)}。")
+    ctx.logger.info(f"所有任务执行完毕，总耗时: {fmt_timespan(exec_time)}。")
 
-    logger.info(f"{'=' * 80}", raw=True)
+    ctx.logger.info(f"{'=' * 80}", raw=True)
 
 
 def main():
-    # 确定配置文件路径
     base_dir = os.path.dirname(os.path.abspath(__file__))
     config_path = os.path.join(base_dir, "config/config.toml")
 
@@ -50,24 +48,22 @@ def main():
         sys.exit(1)
 
     config = load_config(config_path)
-    # 初始化日志
-    # 获取最大日志数配置，默认为 0 (不清理)
+
     max_log_files = config.get("max_log_files", 0)
     log_level = config.get("log_level", "INFO")
-    # 初始化日志时传入 max_log_files 和 log_level
     logger = setup_logger(config["log_dir"], max_log_files, log_level)
 
-    # 初始化历史管理器
     history_mgr = HistoryManager(config["log_dir"])
+
+    AppContext.init(logger, history_mgr, config)
 
     schedule_config = config.get("schedule", {})
     mode = schedule_config.get("mode")
 
     if not mode:
-        # 一次性执行
         try:
             with SingleInstance(config["lock_file"], logger):
-                run_tasks(config, logger, history_mgr)
+                run_tasks()
         except SystemExit:
             pass
         except Exception as e:
@@ -76,7 +72,6 @@ def main():
         finally:
             history_mgr.save()
     else:
-        # 定时执行
         if mode == "cron":
             cron_expr = schedule_config.get("cron_expr")
             if not cron_expr:
@@ -91,7 +86,7 @@ def main():
                 logger.debug("设置为启动后立即执行一次任务。")
                 try:
                     with SingleInstance(config["lock_file"], logger):
-                        run_tasks(config, logger, history_mgr)
+                        run_tasks()
                         history_mgr.save()
                 except SystemExit:
                     logger.warning("获取锁失败，可能有其他实例在运行。")
@@ -111,9 +106,8 @@ def main():
                 time.sleep(sleep_seconds)
 
                 try:
-                    # 尝试获取锁，如果获取失败说明上次任务还在执行，跳过本次
                     with SingleInstance(config["lock_file"], logger):
-                        run_tasks(config, logger, history_mgr)
+                        run_tasks()
                         history_mgr.save()
                 except SystemExit:
                     logger.warning("上次任务仍在执行，跳过本次执行。")
@@ -142,7 +136,7 @@ def main():
                 if not first_run or run_immediately:
                     try:
                         with SingleInstance(config["lock_file"], logger):
-                            run_tasks(config, logger, history_mgr)
+                            run_tasks()
                             history_mgr.save()
                     except SystemExit:
                         logger.warning("获取锁失败，可能有其他实例在运行。")

@@ -1,4 +1,5 @@
 import os
+import shutil
 import sys
 import tomllib
 import fnmatch
@@ -50,6 +51,20 @@ class SingleInstance:
                 self.fp.close()
             except Exception:
                 pass
+
+
+def copy_file(src_path, dest_path):
+    dest_dir = os.path.dirname(dest_path)
+    if not os.path.exists(dest_dir):
+        os.makedirs(dest_dir, exist_ok=True)
+    shutil.copy2(src_path, dest_path)
+
+
+def move_file(src_path, dest_path):
+    dest_dir = os.path.dirname(dest_path)
+    if not os.path.exists(dest_dir):
+        os.makedirs(dest_dir, exist_ok=True)
+    shutil.move(src_path, dest_path)
 
 
 def load_config(config_path):
@@ -174,32 +189,29 @@ def get_dir_size_and_mtime(dir_path):
     return total_size, latest_mtime
 
 
-def clean_empty_dirs(source_root, logger):
-    """
-    递归深度优先删除空目录
-    """
+def clean_empty_dirs(source_root):
+    from src.app_context import AppContext
+
+    ctx = AppContext.get()
     if not os.path.exists(source_root):
         return
 
-    # topdown=False 确保自底向上遍历
     for root, dirs, files in os.walk(source_root, topdown=False):
         rel_dir = os.path.relpath(root, source_root)
 
         if root == source_root:
             continue
 
-        # 避免处理符号链接或挂载点（防止误删指向非空目录的链接/挂载点）
         if os.path.islink(root) or os.path.ismount(root):
-            logger.debug(f"跳过删除空目录 (符号链接或挂载点): {rel_dir}")
+            ctx.logger.debug(f"跳过删除空目录 (符号链接或挂载点): {rel_dir}")
             continue
 
         try:
-            # 显式检查目录是否为空，避免仅依赖 os.rmdir 的异常处理
             with os.scandir(root) as it:
                 if any(it):
                     continue
 
             os.rmdir(root)
-            logger.debug(f"删除空目录: {rel_dir}")
+            ctx.logger.debug(f"删除空目录: {rel_dir}")
         except OSError as e:
-            logger.debug(f"跳过删除空目录 (出现错误): {rel_dir}\n{e}")
+            ctx.logger.debug(f"跳过删除空目录 (出现错误): {rel_dir}\n{e}")
