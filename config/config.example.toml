@@ -115,8 +115,8 @@ preferred_rule = "keep"
 [[tasks]]
 name = "轮转移动任务示例"
 
-source = "./source"
-dest = "./dest"     # 【该模式下选填】
+source = "./source-2"
+dest = "./dest-2"     # 【该模式下选填】
 
 # 【必填】任务执行模式：
 # "rotate" - 轮转模式
@@ -159,8 +159,8 @@ preferred_rule = "keep"
 [[tasks]]
 name = "白名单移动/复制任务示例"
 
-source = "./source"
-dest = "./dest"
+source = "./source-3"
+dest = "./dest-3"
 
 # 【必填】任务执行模式：
 # "whitelist_move" - 白名单移动模式（仅移动命中 whitelist_rules 的文件/目录）
@@ -189,8 +189,8 @@ preferred_rule = "keep"
 [[tasks]]
 name = "同步任务示例"
 
-source = "./source-2"
-dest = "./dest-2"
+source = "./source-4"
+dest = "./dest-4"
 
 # 【必填】任务执行模式：
 # "sync" - 将源目录以镜像方式同步到目标目录
