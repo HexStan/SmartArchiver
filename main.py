@@ -62,7 +62,7 @@ def main():
 
     if not mode:
         try:
-            with SingleInstance(config["lock_file"], logger):
+            with SingleInstance(config.get("lock_file"), logger):
                 run_tasks()
         except SystemExit:
             pass
@@ -85,7 +85,7 @@ def main():
             if run_immediately:
                 logger.debug("设置为启动后立即执行一次任务。")
                 try:
-                    with SingleInstance(config["lock_file"], logger):
+                    with SingleInstance(config.get("lock_file"), logger):
                         run_tasks()
                         history_mgr.save()
                 except SystemExit:
@@ -106,7 +106,7 @@ def main():
                 time.sleep(sleep_seconds)
 
                 try:
-                    with SingleInstance(config["lock_file"], logger):
+                    with SingleInstance(config.get("lock_file"), logger):
                         run_tasks()
                         history_mgr.save()
                 except SystemExit:
@@ -135,7 +135,7 @@ def main():
             while True:
                 if not first_run or run_immediately:
                     try:
-                        with SingleInstance(config["lock_file"], logger):
+                        with SingleInstance(config.get("lock_file"), logger):
                             run_tasks()
                             history_mgr.save()
                     except SystemExit:

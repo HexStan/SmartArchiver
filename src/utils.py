@@ -21,12 +21,10 @@ class SingleInstance:
         self.lock_file_path = lock_file_path
         self.logger = logger
         self.fp = None
-        # 判断当前是否为 Windows 系统
         self.is_windows = os.name == "nt"
 
     def __enter__(self):
-        # 如果是 Windows 或者 fcntl 导入失败，直接跳过加锁逻辑
-        if self.is_windows or fcntl is None:
+        if self.lock_file_path is None or self.is_windows or fcntl is None:
             return self
         try:
             self.fp = open(self.lock_file_path, "w")
@@ -42,8 +40,7 @@ class SingleInstance:
         return self
 
     def __exit__(self, _type, value, traceback):
-        # Windows 环境下无需解锁
-        if self.is_windows or fcntl is None:
+        if self.lock_file_path is None or self.is_windows or fcntl is None:
             return
         if self.fp:
             try:
