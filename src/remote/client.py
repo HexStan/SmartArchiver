@@ -23,41 +23,59 @@ class RemoteClient:
         if self.logger:
             getattr(self.logger, level)(f"[remote:{self.alias}] {msg}")
 
-    def _build_multipart(self, fields, file_field=None, file_path=None):
-        boundary = uuid.uuid4().hex
+    @staticmethod
+    def _build_fields_body(fields, boundary):
+        """Build multipart body for field-only requests (no file). Small, stays in memory."""
         parts = []
-
         for name, value in fields.items():
-            part = f"--{boundary}\r\n"
-            part += f'Content-Disposition: form-data; name="{name}"\r\n\r\n'
-            part += f"{value}\r\n"
+            part = (
+                f"--{boundary}\r\n"
+                f'Content-Disposition: form-data; name="{name}"\r\n\r\n'
+                f"{value}\r\n"
+            )
             parts.append(part.encode("utf-8"))
-
-        if file_field and file_path:
-            filename = os.path.basename(file_path)
-            part = f"--{boundary}\r\n"
-            part += f'Content-Disposition: form-data; name="{file_field}"; filename="{filename}"\r\n'
-            part += "Content-Type: application/octet-stream\r\n\r\n"
-            parts.append(part.encode("utf-8"))
-
-            with open(file_path, "rb") as f:
-                parts.append(f.read())
-
-            parts.append(b"\r\n")
-
         parts.append(f"--{boundary}--\r\n".encode("utf-8"))
+        return b"".join(parts)
 
-        body = b"".join(parts)
-        content_type = f"multipart/form-data; boundary={boundary}"
-
-        return body, content_type
+    @staticmethod
+    def _iter_file_upload(fields, file_field, file_path, boundary, chunk_size=65536):  # 64KB
+        """Generate multipart/form-data chunks for file upload, streaming from disk."""
+        # field parts
+        for name, value in fields.items():
+            yield (
+                f"--{boundary}\r\n"
+                f'Content-Disposition: form-data; name="{name}"\r\n\r\n'
+                f"{value}\r\n"
+            ).encode("utf-8")
+        # file header
+        filename = os.path.basename(file_path)
+        yield (
+            f"--{boundary}\r\n"
+            f'Content-Disposition: form-data; name="{file_field}"; filename="{filename}"\r\n'
+            f"Content-Type: application/octet-stream\r\n\r\n"
+        ).encode("utf-8")
+        # file content, streamed in chunks
+        with open(file_path, "rb") as f:
+            while True:
+                chunk = f.read(chunk_size)
+                if not chunk:
+                    break
+                yield chunk
+        # closing boundary
+        yield f"\r\n--{boundary}--\r\n".encode("utf-8")
 
     def _request(self, fields, file_field=None, file_path=None):
-        body, content_type = self._build_multipart(fields, file_field, file_path)
+        boundary = uuid.uuid4().hex
+        content_type = f"multipart/form-data; boundary={boundary}"
+
+        if file_field and file_path:
+            data = self._iter_file_upload(fields, file_field, file_path, boundary)
+        else:
+            data = self._build_fields_body(fields, boundary)
 
         req = urllib.request.Request(
             self._endpoint,
-            data=body,
+            data=data,
             method="POST",
             headers={"Content-Type": content_type},
         )
