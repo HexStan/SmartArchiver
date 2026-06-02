@@ -1,0 +1,13 @@
+# ==================================================
+# SmartArchiver 服务器模式配置
+# 启动方式: python main.py --server
+# ==================================================
+
+lock_file = "/tmp/smartarchiver-server.lock"
+
+log_dir = "./logs"
+log_level = "INFO"
+max_log_files = 30
+
+api_key = "your_api_key"     # 连接到该实例时使用的 API Token
+port = "13579"               # HTTP 服务监听端口

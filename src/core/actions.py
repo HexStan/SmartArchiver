@@ -1,5 +1,5 @@
 import os
-from src.utils import parse_size_string, get_unique_dest
+from src.utils import parse_size_string
 from src.app_context import AppContext
 from src.presentation import fmt_size
 
@@ -73,18 +73,18 @@ def transfer_file(
     src_path,
     file_size,
     source_root,
-    dest_root,
+    dest_backend,
     stats,
     conflict_policy,
-    transfer_func,
-    action_name,
+    is_copy,
 ):
     ctx = AppContext.get()
     rel_path = os.path.relpath(src_path, source_root)
-    dest_path = os.path.join(dest_root, rel_path)
+    dest_path = dest_backend.build_dest_path(rel_path)
+    action_name = "复制" if is_copy else "移动"
 
     try:
-        file_exists = os.path.exists(dest_path)
+        file_exists = dest_backend.exists(dest_path)
         new_dest_path = dest_path
 
         if file_exists:
@@ -94,15 +94,18 @@ def transfer_file(
                 return
 
             elif conflict_policy == "copy":
-                new_dest_path = get_unique_dest(dest_path)
+                new_dest_path = dest_backend.get_unique_dest(dest_path)
 
             elif conflict_policy == "overwrite":
-                os.remove(dest_path)
+                dest_backend.remove_file(dest_path)
 
             else:
                 return
 
-        transfer_func(src_path, new_dest_path)
+        if is_copy:
+            dest_backend.copy_file(src_path, new_dest_path)
+        else:
+            dest_backend.move_file(src_path, new_dest_path)
 
         stats.record_success(bytes_transferred=file_size)
         ctx.history_mgr.record_success(src_path)
@@ -111,7 +114,7 @@ def transfer_file(
         if file_exists and conflict_policy == "overwrite":
             ctx.logger.success(f"覆盖同名文件: {rel_path} ({size_str})")
         elif file_exists and conflict_policy == "copy":
-            new_rel = os.path.relpath(new_dest_path, dest_root)
+            new_rel = os.path.relpath(new_dest_path, dest_backend.root_path)
             ctx.logger.success(f"目标存在，创建副本: {new_rel} ({size_str})")
         else:
             ctx.logger.success(f"{action_name}文件: {rel_path} ({size_str})")

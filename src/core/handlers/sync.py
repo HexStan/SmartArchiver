@@ -8,6 +8,7 @@ from src.app_context import AppContext
 from src.presentation import fmt_timespan, print_task_header
 from src.core.registry import register_handler
 from src.core.handlers.base import BaseTaskHandler
+from src.core.backend import RemoteDestBackend
 
 
 def _run_sync_command(cmd, tool_name, prepend_timestamp=False):
@@ -82,11 +83,17 @@ class SyncHandler(BaseTaskHandler):
 
         ctx = AppContext.get()
 
+        if isinstance(self.dest_backend, RemoteDestBackend):
+            ctx.logger.error(
+                "sync 模式不支持远程目标目录，请改用 move/copy 模式，或在远程服务器上直接运行 sync，跳过该任务。"
+            )
+            return
+
         if not os.path.exists(self.source_root):
             ctx.logger.error(f"源目录不存在: {self.source_root}")
             return
 
-        if not os.path.isdir(self.dest_root):
+        if not self.dest_backend.is_dir(self.dest_backend.root_path):
             ctx.logger.critical("!!! CRUCIAL: 目标目录不存在 !!!")
             return
 

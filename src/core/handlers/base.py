@@ -1,5 +1,4 @@
 from abc import ABC, abstractmethod
-import os
 import time
 
 from src.app_context import AppContext
@@ -42,15 +41,16 @@ class FileChecker:
 class ActionExecutor:
     """动作执行器：负责目标目录验证和动作分发"""
 
-    def __init__(self, task):
+    def __init__(self, task, dest_backend):
         self.source_root = task.get("source")
         self.dest_root = task.get("dest")
+        self.dest_backend = dest_backend
         self.conflict_policy = task.get("conflict_policy", "").lower()
         self._dest_checked = False
         self._dest_valid = False
 
     def execute(
-        self, action, src_path, rel_path, size, stats, transfer_func, action_name
+        self, action, src_path, rel_path, size, stats, is_copy
     ):
         ctx = AppContext.get()
 
@@ -61,7 +61,7 @@ class ActionExecutor:
 
             if not self._dest_checked:
                 self._dest_checked = True
-                if not os.path.isdir(self.dest_root):
+                if not self.dest_backend.is_dir(self.dest_backend.root_path):
                     ctx.logger.critical("!!! CRUCIAL: 目标目录不存在 !!!")
                     self._dest_valid = False
                     return False
@@ -74,11 +74,10 @@ class ActionExecutor:
                 src_path,
                 size,
                 self.source_root,
-                self.dest_root,
+                self.dest_backend,
                 stats,
                 self.conflict_policy,
-                transfer_func,
-                action_name,
+                is_copy,
             )
             return True
         elif action == FileAction.DELETE:
@@ -92,12 +91,13 @@ class ActionExecutor:
 
 
 class BaseTaskHandler(ABC):
-    def __init__(self, task, now=None):
+    def __init__(self, task, dest_backend, now=None):
         self.task = task
         self.now = now or time.time()
         self.stats = MoverStats()
         self.source_root = task.get("source")
         self.dest_root = task.get("dest")
+        self.dest_backend = dest_backend
         self.task_mode = task.get("mode", "").lower()
         self.remove_empty_dirs = task.get("remove_empty_dirs", False)
 
@@ -116,7 +116,7 @@ class BaseTaskHandler(ABC):
         }
         self.policy = FileFilterPolicy(merged_config)
         self.checker = FileChecker(task, now)
-        self.executor = ActionExecutor(task)
+        self.executor = ActionExecutor(task, dest_backend)
 
     def validate(self):
         return validate_task_config(self.task, self.task_mode)

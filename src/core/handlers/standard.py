@@ -7,8 +7,6 @@ from src.core.types import FileAction
 import shutil
 
 from src.utils import (
-    copy_file,
-    move_file,
     get_dir_size_and_mtime,
     clean_empty_dirs,
 )
@@ -34,15 +32,13 @@ class StandardHandler(BaseTaskHandler):
             return
 
         is_copy = self.task_mode in ["copy", "whitelist_copy"]
-        transfer_func = copy_file if is_copy else move_file
-        action_name = "复制" if is_copy else "移动"
 
         start_time = time.time()
 
         for root, dirs, files in os.walk(self.source_root):
             self._process_directories(dirs, root, mtime_threshold_seconds)
             success = self._process_files(
-                files, root, mtime_threshold_seconds, transfer_func, action_name
+                files, root, mtime_threshold_seconds, is_copy
             )
             if not success:
                 break
@@ -108,7 +104,7 @@ class StandardHandler(BaseTaskHandler):
             dirs.remove(d)
 
     def _process_files(
-        self, files, root, mtime_threshold_seconds, transfer_func, action_name
+        self, files, root, mtime_threshold_seconds, is_copy
     ):
         for file in files:
             src_path = os.path.join(root, file)
@@ -128,7 +124,7 @@ class StandardHandler(BaseTaskHandler):
 
             action = self.policy.decide(rel_path, size)
             success = self.executor.execute(
-                action, src_path, rel_path, size, self.stats, transfer_func, action_name
+                action, src_path, rel_path, size, self.stats, is_copy
             )
             if not success:
                 return False

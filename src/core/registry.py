@@ -1,5 +1,7 @@
 """处理器注册中心：模式名称 → 处理器类的映射"""
 
+from src.core.backend import create_dest_backend
+
 _registry = {}
 
 
@@ -17,11 +19,16 @@ def get_handler_class(mode_name):
 
 
 def process_task(task, now=None):
+    ctx = __import__("src.app_context", fromlist=["AppContext"]).AppContext.get()
     mode = task.get("mode", "").lower()
     handler_cls = _registry.get(mode)
     if handler_cls is None:
-        ctx = __import__("src.app_context", fromlist=["AppContext"]).AppContext.get()
         ctx.logger.error(f"不支持的任务模式: {mode}，跳过该任务。")
         return
-    handler = handler_cls(task, now)
+
+    remote_clients = getattr(ctx, "remote_clients", {})
+    dest_root = task.get("dest", "")
+    dest_backend = create_dest_backend(dest_root, remote_clients)
+
+    handler = handler_cls(task, dest_backend, now)
     handler.execute()

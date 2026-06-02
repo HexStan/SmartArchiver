@@ -1,4 +1,5 @@
 import os
+import re
 import shutil
 import sys
 import tomllib
@@ -212,3 +213,38 @@ def clean_empty_dirs(source_root):
             ctx.logger.debug(f"删除空目录: {rel_dir}")
         except OSError as e:
             ctx.logger.debug(f"跳过删除空目录 (出现错误): {rel_dir}\n{e}")
+
+
+_ALIAS_PATTERN = re.compile(r"^[a-zA-Z0-9\-_]+$")
+
+
+def validate_remote_alias(alias):
+    return bool(_ALIAS_PATTERN.match(alias))
+
+
+def parse_remote_config(config):
+    remotes = {}
+    http_remotes = config.get("http_remotes", [])
+    if not http_remotes:
+        return remotes
+
+    from src.remote.client import RemoteClient
+
+    for entry in http_remotes:
+        alias = entry.get("alias", "")
+        address = entry.get("address", "").strip()
+        key = entry.get("key", "")
+
+        if not alias or not address or not key:
+            continue
+
+        if not validate_remote_alias(alias):
+            continue
+
+        remotes[alias] = RemoteClient(
+            address=address,
+            token=key,
+            alias=alias,
+        )
+
+    return remotes

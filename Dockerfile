@@ -18,5 +18,5 @@ RUN pip install --no-cache-dir -r requirements.txt
 # 复制项目文件
 COPY . .
 
-# 默认运行 main.py，终止 main.py 即退出容器
-CMD ["python", "main.py"]
+ENTRYPOINT ["python", "main.py"]
+CMD []

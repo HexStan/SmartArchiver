@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import argparse
 import datetime
 import os
 import sys
@@ -10,7 +11,7 @@ from src.app_context import AppContext
 from src.core import process_task
 from src.history import HistoryManager
 from src.logger import setup_logger
-from src.utils import load_config, SingleInstance
+from src.utils import load_config, SingleInstance, parse_remote_config
 
 
 def run_tasks():
@@ -39,7 +40,7 @@ def run_tasks():
     ctx.logger.info(f"{'=' * 80}", raw=True)
 
 
-def main():
+def run_client():
     base_dir = os.path.dirname(os.path.abspath(__file__))
     config_path = os.path.join(base_dir, "config/config.toml")
 
@@ -55,7 +56,9 @@ def main():
 
     history_mgr = HistoryManager(config["log_dir"])
 
-    AppContext.init(logger, history_mgr, config)
+    remote_clients = parse_remote_config(config)
+
+    AppContext.init(logger, history_mgr, config, remote_clients)
 
     schedule_config = config.get("schedule", {})
     mode = schedule_config.get("mode")
@@ -156,6 +159,47 @@ def main():
         else:
             print(f"不支持的定时模式: {mode}")
             sys.exit(1)
+
+
+def run_server():
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    config_path = os.path.join(base_dir, "config/config.server.toml")
+
+    if not os.path.exists(config_path):
+        print(f"Error: 服务器配置文件 {config_path} 未找到。")
+        sys.exit(1)
+
+    config = load_config(config_path)
+
+    max_log_files = config.get("max_log_files", 0)
+    log_level = config.get("log_level", "INFO")
+    logger = setup_logger(
+        config["log_dir"], max_log_files, log_level, prefix="smartarchiver-server"
+    )
+
+    history_mgr = HistoryManager(config["log_dir"])
+
+    AppContext.init(logger, history_mgr, config)
+
+    from src.remote.server import run_server as start_server
+
+    logger.info("以服务器模式启动，不会执行任何任务配置。")
+    start_server(config, logger)
+
+
+def main():
+    parser = argparse.ArgumentParser(description="SmartArchiver - 智能文件归档工具")
+    parser.add_argument(
+        "--server",
+        action="store_true",
+        help="以服务器模式启动，读取 config.server.toml，仅提供远程 API 服务",
+    )
+    args = parser.parse_args()
+
+    if args.server:
+        run_server()
+    else:
+        run_client()
 
 
 if __name__ == "__main__":

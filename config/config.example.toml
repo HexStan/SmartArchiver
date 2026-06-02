@@ -41,6 +41,32 @@ max_log_files = 30
 # run_immediately = false
 
 # ==================================================
+# 远程实例配置（可选）
+# ==================================================
+
+# 连接其他 SmartArchiver 实例，将其目录作为任务的目标目录
+
+# [[http_remotes]]
+# alias = "my_nas"  # alias 仅允许 a-z、A-Z、0-9、-、_
+# address = "http://192.168.10.10:13579"
+# key = "your_api_key"
+
+# [[http_remotes]]
+# alias = "my_pc"
+# address = "http://192.168.10.20:13579"
+# key = "your_api_key"
+
+# [[http_remotes]]
+# alias = "bob_server"
+# address = "https://sa.bob.com"  # 反向代理场景
+# key = "your_api_key"
+
+# 使用远程实例的目录作为 dest 的写法：
+# dest = "{my_nas}?/vol/1000/backup"
+# dest = "{my_pc}?D:/Backup"  # Windows 环境
+# dest = "{bob_server}?/mnt/ext_users/backup"
+
+# ==================================================
 # 任务列表
 # ==================================================
 
