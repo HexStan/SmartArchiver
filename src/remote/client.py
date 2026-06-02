@@ -1,14 +1,10 @@
 import json
 import os
-import tempfile
 import urllib.request
 import urllib.error
 import uuid
 
 from src.remote.protocol import RemoteAction, API_PATH
-
-_STREAM_CHUNK_SIZE = 8 * 1024 * 1024
-_SPOOL_MEMORY_LIMIT = 10 * 1024 * 1024
 
 
 class RemoteClientError(Exception):
@@ -29,68 +25,56 @@ class RemoteClient:
 
     def _build_multipart(self, fields, file_field=None, file_path=None):
         boundary = uuid.uuid4().hex
-        body_file = tempfile.SpooledTemporaryFile(max_size=_SPOOL_MEMORY_LIMIT)
+        parts = []
 
         for name, value in fields.items():
-            body_file.write(
-                (
-                    f"--{boundary}\r\n"
-                    f'Content-Disposition: form-data; name="{name}"\r\n\r\n'
-                    f"{value}\r\n"
-                ).encode("utf-8")
-            )
+            part = f"--{boundary}\r\n"
+            part += f'Content-Disposition: form-data; name="{name}"\r\n\r\n'
+            part += f"{value}\r\n"
+            parts.append(part.encode("utf-8"))
 
         if file_field and file_path:
             filename = os.path.basename(file_path)
-            body_file.write(
-                (
-                    f"--{boundary}\r\n"
-                    f'Content-Disposition: form-data; name="{file_field}"; filename="{filename}"\r\n'
-                    f"Content-Type: application/octet-stream\r\n\r\n"
-                ).encode("utf-8")
-            )
+            part = f"--{boundary}\r\n"
+            part += f'Content-Disposition: form-data; name="{file_field}"; filename="{filename}"\r\n'
+            part += "Content-Type: application/octet-stream\r\n\r\n"
+            parts.append(part.encode("utf-8"))
 
             with open(file_path, "rb") as f:
-                while True:
-                    chunk = f.read(_STREAM_CHUNK_SIZE)
-                    if not chunk:
-                        break
-                    body_file.write(chunk)
+                parts.append(f.read())
 
-            body_file.write(b"\r\n")
+            parts.append(b"\r\n")
 
-        body_file.write(f"--{boundary}--\r\n".encode("utf-8"))
-        body_file.seek(0)
+        parts.append(f"--{boundary}--\r\n".encode("utf-8"))
 
+        body = b"".join(parts)
         content_type = f"multipart/form-data; boundary={boundary}"
-        return body_file, content_type
+
+        return body, content_type
 
     def _request(self, fields, file_field=None, file_path=None):
-        body_file, content_type = self._build_multipart(fields, file_field, file_path)
+        body, content_type = self._build_multipart(fields, file_field, file_path)
+
+        req = urllib.request.Request(
+            self._endpoint,
+            data=body,
+            method="POST",
+            headers={"Content-Type": content_type},
+        )
 
         try:
-            req = urllib.request.Request(
-                self._endpoint,
-                data=body_file,
-                method="POST",
-                headers={"Content-Type": content_type},
+            with urllib.request.urlopen(req, timeout=14400) as resp:
+                raw = resp.read().decode("utf-8")
+                return json.loads(raw)
+        except urllib.error.HTTPError as e:
+            body = e.read().decode("utf-8", errors="replace")
+            raise RemoteClientError(f"HTTP {e.code} from {self.alias}: {body}")
+        except urllib.error.URLError as e:
+            raise RemoteClientError(
+                f"Connection error to {self.alias} ({self.address}): {e.reason}"
             )
-
-            try:
-                with urllib.request.urlopen(req, timeout=14400) as resp:
-                    raw = resp.read().decode("utf-8")
-                    return json.loads(raw)
-            except urllib.error.HTTPError as e:
-                body = e.read().decode("utf-8", errors="replace")
-                raise RemoteClientError(f"HTTP {e.code} from {self.alias}: {body}")
-            except urllib.error.URLError as e:
-                raise RemoteClientError(
-                    f"Connection error to {self.alias} ({self.address}): {e.reason}"
-                )
-            except json.JSONDecodeError:
-                raise RemoteClientError(f"Invalid JSON response from {self.alias}")
-        finally:
-            body_file.close()
+        except json.JSONDecodeError:
+            raise RemoteClientError(f"Invalid JSON response from {self.alias}")
 
     def _action(self, action, **extra_fields):
         fields = {"api_key": self.api_key, "action": action.value}

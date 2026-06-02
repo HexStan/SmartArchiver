@@ -1,5 +1,5 @@
 services:
-  client:
+  smart-archiver:
     image: hexstan/smart-archiver:latest
     container_name: smart-archiver
     restart: unless-stopped
@@ -11,7 +11,7 @@ services:
       - ./source:/app/source
       - ./dest:/app/dest
 
-  server:
+  smart-archiver-server:
     image: hexstan/smart-archiver:latest
     container_name: smart-archiver-server
     restart: unless-stopped
