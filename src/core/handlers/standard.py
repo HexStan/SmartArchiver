@@ -37,9 +37,7 @@ class StandardHandler(BaseTaskHandler):
 
         for root, dirs, files in os.walk(self.source_root):
             self._process_directories(dirs, root, mtime_threshold_seconds)
-            success = self._process_files(
-                files, root, mtime_threshold_seconds, is_copy
-            )
+            success = self._process_files(files, root, mtime_threshold_seconds, is_copy)
             if not success:
                 break
 
@@ -103,9 +101,7 @@ class StandardHandler(BaseTaskHandler):
         for d in dirs_to_remove:
             dirs.remove(d)
 
-    def _process_files(
-        self, files, root, mtime_threshold_seconds, is_copy
-    ):
+    def _process_files(self, files, root, mtime_threshold_seconds, is_copy):
         for file in files:
             src_path = os.path.join(root, file)
             rel_path = os.path.relpath(src_path, self.source_root)

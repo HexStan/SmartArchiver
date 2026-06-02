@@ -76,7 +76,9 @@ class DailyRotatingFileHandler(logging.FileHandler):
     按天滚动的日志处理器，每天生成一个新的日志文件，并清理旧日志。
     """
 
-    def __init__(self, log_dir, max_log_files, prefix="smartarchiver", encoding="utf-8"):
+    def __init__(
+        self, log_dir, max_log_files, prefix="smartarchiver", encoding="utf-8"
+    ):
         self.log_dir = log_dir
         self.max_log_files = max_log_files
         self.prefix = prefix
@@ -119,7 +121,9 @@ def setup_logger(log_dir, max_log_files=0, log_level="INFO", prefix="smartarchiv
     if logger.handlers:
         logger.handlers = []
 
-    file_handler = DailyRotatingFileHandler(log_dir, max_log_files, prefix=prefix, encoding="utf-8")
+    file_handler = DailyRotatingFileHandler(
+        log_dir, max_log_files, prefix=prefix, encoding="utf-8"
+    )
 
     # 执行旧日志清理 (启动时清理一次)
     if max_log_files > 0:

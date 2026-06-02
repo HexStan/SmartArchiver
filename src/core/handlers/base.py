@@ -49,9 +49,7 @@ class ActionExecutor:
         self._dest_checked = False
         self._dest_valid = False
 
-    def execute(
-        self, action, src_path, rel_path, size, stats, is_copy
-    ):
+    def execute(self, action, src_path, rel_path, size, stats, is_copy):
         ctx = AppContext.get()
 
         if action == FileAction.TRANSFER:

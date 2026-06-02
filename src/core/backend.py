@@ -106,7 +106,7 @@ def create_dest_backend(dest_root, remote_clients):
         for alias, client in remote_clients.items():
             prefix = f"{{{alias}}}?"
             if dest_root.startswith(prefix):
-                remote_path = dest_root[len(prefix):]
+                remote_path = dest_root[len(prefix) :]
                 remote_path = "/" + remote_path.lstrip("/")
                 return RemoteDestBackend(client, remote_path)
 

@@ -5,7 +5,7 @@ from flask import Flask, request, jsonify
 from src.remote.protocol import RemoteAction
 
 
-def create_app(api_token, logger):
+def create_app(api_key, logger):
     app = Flask(__name__)
 
     @app.before_request
@@ -17,8 +17,8 @@ def create_app(api_token, logger):
     def handle_remote():
         client_ip = request.remote_addr
 
-        token = request.form.get("token", "")
-        if token != api_token:
+        req_api_key = request.form.get("api_key", "")
+        if req_api_key != api_key:
             logger.warning(f"来自 {client_ip} 的请求鉴权失败")
             return jsonify({"error": "unauthorized"}), 403
 
@@ -73,15 +73,19 @@ def create_app(api_token, logger):
 
             elif action == RemoteAction.STAT:
                 if not os.path.exists(path):
-                    return jsonify({"exists": False, "size": 0, "mtime": 0, "is_dir": False})
+                    return jsonify(
+                        {"exists": False, "size": 0, "mtime": 0, "is_dir": False}
+                    )
 
                 st = os.stat(path)
-                return jsonify({
-                    "exists": True,
-                    "size": st.st_size,
-                    "mtime": st.st_mtime,
-                    "is_dir": os.path.isdir(path),
-                })
+                return jsonify(
+                    {
+                        "exists": True,
+                        "size": st.st_size,
+                        "mtime": st.st_mtime,
+                        "is_dir": os.path.isdir(path),
+                    }
+                )
 
             elif action == RemoteAction.LIST_DIR:
                 if not os.path.isdir(path):
@@ -89,12 +93,14 @@ def create_app(api_token, logger):
                 entries = []
                 with os.scandir(path) as it:
                     for entry in it:
-                        entries.append({
-                            "name": entry.name,
-                            "is_dir": entry.is_dir(),
-                            "size": entry.stat().st_size if entry.is_file() else 0,
-                            "mtime": entry.stat().st_mtime,
-                        })
+                        entries.append(
+                            {
+                                "name": entry.name,
+                                "is_dir": entry.is_dir(),
+                                "size": entry.stat().st_size if entry.is_file() else 0,
+                                "mtime": entry.stat().st_mtime,
+                            }
+                        )
                 return jsonify({"entries": entries})
 
         except PermissionError as e:
@@ -108,10 +114,10 @@ def create_app(api_token, logger):
 
 
 def run_server(config, logger):
-    api_token = config.get("api_key", "")
+    api_key = config.get("api_key", "")
     port = int(config.get("port", "13579"))
 
     logger.info(f"服务器模式启动，监听端口: {port}")
 
-    app = create_app(api_token, logger)
+    app = create_app(api_key, logger)
     app.run(host="0.0.0.0", port=port, debug=False)

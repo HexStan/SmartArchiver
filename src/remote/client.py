@@ -12,9 +12,9 @@ class RemoteClientError(Exception):
 
 
 class RemoteClient:
-    def __init__(self, address, token, alias="", logger=None):
+    def __init__(self, address, api_key, alias="", logger=None):
         self.address = address.rstrip("/")
-        self.token = token
+        self.api_key = api_key
         self.alias = alias
         self.logger = logger
         self._endpoint = f"{self.address}{API_PATH}"
@@ -68,20 +68,16 @@ class RemoteClient:
                 return json.loads(raw)
         except urllib.error.HTTPError as e:
             body = e.read().decode("utf-8", errors="replace")
-            raise RemoteClientError(
-                f"HTTP {e.code} from {self.alias}: {body}"
-            )
+            raise RemoteClientError(f"HTTP {e.code} from {self.alias}: {body}")
         except urllib.error.URLError as e:
             raise RemoteClientError(
                 f"Connection error to {self.alias} ({self.address}): {e.reason}"
             )
         except json.JSONDecodeError:
-            raise RemoteClientError(
-                f"Invalid JSON response from {self.alias}"
-            )
+            raise RemoteClientError(f"Invalid JSON response from {self.alias}")
 
     def _action(self, action, **extra_fields):
-        fields = {"token": self.token, "action": action.value}
+        fields = {"api_key": self.api_key, "action": action.value}
         fields.update({k: str(v) for k, v in extra_fields.items() if v is not None})
         return self._request(fields)
 
@@ -101,7 +97,11 @@ class RemoteClient:
 
     def upload(self, local_path, remote_path):
         self._request(
-            {"token": self.token, "action": RemoteAction.UPLOAD.value, "path": remote_path},
+            {
+                "api_key": self.api_key,
+                "action": RemoteAction.UPLOAD.value,
+                "path": remote_path,
+            },
             file_field="file",
             file_path=local_path,
         )

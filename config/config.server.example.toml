@@ -9,5 +9,5 @@ log_dir = "./logs"
 log_level = "INFO"
 max_log_files = 30
 
-api_key = "your_api_key"     # 连接到该实例时使用的 API Token
+api_key = "your_api_key"      # 连接到该实例时使用的 API Key
 port = "13579"               # HTTP 服务监听端口

@@ -243,7 +243,7 @@ def parse_remote_config(config):
 
         remotes[alias] = RemoteClient(
             address=address,
-            token=key,
+            api_key=key,
             alias=alias,
         )
 
