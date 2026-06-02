@@ -79,17 +79,17 @@ class DailyRotatingFileHandler(logging.FileHandler):
     def __init__(self, log_dir, max_log_files, encoding="utf-8"):
         self.log_dir = log_dir
         self.max_log_files = max_log_files
-        self.current_date = datetime.now().strftime("%Y%m%d")
-        filename = os.path.join(log_dir, f"smartarchiver-{self.current_date}.log")
+        self.current_date = datetime.now().strftime("%Y-%m-%d")
+        filename = os.path.join(log_dir, f"smartarchiver.{self.current_date}.log")
         super().__init__(filename, encoding=encoding)
 
     def emit(self, record):
-        new_date = datetime.now().strftime("%Y%m%d")
+        new_date = datetime.now().strftime("%Y-%m-%d")
         if new_date != self.current_date:
             self.current_date = new_date
             self.close()
             filename = os.path.join(
-                self.log_dir, f"smartarchiver-{self.current_date}.log"
+                self.log_dir, f"smartarchiver.{self.current_date}.log"
             )
             self.baseFilename = os.path.abspath(filename)
             self.stream = self._open()
@@ -152,12 +152,12 @@ def clean_old_logs(log_dir, max_files):
         return
 
     # 匹配日志文件模式
-    log_pattern = os.path.join(log_dir, "smartarchiver-*.log")
+    log_pattern = os.path.join(log_dir, "smartarchiver.*.log")
 
     # 获取所有匹配的日志文件
     files = glob.glob(log_pattern)
 
-    # 按照文件名排序 (因为文件名包含 YYYYMMDD，所以按字母排序即按时间排序)
+    # 按照文件名排序 (因为文件名包含 YYYY-MM-DD，所以按字母排序即按时间排序)
     # 从旧到新排序
     files.sort()
 
