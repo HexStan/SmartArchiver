@@ -71,6 +71,60 @@ def create_app(api_key, logger):
                 logger.success(f"接收文件: {path}")
                 return jsonify({"success": True})
 
+            elif action == RemoteAction.TRANSFER:
+                uploaded = request.files.get("file")
+                if not uploaded:
+                    return jsonify({"error": "missing file"}), 400
+
+                on_exists = request.form.get("on_exists", "error")
+
+                dest_dir = os.path.dirname(path)
+                if dest_dir:
+                    os.makedirs(dest_dir, exist_ok=True)
+
+                final_path = path
+                file_existed = os.path.exists(path)
+
+                if file_existed:
+                    if on_exists == "skip":
+                        logger.info(f"跳过已存在文件: {path}")
+                        return jsonify({"action": "skipped", "path": path})
+                    elif on_exists == "overwrite":
+                        if os.path.isfile(path):
+                            os.remove(path)
+                        elif os.path.isdir(path):
+                            shutil.rmtree(path)
+                    elif on_exists == "rename":
+                        directory = os.path.dirname(path)
+                        filename = os.path.basename(path)
+                        name, ext = os.path.splitext(filename)
+                        counter = 1
+                        while True:
+                            new_filename = f"{name}-{counter}{ext}"
+                            final_path = os.path.join(directory, new_filename)
+                            if not os.path.exists(final_path):
+                                break
+                            counter += 1
+                    elif on_exists == "error":
+                        return jsonify({"error": "file already exists"}), 409
+                    else:
+                        return (
+                            jsonify({"error": f"unknown on_exists: {on_exists}"}),
+                            400,
+                        )
+
+                uploaded.save(final_path)
+                logger.success(f"接收文件: {final_path}")
+
+                if file_existed and on_exists == "overwrite":
+                    resp_action = "overwritten"
+                elif file_existed and on_exists == "rename":
+                    resp_action = "renamed"
+                else:
+                    resp_action = "uploaded"
+
+                return jsonify({"action": resp_action, "path": final_path})
+
             elif action == RemoteAction.STAT:
                 if not os.path.exists(path):
                     return jsonify(

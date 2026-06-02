@@ -7,6 +7,7 @@ class RemoteAction(str, Enum):
     MKDIR = "mkdir"
     DELETE = "delete"
     UPLOAD = "upload"
+    TRANSFER = "transfer"
     STAT = "stat"
     LIST_DIR = "list_dir"
 

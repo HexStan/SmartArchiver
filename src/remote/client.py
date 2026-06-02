@@ -122,6 +122,20 @@ class RemoteClient:
             file_path=local_path,
         )
 
+    def transfer_file(self, local_path, remote_path, on_exists):
+        """单次请求完成存在性检查和文件上传。on_exists: overwrite | skip | rename | error"""
+        result = self._request(
+            {
+                "api_key": self.api_key,
+                "action": RemoteAction.TRANSFER.value,
+                "path": remote_path,
+                "on_exists": on_exists,
+            },
+            file_field="file",
+            file_path=local_path,
+        )
+        return result.get("action", "error"), result.get("path", remote_path)
+
     def stat(self, path):
         result = self._action(RemoteAction.STAT, path=path)
         return {

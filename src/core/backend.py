@@ -1,4 +1,5 @@
 import os
+import shutil
 from abc import ABC, abstractmethod
 
 from src.utils import copy_file, move_file
@@ -28,28 +29,9 @@ class DestBackend(ABC):
         pass
 
     @abstractmethod
-    def copy_file(self, src_local_path, dest_path):
+    def transfer_file(self, src_local_path, dest_path, on_exists, is_copy):
+        """传输文件到目标。on_exists: overwrite | skip | rename | error。返回 (action, final_dest_path)。"""
         pass
-
-    @abstractmethod
-    def move_file(self, src_local_path, dest_path):
-        pass
-
-    def get_unique_dest(self, dest_path):
-        if not self.exists(dest_path):
-            return dest_path
-
-        directory = os.path.dirname(dest_path)
-        filename = os.path.basename(dest_path)
-        name, ext = os.path.splitext(filename)
-
-        counter = 1
-        while True:
-            new_filename = f"{name}-{counter}{ext}"
-            new_path = os.path.join(directory, new_filename)
-            if not self.exists(new_path):
-                return new_path
-            counter += 1
 
 
 class LocalDestBackend(DestBackend):
@@ -65,11 +47,54 @@ class LocalDestBackend(DestBackend):
     def makedirs(self, path):
         os.makedirs(path, exist_ok=True)
 
-    def copy_file(self, src_local_path, dest_path):
-        copy_file(src_local_path, dest_path)
+    def transfer_file(self, src_local_path, dest_path, on_exists, is_copy):
+        file_existed = os.path.exists(dest_path)
 
-    def move_file(self, src_local_path, dest_path):
-        move_file(src_local_path, dest_path)
+        if file_existed:
+            if on_exists == "skip":
+                return "skipped", dest_path
+            elif on_exists == "overwrite":
+                if os.path.isfile(dest_path):
+                    os.remove(dest_path)
+                elif os.path.isdir(dest_path):
+                    shutil.rmtree(dest_path)
+            elif on_exists == "rename":
+                dest_path = self._get_unique_dest_local(dest_path)
+
+        dest_dir = os.path.dirname(dest_path)
+        if dest_dir:
+            os.makedirs(dest_dir, exist_ok=True)
+
+        if is_copy:
+            copy_file(src_local_path, dest_path)
+        else:
+            move_file(src_local_path, dest_path)
+
+        if file_existed and on_exists == "overwrite":
+            action = "overwritten"
+        elif file_existed and on_exists == "rename":
+            action = "renamed"
+        else:
+            action = "uploaded"
+
+        return action, dest_path
+
+    @staticmethod
+    def _get_unique_dest_local(dest_path):
+        if not os.path.exists(dest_path):
+            return dest_path
+
+        directory = os.path.dirname(dest_path)
+        filename = os.path.basename(dest_path)
+        name, ext = os.path.splitext(filename)
+
+        counter = 1
+        while True:
+            new_filename = f"{name}-{counter}{ext}"
+            new_path = os.path.join(directory, new_filename)
+            if not os.path.exists(new_path):
+                return new_path
+            counter += 1
 
 
 class RemoteDestBackend(DestBackend):
@@ -93,12 +118,13 @@ class RemoteDestBackend(DestBackend):
     def makedirs(self, path):
         self._client.mkdir(path)
 
-    def copy_file(self, src_local_path, dest_path):
-        self._client.upload(src_local_path, dest_path)
-
-    def move_file(self, src_local_path, dest_path):
-        self._client.upload(src_local_path, dest_path)
-        os.remove(src_local_path)
+    def transfer_file(self, src_local_path, dest_path, on_exists, is_copy):
+        action, final_path = self._client.transfer_file(
+            src_local_path, dest_path, on_exists
+        )
+        if not is_copy and action not in ("skipped", "error"):
+            os.remove(src_local_path)
+        return action, final_path
 
 
 def create_dest_backend(dest_root, remote_clients):

@@ -83,43 +83,35 @@ def transfer_file(
     dest_path = dest_backend.build_dest_path(rel_path)
     action_name = "复制" if is_copy else "移动"
 
+    _POLICY_TO_ON_EXISTS = {
+        "skip": "skip",
+        "overwrite": "overwrite",
+        "copy": "rename",
+    }
+    on_exists = _POLICY_TO_ON_EXISTS.get(conflict_policy, "error")
+
     try:
-        file_exists = dest_backend.exists(dest_path)
-        new_dest_path = dest_path
-
-        if file_exists:
-            if conflict_policy == "skip":
-                stats.record_conflict_skipped()
-                ctx.logger.debug(f"跳过 (重复): {rel_path}")
-                return
-
-            elif conflict_policy == "copy":
-                new_dest_path = dest_backend.get_unique_dest(dest_path)
-
-            elif conflict_policy == "overwrite":
-                dest_backend.remove_file(dest_path)
-
-            else:
-                return
-
-        if is_copy:
-            dest_backend.copy_file(src_path, new_dest_path)
-        else:
-            dest_backend.move_file(src_path, new_dest_path)
-
-        stats.record_success(bytes_transferred=file_size)
-        ctx.history_mgr.record_success(src_path)
-
-        size_str = fmt_size(file_size, binary=True)
-        if file_exists and conflict_policy == "overwrite":
-            ctx.logger.success(f"覆盖同名文件: {rel_path} ({size_str})")
-        elif file_exists and conflict_policy == "copy":
-            new_rel = os.path.relpath(new_dest_path, dest_backend.root_path)
-            ctx.logger.success(f"目标存在，创建副本: {new_rel} ({size_str})")
-        else:
-            ctx.logger.success(f"{action_name}文件: {rel_path} ({size_str})")
-
+        action, _ = dest_backend.transfer_file(
+            src_path, dest_path, on_exists, is_copy
+        )
     except Exception as e:
         count = ctx.history_mgr.record_failure(src_path)
         ctx.logger.error(f"{action_name}文件失败 ({count} 次): {rel_path}\n{e}")
         stats.record_error()
+        return
+
+    size_str = fmt_size(file_size, binary=True)
+
+    if action == "skipped":
+        stats.record_conflict_skipped()
+        ctx.logger.debug(f"跳过 (重复): {rel_path}")
+    elif action in ("uploaded", "renamed", "overwritten"):
+        stats.record_success(bytes_transferred=file_size)
+        ctx.history_mgr.record_success(src_path)
+
+        if action == "overwritten":
+            ctx.logger.success(f"覆盖同名文件: {rel_path} ({size_str})")
+        elif action == "renamed":
+            ctx.logger.success(f"目标存在，创建副本: {rel_path} ({size_str})")
+        else:
+            ctx.logger.success(f"{action_name}文件: {rel_path} ({size_str})")
