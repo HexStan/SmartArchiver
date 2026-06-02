@@ -7,10 +7,14 @@ import fnmatch
 
 from humanfriendly import parse_size, InvalidSize
 
-try:  # 尝试导入 fcntl，Windows 下没有这个模块
+try:
     import fcntl
 except ImportError:
     fcntl = None
+
+# ============================================================
+# 单实例 / 文件锁
+# ============================================================
 
 
 class SingleInstance:
@@ -51,25 +55,6 @@ class SingleInstance:
                 pass
 
 
-def copy_file(src_path, dest_path):
-    dest_dir = os.path.dirname(dest_path)
-    if not os.path.exists(dest_dir):
-        os.makedirs(dest_dir, exist_ok=True)
-    shutil.copy2(src_path, dest_path)
-
-
-def move_file(src_path, dest_path):
-    dest_dir = os.path.dirname(dest_path)
-    if not os.path.exists(dest_dir):
-        os.makedirs(dest_dir, exist_ok=True)
-    shutil.move(src_path, dest_path)
-
-
-def load_config(config_path):
-    with open(config_path, "rb") as f:
-        return tomllib.load(f)
-
-
 def is_file_locked(filepath):
     """
     检查文件是否被 flock 锁定
@@ -99,43 +84,33 @@ def is_file_locked(filepath):
     return locked
 
 
-def parse_size_string(size_str):
-    """
-    将人类可读的大小字符串转换为字节数
-    包装 humanfriendly.parse_size，处理空值情况
-    输入 "10 MB", "1g", "5KB" -> 输出 int (字节)
-    """
-    if not size_str:
-        return 0
-
-    # 转换为字符串并去除空格
-    s = str(size_str).strip()
-
-    # 特殊处理：支持 -1 作为全匹配标志
-    if s == "-1":
-        return -1
-
-    try:
-        # binary=True 表示使用 1024 进位 (MiB, KiB)
-        return parse_size(s, binary=True)
-    except (InvalidSize, ValueError):
-        # 解析失败默认返回 0，或者按需抛出异常
-        return 0
+# ============================================================
+# 配置加载
+# ============================================================
 
 
-def match_pattern(name, pattern):
-    """
-    匹配模式：
-    支持通配符 * 和 ?，支持多级目录匹配
-    大小写不敏感
-    """
-    name = name.replace("\\", "/").lower()
-    pattern = pattern.replace("\\", "/").lower()
+def load_config(config_path):
+    with open(config_path, "rb") as f:
+        return tomllib.load(f)
 
-    if "/" not in pattern:
-        name = name.split("/")[-1]
 
-    return fnmatch.fnmatch(name, pattern)
+# ============================================================
+# 文件操作
+# ============================================================
+
+
+def copy_file(src_path, dest_path):
+    dest_dir = os.path.dirname(dest_path)
+    if not os.path.exists(dest_dir):
+        os.makedirs(dest_dir, exist_ok=True)
+    shutil.copy2(src_path, dest_path)
+
+
+def move_file(src_path, dest_path):
+    dest_dir = os.path.dirname(dest_path)
+    if not os.path.exists(dest_dir):
+        os.makedirs(dest_dir, exist_ok=True)
+    shutil.move(src_path, dest_path)
 
 
 def get_unique_dest(dest_path):
@@ -157,6 +132,11 @@ def get_unique_dest(dest_path):
         if not os.path.exists(new_path):
             return new_path
         counter += 1
+
+
+# ============================================================
+# 目录操作
+# ============================================================
 
 
 def get_dir_size_and_mtime(dir_path):
@@ -214,6 +194,45 @@ def clean_empty_dirs(source_root):
         except OSError as e:
             ctx.logger.debug(f"跳过删除空目录 (出现错误): {rel_dir}\n{e}")
 
+
+# ============================================================
+# 模式匹配
+# ============================================================
+
+
+def match_pattern(name, pattern):
+    name = name.replace("\\", "/").lower()
+    pattern = pattern.replace("\\", "/").lower()
+
+    if "/" not in pattern:
+        name = name.split("/")[-1]
+
+    return fnmatch.fnmatch(name, pattern)
+
+
+# ============================================================
+# 大小解析
+# ============================================================
+
+
+def parse_size_string(size_str):
+    if not size_str:
+        return 0
+
+    s = str(size_str).strip()
+
+    if s == "-1":
+        return -1
+
+    try:
+        return parse_size(s, binary=True)
+    except (InvalidSize, ValueError):
+        return 0
+
+
+# ============================================================
+# 远端配置
+# ============================================================
 
 _ALIAS_PATTERN = re.compile(r"^[a-zA-Z0-9\-_]+$")
 
