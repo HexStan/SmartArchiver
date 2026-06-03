@@ -6,7 +6,6 @@ class RemoteAction(str, Enum):
     IS_DIR = "is_dir"
     MKDIR = "mkdir"
     DELETE = "delete"
-    UPLOAD = "upload"
     STAT = "stat"
     LIST_DIR = "list_dir"
 
@@ -16,3 +15,4 @@ class RemoteAction(str, Enum):
 
 
 API_PATH = "/api/remote"
+UPLOAD_PATH = "/api/remote/upload"
