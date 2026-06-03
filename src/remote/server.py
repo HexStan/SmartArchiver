@@ -1,9 +1,16 @@
-import os
-import shutil
 import urllib.parse
 from flask import Flask, request, jsonify
 
 from src.remote.protocol import RemoteAction, UPLOAD_PATH
+from src.utils import (
+    path_exists,
+    is_directory,
+    ensure_dir,
+    remove_path,
+    get_stat,
+    list_directory,
+    write_file_stream,
+)
 
 
 def create_app(api_key, logger):
@@ -36,64 +43,32 @@ def create_app(api_key, logger):
         if not path:
             return jsonify({"error": "missing path"}), 400
 
-        path = os.path.normpath(path)
-
         logger.info(f"来自 {client_ip} 的指令: {action} -> {path}")
 
         try:
             if action == RemoteAction.EXISTS:
-                return jsonify({"exists": os.path.exists(path)})
+                return jsonify({"exists": path_exists(path)})
 
             elif action == RemoteAction.IS_DIR:
-                return jsonify({"is_dir": os.path.isdir(path)})
+                return jsonify({"is_dir": is_directory(path)})
 
             elif action == RemoteAction.MKDIR:
-                os.makedirs(path, exist_ok=True)
+                ensure_dir(path)
                 logger.success(f"创建目录: {path}")
                 return jsonify({"success": True})
 
             elif action == RemoteAction.DELETE:
-                if os.path.isdir(path):
-                    shutil.rmtree(path)
-                    logger.success(f"删除目录: {path}")
-                elif os.path.isfile(path):
-                    os.remove(path)
-                    logger.success(f"删除文件: {path}")
-                else:
-                    return jsonify({"error": "path not found"}), 404
+                remove_path(path)
+                logger.success(f"删除: {path}")
                 return jsonify({"success": True})
 
             elif action == RemoteAction.STAT:
-                if not os.path.exists(path):
-                    return jsonify(
-                        {"exists": False, "size": 0, "mtime": 0, "is_dir": False}
-                    )
-
-                st = os.stat(path)
-                return jsonify(
-                    {
-                        "exists": True,
-                        "size": st.st_size,
-                        "mtime": st.st_mtime,
-                        "is_dir": os.path.isdir(path),
-                    }
-                )
+                return jsonify(get_stat(path))
 
             elif action == RemoteAction.LIST_DIR:
-                if not os.path.isdir(path):
+                if not is_directory(path):
                     return jsonify({"error": "not a directory"}), 400
-                entries = []
-                with os.scandir(path) as it:
-                    for entry in it:
-                        entries.append(
-                            {
-                                "name": entry.name,
-                                "is_dir": entry.is_dir(),
-                                "size": entry.stat().st_size if entry.is_file() else 0,
-                                "mtime": entry.stat().st_mtime,
-                            }
-                        )
-                return jsonify({"entries": entries})
+                return jsonify({"entries": list_directory(path)})
 
         except PermissionError as e:
             logger.error(f"权限不足: {path} - {e}")
@@ -115,22 +90,11 @@ def create_app(api_key, logger):
         if not path:
             return jsonify({"error": "missing X-Path header"}), 400
 
-        path = os.path.normpath(urllib.parse.unquote(path))
+        path = urllib.parse.unquote(path)
         logger.info(f"来自 {client_ip} 的上传: {path}")
 
         try:
-            dest_dir = os.path.dirname(path)
-            if dest_dir:
-                os.makedirs(dest_dir, exist_ok=True)
-
-            chunk_size = 65536  # 64KB
-            with open(path, "wb") as f:
-                while True:
-                    chunk = request.stream.read(chunk_size)
-                    if not chunk:
-                        break
-                    f.write(chunk)
-
+            write_file_stream(path, request.stream)
             logger.success(f"接收文件: {path}")
             return jsonify({"success": True})
 

@@ -1,5 +1,5 @@
 import os
-from src.utils import parse_size_string
+from src.utils import parse_size_string, remove_path
 from src.app_context import AppContext
 from src.presentation import fmt_size
 
@@ -58,7 +58,7 @@ def delete_file(src_path, file_size, source_root, stats):
     ctx = AppContext.get()
     rel_path = os.path.relpath(src_path, source_root)
     try:
-        os.remove(src_path)
+        remove_path(src_path)
         ctx.logger.success(
             f"删除文件: {rel_path}  ({fmt_size(file_size, binary=True)})"
         )

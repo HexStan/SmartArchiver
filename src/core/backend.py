@@ -1,7 +1,14 @@
 import os
 from abc import ABC, abstractmethod
 
-from src.utils import copy_file, move_file
+from src.utils import (
+    copy_file,
+    move_file,
+    path_exists,
+    is_directory,
+    ensure_dir,
+    remove_path,
+)
 
 
 class DestBackend(ABC):
@@ -54,16 +61,16 @@ class DestBackend(ABC):
 
 class LocalDestBackend(DestBackend):
     def exists(self, path):
-        return os.path.exists(path)
+        return path_exists(path)
 
     def is_dir(self, path):
-        return os.path.isdir(path)
+        return is_directory(path)
 
     def remove_file(self, path):
-        os.remove(path)
+        remove_path(path)
 
     def makedirs(self, path):
-        os.makedirs(path, exist_ok=True)
+        ensure_dir(path)
 
     def copy_file(self, src_local_path, dest_path):
         copy_file(src_local_path, dest_path)
@@ -98,7 +105,7 @@ class RemoteDestBackend(DestBackend):
 
     def move_file(self, src_local_path, dest_path):
         self._client.upload(src_local_path, dest_path)
-        os.remove(src_local_path)
+        remove_path(src_local_path)
 
 
 def create_dest_backend(dest_root, remote_clients):

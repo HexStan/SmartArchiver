@@ -95,27 +95,120 @@ def load_config(config_path):
 
 
 # ============================================================
-# 文件操作
+# 原子级 IO 操作
+#
+# 这些函数是项目中最底层的文件/目录操作原语，被以下模块复用：
+#   - server.py（Flask 路由 handler）
+#   - backend.py（LocalDestBackend）
+#   - actions.py（文件删除/传输逻辑）
+#   - handlers/（各任务处理器）
+#
+# 所有函数内部统一做 os.path.normpath，保证路径规范化的一致性。
+# 函数直接抛出异常，由调用方决定如何处理（server.py 转换为 HTTP 错误，
+# backend.py 向上传播，handlers 记录日志并跳过）。
+# ============================================================
+
+
+def path_exists(path):
+    """检查路径是否存在（文件或目录）。"""
+    return os.path.exists(os.path.normpath(path))
+
+
+def is_directory(path):
+    """检查路径是否为目录。"""
+    return os.path.isdir(os.path.normpath(path))
+
+
+def ensure_dir(path):
+    """创建目录（含所有父目录），已存在则静默跳过。"""
+    os.makedirs(os.path.normpath(path), exist_ok=True)
+
+
+def remove_path(path):
+    """删除文件或目录（自动判断类型）。若路径不存在则静默跳过。"""
+    p = os.path.normpath(path)
+    if os.path.isdir(p):
+        shutil.rmtree(p)
+    elif os.path.isfile(p):
+        os.remove(p)
+
+
+def get_stat(path):
+    """获取文件/目录的元信息。
+
+    返回 dict:
+        exists: bool
+        size: int（字节数，不存在时为 0）
+        mtime: float（不存在时为 0）
+        is_dir: bool
+    """
+    p = os.path.normpath(path)
+    if not os.path.exists(p):
+        return {"exists": False, "size": 0, "mtime": 0, "is_dir": False}
+    st = os.stat(p)
+    return {
+        "exists": True,
+        "size": st.st_size,
+        "mtime": st.st_mtime,
+        "is_dir": os.path.isdir(p),
+    }
+
+
+def list_directory(path):
+    """列出目录内容，每项为 dict: name, is_dir, size, mtime。
+
+    若路径不存在或不是目录则抛出 OSError。
+    """
+    p = os.path.normpath(path)
+    entries = []
+    with os.scandir(p) as it:
+        for entry in it:
+            entries.append(
+                {
+                    "name": entry.name,
+                    "is_dir": entry.is_dir(),
+                    "size": entry.stat().st_size if entry.is_file() else 0,
+                    "mtime": entry.stat().st_mtime,
+                }
+            )
+    return entries
+
+
+def write_file_stream(path, data_stream, chunk_size=65536):
+    """将数据流写入文件，自动创建父目录。
+
+    data_stream 需实现 read(n) 方法（如 Flask request.stream）。
+    """
+    p = os.path.normpath(path)
+    dest_dir = os.path.dirname(p)
+    if dest_dir:
+        os.makedirs(dest_dir, exist_ok=True)
+    with open(p, "wb") as f:
+        while True:
+            chunk = data_stream.read(chunk_size)
+            if not chunk:
+                break
+            f.write(chunk)
+
+
+# ============================================================
+# 复合文件操作
 # ============================================================
 
 
 def copy_file(src_path, dest_path):
-    dest_dir = os.path.dirname(dest_path)
-    if not os.path.exists(dest_dir):
-        os.makedirs(dest_dir, exist_ok=True)
-    shutil.copy2(src_path, dest_path)
+    ensure_dir(os.path.dirname(dest_path))
+    shutil.copy2(os.path.normpath(src_path), os.path.normpath(dest_path))
 
 
 def move_file(src_path, dest_path):
-    dest_dir = os.path.dirname(dest_path)
-    if not os.path.exists(dest_dir):
-        os.makedirs(dest_dir, exist_ok=True)
-    shutil.move(src_path, dest_path)
+    ensure_dir(os.path.dirname(dest_path))
+    shutil.move(os.path.normpath(src_path), os.path.normpath(dest_path))
 
 
 def get_unique_dest(dest_path):
-    """
-    如果目标文件存在，生成一个带编号的新路径
+    """如果目标文件存在，生成一个带编号的新路径。
+
     例如: /path/file.txt -> /path/file-1.txt
     """
     if not os.path.exists(dest_path):
@@ -135,7 +228,7 @@ def get_unique_dest(dest_path):
 
 
 # ============================================================
-# 目录操作
+# 目录操作（复合）
 # ============================================================
 
 

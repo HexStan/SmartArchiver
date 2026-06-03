@@ -9,6 +9,7 @@ from src.presentation import fmt_timespan, print_task_header
 from src.core.registry import register_handler
 from src.core.handlers.base import BaseTaskHandler
 from src.core.backend import RemoteDestBackend
+from src.utils import remove_path
 
 
 def _run_sync_command(cmd, tool_name, prepend_timestamp=False):
@@ -136,7 +137,7 @@ class SyncHandler(BaseTaskHandler):
                 if len(backups) >= max_backups:
                     num_to_delete = len(backups) - max_backups + 1
                     for b in backups[:num_to_delete]:
-                        shutil.rmtree(b)
+                        remove_path(b)
                         ctx.logger.debug(f"已删除旧备份: {b}")
             except Exception as e:
                 ctx.logger.error(f"清理旧备份失败: {e}")
