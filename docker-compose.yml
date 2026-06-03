@@ -1,6 +1,6 @@
 services:
   client:
-    image: hexstan/smart-archiver:latest
+    image: ghcr.io/hexstan/smart-archiver:latest
     container_name: smart-archiver
     restart: unless-stopped
     environment:
@@ -11,16 +11,16 @@ services:
       - ./source:/app/source
       - ./dest:/app/dest
 
-  server:
-    image: hexstan/smart-archiver:latest
-    container_name: smart-archiver-server
-    restart: unless-stopped
-    command: ["--server"]
-    environment:
-      - TZ=Asia/Shanghai
-    ports:
-      - "13579:13579"
-    volumes:
-      - ./config/config.server.toml:/app/config/config.server.toml
-      - ./logs:/app/logs
-      - ./dest:/app/dest
+#  server:
+#    image: ghcr.io/hexstan/smart-archiver:latest
+#    container_name: smart-archiver-server
+#    restart: unless-stopped
+#    command: ["--server"]
+#    environment:
+#      - TZ=Asia/Shanghai
+#    ports:
+#      - "13579:13579"
+#    volumes:
+#      - ./config/config.server.toml:/app/config/config.server.toml
+#      - ./logs:/app/logs
+#      - ./dest:/app/dest
