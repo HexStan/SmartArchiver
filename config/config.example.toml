@@ -50,11 +50,13 @@ max_log_files = 30
 # alias = "my_nas"  # alias 仅允许 a-z、A-Z、0-9、-、_
 # address = "http://192.168.10.10:13579"
 # key = "your_api_key"
+# timeout = 14400  # HTTP 请求超时时间（秒），默认 14400（4 小时），按需逐设备配置
 
 # [[http_remotes]]
 # alias = "my_pc"
 # address = "http://192.168.10.20:13579"
 # key = "your_api_key"
+# timeout = 3600  # 示例：1 小时超时
 
 # [[http_remotes]]
 # alias = "bob_server"

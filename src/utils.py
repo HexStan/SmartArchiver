@@ -253,6 +253,7 @@ def parse_remote_config(config):
         alias = entry.get("alias", "")
         address = entry.get("address", "").strip()
         key = entry.get("key", "")
+        timeout = entry.get("timeout")
 
         if not alias or not address or not key:
             continue
@@ -260,10 +261,17 @@ def parse_remote_config(config):
         if not validate_remote_alias(alias):
             continue
 
+        if timeout is not None:
+            try:
+                timeout = float(timeout)
+            except (TypeError, ValueError):
+                timeout = None
+
         remotes[alias] = RemoteClient(
             address=address,
             api_key=key,
             alias=alias,
+            timeout=timeout,
         )
 
     return remotes
