@@ -2,6 +2,7 @@ import json
 import os
 import urllib.request
 import urllib.error
+import urllib.parse
 
 from src.remote.protocol import RemoteAction, API_PATH, UPLOAD_PATH
 
@@ -68,13 +69,14 @@ class RemoteClient:
 
     def upload(self, local_path, remote_path):
         file_size = os.path.getsize(local_path)
+        encoded_path = urllib.parse.quote(remote_path, safe="/")
         req = urllib.request.Request(
             self._upload_endpoint,
             data=open(local_path, "rb"),
             method="POST",
             headers={
                 "X-Api-Key": self.api_key,
-                "X-Path": remote_path,
+                "X-Path": encoded_path,
                 "Content-Type": "application/octet-stream",
                 "Content-Length": str(file_size),
             },

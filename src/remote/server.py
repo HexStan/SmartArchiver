@@ -1,5 +1,6 @@
 import os
 import shutil
+import urllib.parse
 from flask import Flask, request, jsonify
 
 from src.remote.protocol import RemoteAction, UPLOAD_PATH
@@ -114,7 +115,7 @@ def create_app(api_key, logger):
         if not path:
             return jsonify({"error": "missing X-Path header"}), 400
 
-        path = os.path.normpath(path)
+        path = os.path.normpath(urllib.parse.unquote(path))
         logger.info(f"来自 {client_ip} 的上传: {path}")
 
         try:
