@@ -242,7 +242,13 @@ def move_file(src_path, dest_path):
 
 
 def delete_file(path):
-    """删除单个文件。"""
+    """删除单个文件。
+
+    如果路径是符号链接则跳过，防止误删链接目标。
+    """
+    if os.path.islink(path):
+        logger.warning(f"跳过删除文件 (符号链接): {path}")
+        return
     try:
         os.remove(path)
         logger.debug(f"删除文件: {path}")
@@ -255,7 +261,13 @@ def delete_file(path):
 
 
 def delete_dir(path):
-    """递归删除目录树。"""
+    """递归删除目录树。
+
+    如果路径是符号链接则跳过，防止误删链接目标。
+    """
+    if os.path.islink(path):
+        logger.warning(f"跳过删除目录 (符号链接): {path}")
+        return
     if not os.path.isdir(path):
         raise FsOpError(f"不是目录: {path}")
     try:
