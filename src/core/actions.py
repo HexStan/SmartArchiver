@@ -2,6 +2,7 @@ import os
 from src.utils import parse_size_string
 from src.app_context import AppContext
 from src.presentation import fmt_size
+from src.operations.fs_ops import delete_path
 
 
 def validate_task_config(task, task_mode):
@@ -58,7 +59,7 @@ def delete_file(src_path, file_size, source_root, stats):
     ctx = AppContext.get()
     rel_path = os.path.relpath(src_path, source_root)
     try:
-        os.remove(src_path)
+        delete_path(src_path)
         ctx.logger.success(
             f"删除文件: {rel_path}  ({fmt_size(file_size, binary=True)})"
         )

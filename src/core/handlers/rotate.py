@@ -4,7 +4,8 @@ import time
 from src.app_context import AppContext
 from src.presentation import fmt_size, print_task_header, print_task_summary
 from src.core.types import FileAction
-from src.utils import parse_size_string, match_pattern, clean_empty_dirs
+from src.utils import parse_size_string, match_pattern
+from src.operations.fs_ops import clean_empty_dirs
 from src.core.registry import register_handler
 from src.core.handlers.base import BaseTaskHandler
 
@@ -239,7 +240,8 @@ class RotateHandler(BaseTaskHandler):
         rotate_mgr.log_unmet_limits()
 
         if self.remove_empty_dirs:
-            clean_empty_dirs(self.source_root)
+            ctx = AppContext.get()
+            clean_empty_dirs(self.source_root, logger=ctx.logger)
 
         end_time = time.time()
         print_task_summary(

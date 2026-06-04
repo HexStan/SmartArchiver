@@ -3,7 +3,7 @@ import time
 
 from src.app_context import AppContext
 from src.presentation import fmt_size as _fmt_size
-from src.utils import is_file_locked
+from src.operations.fs_ops import is_file_locked
 from src.core.types import FileAction, MoverStats
 from src.core.filters import FileFilterPolicy
 from src.core.actions import validate_task_config, delete_file, transfer_file

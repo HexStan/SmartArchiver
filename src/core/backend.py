@@ -1,7 +1,15 @@
 import os
 from abc import ABC, abstractmethod
 
-from src.utils import copy_file, move_file
+from src.operations.fs_ops import (
+    file_exists,
+    is_directory,
+    create_directory,
+    delete_path,
+    copy_file,
+    move_file,
+    get_unique_dest,
+)
 
 
 class DestBackend(ABC):
@@ -36,34 +44,21 @@ class DestBackend(ABC):
         pass
 
     def get_unique_dest(self, dest_path):
-        if not self.exists(dest_path):
-            return dest_path
-
-        directory = os.path.dirname(dest_path)
-        filename = os.path.basename(dest_path)
-        name, ext = os.path.splitext(filename)
-
-        counter = 1
-        while True:
-            new_filename = f"{name}-{counter}{ext}"
-            new_path = os.path.join(directory, new_filename)
-            if not self.exists(new_path):
-                return new_path
-            counter += 1
+        return get_unique_dest(dest_path, exists_fn=self.exists)
 
 
 class LocalDestBackend(DestBackend):
     def exists(self, path):
-        return os.path.exists(path)
+        return file_exists(path)
 
     def is_dir(self, path):
-        return os.path.isdir(path)
+        return is_directory(path)
 
     def remove_file(self, path):
-        os.remove(path)
+        delete_path(path)
 
     def makedirs(self, path):
-        os.makedirs(path, exist_ok=True)
+        create_directory(path)
 
     def copy_file(self, src_local_path, dest_path):
         copy_file(src_local_path, dest_path)

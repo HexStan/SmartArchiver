@@ -4,11 +4,10 @@ import time
 from src.app_context import AppContext
 from src.presentation import fmt_size, print_task_header, print_task_summary
 from src.core.types import FileAction
-import shutil
-
-from src.utils import (
+from src.operations.fs_ops import (
     get_dir_size_and_mtime,
     clean_empty_dirs,
+    delete_path,
 )
 from src.core.registry import register_handler
 from src.core.handlers.base import BaseTaskHandler
@@ -42,7 +41,7 @@ class StandardHandler(BaseTaskHandler):
                 break
 
         if self.remove_empty_dirs and not is_copy:
-            clean_empty_dirs(self.source_root)
+            clean_empty_dirs(self.source_root, logger=ctx.logger)
 
         end_time = time.time()
         print_task_summary(
@@ -80,7 +79,7 @@ class StandardHandler(BaseTaskHandler):
 
                 if (self.now - dir_mtime) > mtime_threshold_seconds:
                     try:
-                        shutil.rmtree(dir_path)
+                        delete_path(dir_path)
                         ctx.logger.success(
                             f"删除目录: {rel_dir_path} ({fmt_size(dir_size, binary=True)})"
                         )
