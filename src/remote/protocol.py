@@ -5,7 +5,8 @@ class RemoteAction(str, Enum):
     EXISTS = "exists"
     IS_DIR = "is_dir"
     MKDIR = "mkdir"
-    DELETE = "delete"
+    DELETE_FILE = "delete_file"
+    DELETE_DIR = "delete_dir"
     STAT = "stat"
     LIST_DIR = "list_dir"
 

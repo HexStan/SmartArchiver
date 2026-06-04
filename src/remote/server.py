@@ -1,8 +1,8 @@
 import os
-import shutil
 import urllib.parse
 from flask import Flask, request, jsonify
 
+from src import fs_ops
 from src.remote.protocol import RemoteAction, UPLOAD_PATH
 
 
@@ -42,62 +42,66 @@ def create_app(api_key, logger):
 
         try:
             if action == RemoteAction.EXISTS:
-                return jsonify({"exists": os.path.exists(path)})
+                return jsonify({"exists": fs_ops.path_exists(path)})
 
             elif action == RemoteAction.IS_DIR:
-                return jsonify({"is_dir": os.path.isdir(path)})
+                return jsonify({"is_dir": fs_ops.is_dir(path)})
 
             elif action == RemoteAction.MKDIR:
-                os.makedirs(path, exist_ok=True)
+                fs_ops.ensure_dir(path)
                 logger.success(f"创建目录: {path}")
                 return jsonify({"success": True})
 
-            elif action == RemoteAction.DELETE:
-                if os.path.isdir(path):
-                    shutil.rmtree(path)
-                    logger.success(f"删除目录: {path}")
-                elif os.path.isfile(path):
-                    os.remove(path)
-                    logger.success(f"删除文件: {path}")
-                else:
-                    return jsonify({"error": "path not found"}), 404
+            elif action == RemoteAction.DELETE_FILE:
+                fs_ops.delete_file(path)
+                logger.success(f"删除文件: {path}")
+                return jsonify({"success": True})
+
+            elif action == RemoteAction.DELETE_DIR:
+                fs_ops.delete_dir(path)
+                logger.success(f"删除目录: {path}")
                 return jsonify({"success": True})
 
             elif action == RemoteAction.STAT:
-                if not os.path.exists(path):
+                st = fs_ops.get_stat(path)
+                if not st.exists:
                     return jsonify(
                         {"exists": False, "size": 0, "mtime": 0, "is_dir": False}
                     )
-
-                st = os.stat(path)
                 return jsonify(
                     {
                         "exists": True,
-                        "size": st.st_size,
-                        "mtime": st.st_mtime,
-                        "is_dir": os.path.isdir(path),
+                        "size": st.size,
+                        "mtime": st.mtime,
+                        "is_dir": st.is_dir,
                     }
                 )
 
             elif action == RemoteAction.LIST_DIR:
-                if not os.path.isdir(path):
-                    return jsonify({"error": "not a directory"}), 400
-                entries = []
-                with os.scandir(path) as it:
-                    for entry in it:
-                        entries.append(
+                entries = fs_ops.list_dir(path)
+                return jsonify(
+                    {
+                        "entries": [
                             {
-                                "name": entry.name,
-                                "is_dir": entry.is_dir(),
-                                "size": entry.stat().st_size if entry.is_file() else 0,
-                                "mtime": entry.stat().st_mtime,
+                                "name": e.name,
+                                "is_dir": e.is_dir,
+                                "size": e.size,
+                                "mtime": e.mtime,
                             }
-                        )
-                return jsonify({"entries": entries})
+                            for e in entries
+                        ]
+                    }
+                )
 
-        except PermissionError as e:
+        except fs_ops.PermissionDeniedError as e:
             logger.error(f"权限不足: {path} - {e}")
             return jsonify({"error": "permission denied"}), 403
+        except fs_ops.PathNotFoundError as e:
+            logger.error(f"路径不存在: {path} - {e}")
+            return jsonify({"error": "path not found"}), 404
+        except fs_ops.FsOpError as e:
+            logger.error(f"操作失败: {path} - {e}")
+            return jsonify({"error": str(e)}), 500
         except OSError as e:
             logger.error(f"操作失败: {path} - {e}")
             return jsonify({"error": str(e)}), 500
@@ -121,7 +125,7 @@ def create_app(api_key, logger):
         try:
             dest_dir = os.path.dirname(path)
             if dest_dir:
-                os.makedirs(dest_dir, exist_ok=True)
+                fs_ops.ensure_dir(dest_dir)
 
             chunk_size = 65536  # 64KB
             with open(path, "wb") as f:
@@ -134,10 +138,10 @@ def create_app(api_key, logger):
             logger.success(f"接收文件: {path}")
             return jsonify({"success": True})
 
-        except PermissionError as e:
+        except fs_ops.PermissionDeniedError as e:
             logger.error(f"权限不足: {path} - {e}")
             return jsonify({"error": "permission denied"}), 403
-        except OSError as e:
+        except fs_ops.FsOpError as e:
             logger.error(f"上传失败: {path} - {e}")
             return jsonify({"error": str(e)}), 500
 

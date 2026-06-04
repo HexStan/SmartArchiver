@@ -143,6 +143,13 @@ def setup_logger(log_dir, max_log_files=0, log_level="INFO", prefix="smartarchiv
     console_handler.setFormatter(formatter)
     logger.addHandler(console_handler)
 
+    # 桥接 fs_ops 日志：让统一文件操作模块的日志输出到相同的 handler
+    _fs_ops_logger = logging.getLogger("src.fs_ops")
+    _fs_ops_logger.setLevel(numeric_level)
+    _fs_ops_logger.propagate = False
+    _fs_ops_logger.addHandler(file_handler)
+    _fs_ops_logger.addHandler(console_handler)
+
     # 返回包装后的 Logger 对象
     return LoggerWrapper(logger)
 

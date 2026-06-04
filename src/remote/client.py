@@ -109,8 +109,11 @@ class RemoteClient:
     def mkdir(self, path):
         self._action(RemoteAction.MKDIR, path=path)
 
-    def delete(self, path):
-        self._action(RemoteAction.DELETE, path=path)
+    def delete_file(self, path):
+        self._action(RemoteAction.DELETE_FILE, path=path)
+
+    def delete_dir(self, path):
+        self._action(RemoteAction.DELETE_DIR, path=path)
 
     def upload(self, local_path, remote_path):
         """上传文件到远程实例。若网络中断则从头重传。"""

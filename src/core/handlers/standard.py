@@ -4,12 +4,9 @@ import time
 from src.app_context import AppContext
 from src.presentation import fmt_size, print_task_header, print_task_summary
 from src.core.types import FileAction
-import shutil
 
-from src.utils import (
-    get_dir_size_and_mtime,
-    clean_empty_dirs,
-)
+from src import fs_ops
+from src.fs_ops import get_dir_size_and_mtime, clean_empty_dirs
 from src.core.registry import register_handler
 from src.core.handlers.base import BaseTaskHandler
 
@@ -80,12 +77,12 @@ class StandardHandler(BaseTaskHandler):
 
                 if (self.now - dir_mtime) > mtime_threshold_seconds:
                     try:
-                        shutil.rmtree(dir_path)
+                        fs_ops.delete_dir(dir_path)
                         ctx.logger.success(
                             f"删除目录: {rel_dir_path} ({fmt_size(dir_size, binary=True)})"
                         )
                         self.stats.record_deleted()
-                    except OSError as e:
+                    except fs_ops.FsOpError as e:
                         ctx.logger.error(f"删除目录失败: {rel_dir_path}\nError: {e}")
                 dirs_to_remove.append(d)
             elif action == FileAction.SKIP:

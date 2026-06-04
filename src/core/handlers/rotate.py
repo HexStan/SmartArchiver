@@ -4,7 +4,8 @@ import time
 from src.app_context import AppContext
 from src.presentation import fmt_size, print_task_header, print_task_summary
 from src.core.types import FileAction
-from src.utils import parse_size_string, match_pattern, clean_empty_dirs
+from src.utils import parse_size_string, match_pattern
+from src.fs_ops import clean_empty_dirs
 from src.core.registry import register_handler
 from src.core.handlers.base import BaseTaskHandler
 

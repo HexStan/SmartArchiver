@@ -1,7 +1,7 @@
 import os
 from abc import ABC, abstractmethod
 
-from src.utils import copy_file, move_file
+from src import fs_ops
 
 
 class DestBackend(ABC):
@@ -21,6 +21,10 @@ class DestBackend(ABC):
 
     @abstractmethod
     def remove_file(self, path):
+        pass
+
+    @abstractmethod
+    def remove_dir(self, path):
         pass
 
     @abstractmethod
@@ -54,22 +58,25 @@ class DestBackend(ABC):
 
 class LocalDestBackend(DestBackend):
     def exists(self, path):
-        return os.path.exists(path)
+        return fs_ops.path_exists(path)
 
     def is_dir(self, path):
-        return os.path.isdir(path)
+        return fs_ops.is_dir(path)
 
     def remove_file(self, path):
-        os.remove(path)
+        fs_ops.delete_file(path)
+
+    def remove_dir(self, path):
+        fs_ops.delete_dir(path)
 
     def makedirs(self, path):
-        os.makedirs(path, exist_ok=True)
+        fs_ops.ensure_dir(path)
 
     def copy_file(self, src_local_path, dest_path):
-        copy_file(src_local_path, dest_path)
+        fs_ops.copy_file(src_local_path, dest_path)
 
     def move_file(self, src_local_path, dest_path):
-        move_file(src_local_path, dest_path)
+        fs_ops.move_file(src_local_path, dest_path)
 
 
 class RemoteDestBackend(DestBackend):
@@ -88,7 +95,10 @@ class RemoteDestBackend(DestBackend):
         return self._client.is_dir(path)
 
     def remove_file(self, path):
-        self._client.delete(path)
+        self._client.delete_file(path)
+
+    def remove_dir(self, path):
+        self._client.delete_dir(path)
 
     def makedirs(self, path):
         self._client.mkdir(path)
@@ -98,7 +108,7 @@ class RemoteDestBackend(DestBackend):
 
     def move_file(self, src_local_path, dest_path):
         self._client.upload(src_local_path, dest_path)
-        os.remove(src_local_path)
+        fs_ops.delete_file(src_local_path)
 
 
 def create_dest_backend(dest_root, remote_clients):
