@@ -151,6 +151,10 @@ class RemoteClient:
                 f"Connection error to {self.alias} ({self.address}): {e}"
             )
 
+    def list_dir(self, path):
+        result = self._action(RemoteAction.LIST_DIR, path=path)
+        return result.get("entries", [])
+
     def stat(self, path):
         result = self._action(RemoteAction.STAT, path=path)
         return {
