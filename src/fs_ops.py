@@ -143,7 +143,6 @@ def ensure_dir(path):
     """创建目录（含父目录），目录已存在时不报错。"""
     try:
         os.makedirs(path, exist_ok=True)
-        logger.debug(f"创建目录: {path}")
     except PermissionError:
         raise PermissionDeniedError(f"权限不足，无法创建目录: {path}")
     except OSError as e:
@@ -220,7 +219,6 @@ def copy_file(src_path, dest_path):
         ensure_dir(dest_dir)
     try:
         shutil.copy2(src_path, dest_path)
-        logger.debug(f"复制文件: {src_path} -> {dest_path}")
     except PermissionError:
         raise PermissionDeniedError(f"权限不足，无法复制: {src_path} -> {dest_path}")
     except OSError as e:
@@ -234,7 +232,6 @@ def move_file(src_path, dest_path):
         ensure_dir(dest_dir)
     try:
         shutil.move(src_path, dest_path)
-        logger.debug(f"移动文件: {src_path} -> {dest_path}")
     except PermissionError:
         raise PermissionDeniedError(f"权限不足，无法移动: {src_path} -> {dest_path}")
     except OSError as e:
@@ -251,7 +248,6 @@ def delete_file(path):
         return
     try:
         os.remove(path)
-        logger.debug(f"删除文件: {path}")
     except FileNotFoundError:
         raise PathNotFoundError(f"文件不存在: {path}")
     except PermissionError:
@@ -272,7 +268,6 @@ def delete_dir(path):
         raise FsOpError(f"不是目录: {path}")
     try:
         shutil.rmtree(path)
-        logger.debug(f"删除目录: {path}")
     except PermissionError:
         raise PermissionDeniedError(f"权限不足，无法删除目录: {path}")
     except OSError as e:
