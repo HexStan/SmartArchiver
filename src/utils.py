@@ -1,5 +1,4 @@
 import os
-import re
 import sys
 import tomllib
 import fnmatch
@@ -97,50 +96,3 @@ def parse_size_string(size_str):
         return parse_size(s, binary=True)
     except (InvalidSize, ValueError):
         return 0
-
-
-# ============================================================
-# 远端配置
-# ============================================================
-
-_ALIAS_PATTERN = re.compile(r"^[a-zA-Z0-9\-_]+$")
-
-
-def validate_remote_alias(alias):
-    return bool(_ALIAS_PATTERN.match(alias))
-
-
-def parse_remote_config(config):
-    remotes = {}
-    http_remotes = config.get("http_remotes", [])
-    if not http_remotes:
-        return remotes
-
-    from src.remote.client import RemoteClient
-
-    for entry in http_remotes:
-        alias = entry.get("alias", "")
-        address = entry.get("address", "").strip()
-        key = entry.get("key", "")
-        timeout = entry.get("timeout")
-
-        if not alias or not address or not key:
-            continue
-
-        if not validate_remote_alias(alias):
-            continue
-
-        if timeout is not None:
-            try:
-                timeout = float(timeout)
-            except (TypeError, ValueError):
-                timeout = None
-
-        remotes[alias] = RemoteClient(
-            address=address,
-            api_key=key,
-            alias=alias,
-            timeout=timeout,
-        )
-
-    return remotes

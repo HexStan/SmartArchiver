@@ -11,7 +11,8 @@ from src.app_context import AppContext
 from src.core import process_task
 from src.history import HistoryManager
 from src.logger import setup_logger
-from src.utils import load_config, SingleInstance, parse_remote_config
+from src.utils import load_config, SingleInstance
+from src.remote import parse_remote_config
 
 
 def run_tasks():
