@@ -27,12 +27,13 @@ class RemoteClientError(Exception):
 class RemoteClient:
     _DEFAULT_TIMEOUT = 14400
 
-    def __init__(self, address, api_key, alias="", logger=None, timeout=None):
+    def __init__(self, address, api_key, alias="", logger=None, timeout=None, queue_time=0):
         self.address = address.rstrip("/")
         self.api_key = api_key
         self.alias = alias
         self.logger = logger
         self.timeout = timeout if timeout is not None else self._DEFAULT_TIMEOUT
+        self.queue_time = float(queue_time) if queue_time is not None else 0.0
         self._endpoint = f"{self.address}{API_PATH}"
         self._upload_endpoint = f"{self.address}{UPLOAD_PATH}"
         self._session = requests.Session()
@@ -75,6 +76,7 @@ class RemoteClient:
                 self._endpoint,
                 json=body,
                 timeout=self.timeout,
+                headers={"X-Queue-Timeout": str(self.queue_time)},
             )
             resp.raise_for_status()
             return resp.json()
@@ -82,9 +84,18 @@ class RemoteClient:
         try:
             return self._retry_request(_do, "API 请求")
         except requests.HTTPError as e:
-            body_raw = e.response.text if e.response is not None else ""
+            if e.response is not None:
+                status_code = e.response.status_code
+                body_raw = e.response.text or ""
+                if status_code == 503:
+                    raise RemoteClientError(
+                        f"Server {self.alias} busy: {body_raw}"
+                    )
+                raise RemoteClientError(
+                    f"HTTP {status_code} from {self.alias}: {body_raw}"
+                )
             raise RemoteClientError(
-                f"HTTP {e.response.status_code} from {self.alias}: {body_raw}"
+                f"HTTP error from {self.alias}: {e}"
             )
         except json.JSONDecodeError:
             raise RemoteClientError(f"Invalid JSON response from {self.alias}")
@@ -129,6 +140,7 @@ class RemoteClient:
                     headers={
                         "X-Api-Key": self.api_key,
                         "X-Path": encoded_path,
+                        "X-Queue-Timeout": str(self.queue_time),
                         "Content-Type": "application/octet-stream",
                         "Content-Length": str(file_size),
                     },
@@ -140,9 +152,18 @@ class RemoteClient:
         try:
             return self._retry_request(_do, "文件上传")
         except requests.HTTPError as e:
-            body_raw = e.response.text if e.response is not None else ""
+            if e.response is not None:
+                status_code = e.response.status_code
+                body_raw = e.response.text or ""
+                if status_code == 503:
+                    raise RemoteClientError(
+                        f"Server {self.alias} busy: {body_raw}"
+                    )
+                raise RemoteClientError(
+                    f"HTTP {status_code} from {self.alias}: {body_raw}"
+                )
             raise RemoteClientError(
-                f"HTTP {e.response.status_code} from {self.alias}: {body_raw}"
+                f"HTTP error from {self.alias}: {e}"
             )
         except json.JSONDecodeError:
             raise RemoteClientError(f"Invalid JSON response from {self.alias}")

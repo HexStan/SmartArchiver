@@ -24,6 +24,7 @@ def parse_remote_config(config):
         address = entry.get("address", "").strip()
         key = entry.get("key", "")
         timeout = entry.get("timeout")
+        queue_time = entry.get("queue_time", 0)
 
         if not alias or not address or not key:
             continue
@@ -37,11 +38,18 @@ def parse_remote_config(config):
             except (TypeError, ValueError):
                 timeout = None
 
+        if queue_time is not None:
+            try:
+                queue_time = float(queue_time)
+            except (TypeError, ValueError):
+                queue_time = 0.0
+
         remotes[alias] = RemoteClient(
             address=address,
             api_key=key,
             alias=alias,
             timeout=timeout,
+            queue_time=queue_time,
         )
 
     return remotes

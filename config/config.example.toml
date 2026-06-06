@@ -51,12 +51,14 @@ max_log_files = 30
 # address = "http://192.168.10.10:13579"
 # key = "your_api_key"
 # timeout = 14400  # HTTP 请求超时时间（秒），默认 14400（4 小时），按需逐设备配置
+# queue_time = 0   # 服务器繁忙时最多排队秒数；0 表示不排队直接放弃；按需逐设备配置
 
 # [[http_remotes]]
 # alias = "my_pc"
 # address = "http://192.168.10.20:13579"
 # key = "your_api_key"
 # timeout = 3600  # 示例：1 小时超时
+# queue_time = 120  # 示例：允许排队最多 2 分钟
 
 # [[http_remotes]]
 # alias = "bob_server"

@@ -4,9 +4,52 @@ from flask import Flask, request, jsonify
 
 from src import fs_ops
 from src.remote.protocol import RemoteAction, UPLOAD_PATH
+from src.remote.concurrency import (
+    ConcurrencyGate,
+    QueueFullError,
+    QueueTimeoutError,
+    ClientDisconnectedError,
+)
 
 
-def create_app(api_key, logger):
+def _parse_queue_timeout():
+    """从请求头解析客户端允许的最大排队秒数。"""
+    raw = request.headers.get("X-Queue-Timeout", "0")
+    try:
+        value = float(raw)
+        if value < 0:
+            return 0.0
+        return value
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _make_disconnect_checker():
+    """构造当前请求上下文的断连检测函数（best-effort）。
+
+    返回一个无参可调用对象：返回 True 表示客户端可能已断连。
+    """
+    wsgi_input = request.environ.get("wsgi.input")
+
+    def _check():
+        try:
+            if wsgi_input is not None:
+                wsgi_input.read(0)
+            return False
+        except Exception:
+            return True
+
+    return _check
+
+
+def create_app(api_key, logger, gate):
+    """创建 Flask 应用并注册路由。
+
+    Args:
+        api_key: API 鉴权密钥。
+        logger: 日志记录器。
+        gate: ConcurrencyGate 实例，用于并发控制。
+    """
     app = Flask(__name__)
 
     @app.before_request
@@ -38,73 +81,89 @@ def create_app(api_key, logger):
 
         path = os.path.normpath(path)
 
-        logger.info(f"来自 {client_ip} 的指令: {action} -> {path}")
+        queue_timeout = _parse_queue_timeout()
+        disconnect_checker = _make_disconnect_checker()
 
         try:
-            if action == RemoteAction.EXISTS:
-                return jsonify({"exists": fs_ops.path_exists(path)})
+            with gate.metadata_context(client_ip, queue_timeout, disconnect_checker):
+                # ---- 以下为原有处理逻辑（在获取并发槽位后执行） ----
+                logger.info(f"来自 {client_ip} 的指令: {action} -> {path}")
 
-            elif action == RemoteAction.IS_DIR:
-                return jsonify({"is_dir": fs_ops.is_dir(path)})
+                try:
+                    if action == RemoteAction.EXISTS:
+                        return jsonify({"exists": fs_ops.path_exists(path)})
 
-            elif action == RemoteAction.MKDIR:
-                fs_ops.ensure_dir(path)
-                logger.success(f"创建目录: {path}")
-                return jsonify({"success": True})
+                    elif action == RemoteAction.IS_DIR:
+                        return jsonify({"is_dir": fs_ops.is_dir(path)})
 
-            elif action == RemoteAction.DELETE_FILE:
-                fs_ops.delete_file(path)
-                logger.success(f"删除文件: {path}")
-                return jsonify({"success": True})
+                    elif action == RemoteAction.MKDIR:
+                        fs_ops.ensure_dir(path)
+                        logger.success(f"创建目录: {path}")
+                        return jsonify({"success": True})
 
-            elif action == RemoteAction.DELETE_DIR:
-                fs_ops.delete_dir(path)
-                logger.success(f"删除目录: {path}")
-                return jsonify({"success": True})
+                    elif action == RemoteAction.DELETE_FILE:
+                        fs_ops.delete_file(path)
+                        logger.success(f"删除文件: {path}")
+                        return jsonify({"success": True})
 
-            elif action == RemoteAction.STAT:
-                st = fs_ops.get_stat(path)
-                if not st.exists:
-                    return jsonify(
-                        {"exists": False, "size": 0, "mtime": 0, "is_dir": False}
-                    )
-                return jsonify(
-                    {
-                        "exists": True,
-                        "size": st.size,
-                        "mtime": st.mtime,
-                        "is_dir": st.is_dir,
-                    }
-                )
+                    elif action == RemoteAction.DELETE_DIR:
+                        fs_ops.delete_dir(path)
+                        logger.success(f"删除目录: {path}")
+                        return jsonify({"success": True})
 
-            elif action == RemoteAction.LIST_DIR:
-                entries = fs_ops.list_dir(path)
-                return jsonify(
-                    {
-                        "entries": [
+                    elif action == RemoteAction.STAT:
+                        st = fs_ops.get_stat(path)
+                        if not st.exists:
+                            return jsonify(
+                                {"exists": False, "size": 0, "mtime": 0, "is_dir": False}
+                            )
+                        return jsonify(
                             {
-                                "name": e.name,
-                                "is_dir": e.is_dir,
-                                "size": e.size,
-                                "mtime": e.mtime,
+                                "exists": True,
+                                "size": st.size,
+                                "mtime": st.mtime,
+                                "is_dir": st.is_dir,
                             }
-                            for e in entries
-                        ]
-                    }
-                )
+                        )
 
-        except fs_ops.PermissionDeniedError as e:
-            logger.error(f"权限不足: {path} - {e}")
-            return jsonify({"error": "permission denied"}), 403
-        except fs_ops.PathNotFoundError as e:
-            logger.error(f"路径不存在: {path} - {e}")
-            return jsonify({"error": "path not found"}), 404
-        except fs_ops.FsOpError as e:
-            logger.error(f"操作失败: {path} - {e}")
-            return jsonify({"error": str(e)}), 500
-        except OSError as e:
-            logger.error(f"操作失败: {path} - {e}")
-            return jsonify({"error": str(e)}), 500
+                    elif action == RemoteAction.LIST_DIR:
+                        entries = fs_ops.list_dir(path)
+                        return jsonify(
+                            {
+                                "entries": [
+                                    {
+                                        "name": e.name,
+                                        "is_dir": e.is_dir,
+                                        "size": e.size,
+                                        "mtime": e.mtime,
+                                    }
+                                    for e in entries
+                                ]
+                            }
+                        )
+
+                except fs_ops.PermissionDeniedError as e:
+                    logger.error(f"权限不足: {path} - {e}")
+                    return jsonify({"error": "permission denied"}), 403
+                except fs_ops.PathNotFoundError as e:
+                    logger.error(f"路径不存在: {path} - {e}")
+                    return jsonify({"error": "path not found"}), 404
+                except fs_ops.FsOpError as e:
+                    logger.error(f"操作失败: {path} - {e}")
+                    return jsonify({"error": str(e)}), 500
+                except OSError as e:
+                    logger.error(f"操作失败: {path} - {e}")
+                    return jsonify({"error": str(e)}), 500
+
+        except QueueFullError as e:
+            logger.warning(f"来自 {client_ip} 的请求被拒绝: {e}")
+            return jsonify({"error": "server busy", "detail": str(e), "queued": False}), 503
+        except QueueTimeoutError as e:
+            logger.warning(f"来自 {client_ip} 的请求排队超时: {e}")
+            return jsonify({"error": "queue timeout", "detail": str(e), "queued": True}), 503
+        except ClientDisconnectedError:
+            logger.info(f"来自 {client_ip} 的客户端在排队期间断开连接")
+            return jsonify({"error": "client disconnected"}), 499
 
     @app.route(UPLOAD_PATH, methods=["POST"])
     def handle_upload():
@@ -120,39 +179,77 @@ def create_app(api_key, logger):
             return jsonify({"error": "missing X-Path header"}), 400
 
         path = os.path.normpath(urllib.parse.unquote(path))
-        logger.info(f"来自 {client_ip} 的上传: {path}")
+        queue_timeout = _parse_queue_timeout()
+        disconnect_checker = _make_disconnect_checker()
 
         try:
-            dest_dir = os.path.dirname(path)
-            if dest_dir:
-                fs_ops.ensure_dir(dest_dir)
+            with gate.upload_context(client_ip, queue_timeout, disconnect_checker):
+                # ---- 以下为原有上传逻辑（在获取并发槽位后执行） ----
+                logger.info(f"来自 {client_ip} 的上传: {path}")
 
-            chunk_size = 65536  # 64KB
-            with open(path, "wb") as f:
-                while True:
-                    chunk = request.stream.read(chunk_size)
-                    if not chunk:
-                        break
-                    f.write(chunk)
+                try:
+                    dest_dir = os.path.dirname(path)
+                    if dest_dir:
+                        fs_ops.ensure_dir(dest_dir)
 
-            logger.success(f"接收文件: {path}")
-            return jsonify({"success": True})
+                    chunk_size = 65536  # 64KB
+                    with open(path, "wb") as f:
+                        while True:
+                            chunk = request.stream.read(chunk_size)
+                            if not chunk:
+                                break
+                            f.write(chunk)
 
-        except fs_ops.PermissionDeniedError as e:
-            logger.error(f"权限不足: {path} - {e}")
-            return jsonify({"error": "permission denied"}), 403
-        except fs_ops.FsOpError as e:
-            logger.error(f"上传失败: {path} - {e}")
-            return jsonify({"error": str(e)}), 500
+                    logger.success(f"接收文件: {path}")
+                    return jsonify({"success": True})
+
+                except fs_ops.PermissionDeniedError as e:
+                    logger.error(f"权限不足: {path} - {e}")
+                    return jsonify({"error": "permission denied"}), 403
+                except fs_ops.FsOpError as e:
+                    logger.error(f"上传失败: {path} - {e}")
+                    return jsonify({"error": str(e)}), 500
+
+        except QueueFullError as e:
+            logger.warning(f"来自 {client_ip} 的上传请求被拒绝: {e}")
+            return jsonify({"error": "server busy", "detail": str(e), "queued": False}), 503
+        except QueueTimeoutError as e:
+            logger.warning(f"来自 {client_ip} 的上传请求排队超时: {e}")
+            return jsonify({"error": "queue timeout", "detail": str(e), "queued": True}), 503
+        except ClientDisconnectedError:
+            logger.info(f"来自 {client_ip} 的客户端在上传排队期间断开连接")
+            return jsonify({"error": "client disconnected"}), 499
 
     return app
 
 
 def run_server(config, logger):
+    import waitress
+
     api_key = config.get("api_key", "")
     port = int(config.get("port", "13579"))
 
-    logger.info(f"服务器模式启动，监听端口: {port}")
+    max_meta = int(config.get("max_concurrent_metadata", "1"))
+    max_up = int(config.get("max_concurrent_uploads", "1"))
+    max_q_meta = int(config.get("max_queue_metadata", "32"))
+    max_q_up = int(config.get("max_queue_uploads", "32"))
 
-    app = create_app(api_key, logger)
-    app.run(host="0.0.0.0", port=port, debug=False)
+    gate = ConcurrencyGate(
+        max_concurrent_metadata=max_meta,
+        max_concurrent_uploads=max_up,
+        max_queue_metadata=max_q_meta,
+        max_queue_uploads=max_q_up,
+    )
+
+    logger.info(f"服务器模式启动，监听端口: {port}")
+    logger.info(
+        f"并发控制: 元数据 并发{max_meta}/队列{max_q_meta}  |  "
+        f"上传 并发{max_up}/队列{max_q_up}"
+    )
+
+    app = create_app(api_key, logger, gate)
+
+    # 计算 waitress 所需的最小线程数
+    # 每个排队或正在处理的请求都需要一个线程
+    min_threads = (max_meta + max_q_meta + max_up + max_q_up) + 4
+    waitress.serve(app, host="0.0.0.0", port=port, threads=min_threads)
