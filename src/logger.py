@@ -113,6 +113,9 @@ def setup_logger(log_dir, max_log_files=0, log_level="INFO", prefix="smartarchiv
 
     logger = logging.getLogger(prefix)
 
+    # 禁止向 root logger 传播，避免其他库配置的 handler 导致日志重复输出
+    logger.propagate = False
+
     # 设置日志级别
     numeric_level = getattr(logging, log_level.upper(), logging.INFO)
     logger.setLevel(numeric_level)
