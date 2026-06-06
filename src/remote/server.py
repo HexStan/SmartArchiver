@@ -270,5 +270,5 @@ def run_server(config, logger):
         host="0.0.0.0",
         port=port,
         threads=min_threads,
-        max_request_body_size=0,
+        max_request_body_size=1_000_000_000_000_000,
     )
