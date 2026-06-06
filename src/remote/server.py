@@ -115,7 +115,12 @@ def create_app(api_key, logger, gate):
                         st = fs_ops.get_stat(path)
                         if not st.exists:
                             return jsonify(
-                                {"exists": False, "size": 0, "mtime": 0, "is_dir": False}
+                                {
+                                    "exists": False,
+                                    "size": 0,
+                                    "mtime": 0,
+                                    "is_dir": False,
+                                }
                             )
                         return jsonify(
                             {
@@ -157,10 +162,14 @@ def create_app(api_key, logger, gate):
 
         except QueueFullError as e:
             logger.warning(f"来自 {client_ip} 的请求被拒绝: {e}")
-            return jsonify({"error": "server busy", "detail": str(e), "queued": False}), 503
+            return jsonify(
+                {"error": "server busy", "detail": str(e), "queued": False}
+            ), 503
         except QueueTimeoutError as e:
             logger.warning(f"来自 {client_ip} 的请求排队超时: {e}")
-            return jsonify({"error": "queue timeout", "detail": str(e), "queued": True}), 503
+            return jsonify(
+                {"error": "queue timeout", "detail": str(e), "queued": True}
+            ), 503
         except ClientDisconnectedError:
             logger.info(f"来自 {client_ip} 的客户端在排队期间断开连接")
             return jsonify({"error": "client disconnected"}), 499
@@ -212,10 +221,14 @@ def create_app(api_key, logger, gate):
 
         except QueueFullError as e:
             logger.warning(f"来自 {client_ip} 的上传请求被拒绝: {e}")
-            return jsonify({"error": "server busy", "detail": str(e), "queued": False}), 503
+            return jsonify(
+                {"error": "server busy", "detail": str(e), "queued": False}
+            ), 503
         except QueueTimeoutError as e:
             logger.warning(f"来自 {client_ip} 的上传请求排队超时: {e}")
-            return jsonify({"error": "queue timeout", "detail": str(e), "queued": True}), 503
+            return jsonify(
+                {"error": "queue timeout", "detail": str(e), "queued": True}
+            ), 503
         except ClientDisconnectedError:
             logger.info(f"来自 {client_ip} 的客户端在上传排队期间断开连接")
             return jsonify({"error": "client disconnected"}), 499
@@ -252,4 +265,10 @@ def run_server(config, logger):
     # 计算 waitress 所需的最小线程数
     # 每个排队或正在处理的请求都需要一个线程
     min_threads = (max_meta + max_q_meta + max_up + max_q_up) + 4
-    waitress.serve(app, host="0.0.0.0", port=port, threads=min_threads)
+    waitress.serve(
+        app,
+        host="0.0.0.0",
+        port=port,
+        threads=min_threads,
+        max_request_body_size=0,
+    )
