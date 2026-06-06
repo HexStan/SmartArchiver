@@ -237,8 +237,6 @@ def create_app(api_key, logger, gate):
 
 
 def run_server(config, logger):
-    import waitress
-
     api_key = config.get("api_key", "")
     port = int(config.get("port", "13579"))
 
@@ -261,14 +259,7 @@ def run_server(config, logger):
     )
 
     app = create_app(api_key, logger, gate)
-
-    # 计算 waitress 所需的最小线程数
-    # 每个排队或正在处理的请求都需要一个线程
-    min_threads = (max_meta + max_q_meta + max_up + max_q_up) + 4
-    waitress.serve(
-        app,
-        host="0.0.0.0",
-        port=port,
-        threads=min_threads,
-        max_request_body_size=1_000_000_000_000_000,
-    )
+    # 使用 Flask 内置多线程服务器保持原始流式 I/O 行为
+    # （request.stream 直接从 socket 读取，无中间临时文件）
+    # 并发接入由 threaded=True 支持，并发控制由 ConcurrencyGate 保证
+    app.run(host="0.0.0.0", port=port, debug=False, threaded=True)

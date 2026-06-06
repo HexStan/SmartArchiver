@@ -2,4 +2,3 @@ humanfriendly==10.0
 croniter==6.2.2
 flask==3.1.1
 requests==2.32.4
-waitress==3.0.2
