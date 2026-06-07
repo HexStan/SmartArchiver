@@ -95,9 +95,25 @@ max_log_files = 30
 # port = 2222
 # key_file = "/home/user/.ssh/backup_key"
 
+# --------------------------------------------------
+# Docker Compose SSH 目标服务示例
+#
+# 如果你使用项目自带的 docker-compose.yml 中的 ssh-target 服务：
+#   - 在同一 Docker 网络内，host 直接用服务名 "ssh-target"
+#   - 容器以 root 运行，用户填 "root"
+#   - 密钥使用挂载到 /root/.ssh/ 下的私钥
+# --------------------------------------------------
+# [[ssh_remotes]]
+# alias = "docker_target"
+# host = "ssh-target"
+# user = "root"
+# key_file = "/root/.ssh/id_ed25519"
+#   # dest = "{docker_target}?/dest"
+
 # 使用格式与 http_remotes 一致：
 # dest = "{my_vps}?/var/backups/data"
 # dest = "{backup_host}?/mnt/storage/archive"
+# dest = "{docker_target}?/dest
 
 # ==================================================
 # 任务列表

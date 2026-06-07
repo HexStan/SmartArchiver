@@ -12,6 +12,39 @@ services:
       - ./dest:/app/dest
       - ./ssh:/root/.ssh
 
+  # --------------------------------------------------
+  # SSH 远端目标 — 独立的 SSH 服务器容器
+  #
+  # 使用前：
+  #   1. 生成 SSH 密钥对（如无现有密钥）：
+  #        ssh-keygen -t ed25519 -f ./ssh/id_ed25519 -N ""
+  #   2. 将公钥复制为 authorized_keys：
+  #        cp ./ssh/id_ed25519.pub ./ssh/authorized_keys
+  #   3. 启动 ssh-target 服务：
+  #        docker compose up -d ssh-target
+  #   4. 在 config/config.toml 中配置 [[ssh_remotes]] 指向该服务：
+  #        [[ssh_remotes]]
+  #        alias = "docker_target"
+  #        host = "ssh-target"    # 同 compose 网络内直接用服务名
+  #        user = "root"
+  #        port = 22
+  #        key_file = "/root/.ssh/id_ed25519"
+  #        # dest = "{docker_target}?/dest"
+  # --------------------------------------------------
+  ssh-target:
+    build:
+      context: .
+      dockerfile: Dockerfile.ssh-target
+    container_name: smart-archiver-ssh-target
+    restart: unless-stopped
+    environment:
+      - TZ=Asia/Shanghai
+    ports:
+      - "${SSH_TARGET_PORT:-2222}:22"
+    volumes:
+      - ./ssh/authorized_keys:/root/.ssh/authorized_keys:ro
+      - ./dest:/dest
+
 #  server:
 #    image: ghcr.io/hexstan/smart-archiver:latest
 #    container_name: smart-archiver-server

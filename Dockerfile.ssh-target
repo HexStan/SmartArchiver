@@ -1,0 +1,22 @@
+FROM debian:bookworm-slim
+
+# 安装 OpenSSH 服务器和 rsync（rsync 是 sync 模式的运行时依赖）
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends openssh-server rsync && \
+    rm -rf /var/lib/apt/lists/*
+
+# 创建 sshd 运行所需的目录
+RUN mkdir -p /var/run/sshd
+
+# 仅允许 root 通过密钥登录（禁止密码认证）
+RUN echo "PermitRootLogin prohibit-password" >> /etc/ssh/sshd_config && \
+    echo "PasswordAuthentication no" >> /etc/ssh/sshd_config && \
+    echo "ChallengeResponseAuthentication no" >> /etc/ssh/sshd_config && \
+    echo "UsePAM yes" >> /etc/ssh/sshd_config
+
+# 确保 /root/.ssh 目录存在且权限正确
+RUN mkdir -p /root/.ssh && chmod 700 /root/.ssh
+
+EXPOSE 22
+
+CMD ["/usr/sbin/sshd", "-D", "-e"]
