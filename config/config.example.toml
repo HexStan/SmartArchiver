@@ -71,6 +71,35 @@ max_log_files = 30
 # dest = "{bob_server}?/mnt/ext_users/backup"
 
 # ==================================================
+# SSH 远端主机配置（可选，用于 sync 模式）
+# ==================================================
+
+# 通过 SSH 连接远端主机，将其目录作为 sync 模式的同步目标。
+# SSH 远端与 HTTP 远端的配置完全隔离，允许别名重复。
+# 目前仅 sync 模式支持 SSH 远端。
+
+# [[ssh_remotes]]
+# alias = "my_vps"                          # 必填，仅允许 a-z、A-Z、0-9、-、_
+# host = "192.168.1.100"                    # 必填，远端主机地址
+# user = "root"                             # 必填，SSH 用户名
+# port = 22                                 # 选填，SSH 端口（默认 22）
+# key_file = "/home/user/.ssh/id_rsa"       # 选填，SSH 私钥路径
+# password_file = "/home/user/.ssh/pass"    # 选填，明文密码文件路径
+#   - 若配置了 password_file，rsync 将通过 sshpass 传递密码
+#   - rclone 将通过 SFTP 的 --sftp-pass 传递密码
+
+# [[ssh_remotes]]
+# alias = "backup_host"
+# host = "10.0.0.50"
+# user = "backup"
+# port = 2222
+# key_file = "/home/user/.ssh/backup_key"
+
+# 使用格式与 http_remotes 一致：
+# dest = "{my_vps}?/var/backups/data"
+# dest = "{backup_host}?/mnt/storage/archive"
+
+# ==================================================
 # 任务列表
 # ==================================================
 

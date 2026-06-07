@@ -13,6 +13,7 @@ from src.history import HistoryManager
 from src.logger import setup_logger
 from src.utils import load_config, SingleInstance
 from src.remote import parse_remote_config
+from src.ssh import parse_ssh_remote_config
 
 
 def run_tasks():
@@ -58,8 +59,9 @@ def run_client():
     history_mgr = HistoryManager(config["log_dir"])
 
     remote_clients = parse_remote_config(config)
+    ssh_remotes = parse_ssh_remote_config(config)
 
-    AppContext.init(logger, history_mgr, config, remote_clients)
+    AppContext.init(logger, history_mgr, config, remote_clients, ssh_remotes)
 
     schedule_config = config.get("schedule", {})
     mode = schedule_config.get("mode")

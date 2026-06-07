@@ -1,7 +1,9 @@
 import os
+import subprocess
 from abc import ABC, abstractmethod
 
 from src import fs_ops
+from src.ssh.config import SshRemote, build_ssh_command, build_ssh_target
 
 
 class DestBackend(ABC):
@@ -146,13 +148,125 @@ class RemoteDestBackend(DestBackend):
         ]
 
 
-def create_dest_backend(dest_root, remote_clients):
+class SshDestBackend(DestBackend):
+    """SSH 远端目标后端。
+
+    主要用于 sync 模式，携带 SSH 连接参数供 rsync/rclone 使用。
+    非 sync 模式的 per-file 操作（exists/copy/move 等）均抛出 NotImplementedError。
+
+    额外提供远端目录管理方法供 SyncHandler 使用。
+    """
+
+    def __init__(self, remote: SshRemote, remote_root: str):
+        super().__init__(remote_root)
+        self.remote = remote
+
+    def is_dir(self, path):
+        """通过 SSH 检测远端路径是否为目录。"""
+        cmd = build_ssh_command(self.remote)
+        target = build_ssh_target(self.remote)
+        # 使用 test -d 检测，通过返回码区分
+        full_cmd = cmd + [target, f"test -d {_shell_quote(path)}"]
+        try:
+            result = subprocess.run(
+                full_cmd,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            return result.returncode == 0
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+            return False
+
+    def remote_list_dir(self, path):
+        """通过 SSH 列出远端目录内容，返回名称列表并按字母排序。"""
+        cmd = build_ssh_command(self.remote)
+        target = build_ssh_target(self.remote)
+        full_cmd = cmd + [target, f"ls -1d {_shell_quote(path)}/*/ 2>/dev/null"]
+        try:
+            result = subprocess.run(
+                full_cmd,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            if result.returncode == 0:
+                entries = []
+                for line in result.stdout.strip().split("\n"):
+                    line = line.strip()
+                    if line:
+                        entries.append(os.path.basename(line.rstrip("/")))
+                entries.sort()
+                return entries
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+            pass
+        return []
+
+    def remote_rmdir(self, path):
+        """通过 SSH 递归删除远端目录。"""
+        cmd = build_ssh_command(self.remote)
+        target = build_ssh_target(self.remote)
+        full_cmd = cmd + [target, f"rm -rf {_shell_quote(path)}"]
+        try:
+            result = subprocess.run(
+                full_cmd,
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+            return result.returncode == 0
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+            return False
+
+    # ---- 非 sync 模式不支持的方法 ----
+
+    def exists(self, path):
+        raise NotImplementedError
+
+    def remove_file(self, path):
+        raise NotImplementedError
+
+    def remove_dir(self, path):
+        raise NotImplementedError
+
+    def makedirs(self, path):
+        raise NotImplementedError
+
+    def copy_file(self, src_local_path, dest_path):
+        raise NotImplementedError
+
+    def move_file(self, src_local_path, dest_path):
+        raise NotImplementedError
+
+    def stat(self, path):
+        raise NotImplementedError
+
+    def list_dir(self, path):
+        raise NotImplementedError
+
+
+def _shell_quote(s: str) -> str:
+    """用单引号包裹字符串，安全地用于 shell 命令参数。"""
+    return "'" + s.replace("'", "'\\''") + "'"
+
+
+def create_dest_backend(dest_root, remote_clients, ssh_remotes=None):
     if dest_root and isinstance(dest_root, str):
+        # 1. 先检查 HTTP remote 命名空间
         for alias, client in remote_clients.items():
             prefix = f"{{{alias}}}?"
             if dest_root.startswith(prefix):
                 remote_path = dest_root[len(prefix) :]
                 remote_path = "/" + remote_path.lstrip("/")
                 return RemoteDestBackend(client, remote_path)
+
+        # 2. 再检查 SSH remote 命名空间（与 HTTP 隔离）
+        ssh_dict = ssh_remotes or {}
+        for alias, ssh_remote in ssh_dict.items():
+            prefix = f"{{{alias}}}?"
+            if dest_root.startswith(prefix):
+                remote_path = dest_root[len(prefix) :]
+                remote_path = "/" + remote_path.lstrip("/")
+                return SshDestBackend(ssh_remote, remote_path)
 
     return LocalDestBackend(dest_root)

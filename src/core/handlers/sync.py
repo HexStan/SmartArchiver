@@ -1,4 +1,5 @@
 import os
+import posixpath
 import shutil
 import time
 import subprocess
@@ -8,7 +9,7 @@ from src.app_context import AppContext
 from src.presentation import fmt_timespan, print_task_header
 from src.core.registry import register_handler
 from src.core.handlers.base import BaseTaskHandler
-from src.core.backend import RemoteDestBackend
+from src.core.backend import RemoteDestBackend, SshDestBackend
 from src import fs_ops
 
 
@@ -113,7 +114,8 @@ class SyncHandler(BaseTaskHandler):
 
         if isinstance(self.dest_backend, RemoteDestBackend):
             ctx.logger.error(
-                "sync 模式不支持远程目标目录，请改用 move/copy 模式，或在远程服务器上直接运行 sync，跳过该任务。"
+                "sync 模式不支持 HTTP 远程目标目录，请改用 move/copy 模式，"
+                "或在远程服务器上直接运行 sync，跳过该任务。"
             )
             return
 
@@ -136,17 +138,182 @@ class SyncHandler(BaseTaskHandler):
         backup_enabled = self.task.get("create_backups", False)
         max_backups = self.task.get("max_backups", 0)
 
+        if isinstance(self.dest_backend, SshDestBackend):
+            self._execute_ssh_sync(tool, exclude_list, backup_enabled, max_backups)
+        else:
+            backup_dir = None
+            if backup_enabled:
+                backup_dir = self._setup_backup_dir(
+                    self.dest_root, max_backups, exclude_list
+                )
+
+            _sync_runners = {
+                "rsync": _run_rsync_sync,
+                "rclone": _run_rclone_sync,
+            }
+            _sync_runners[tool](self.source_root, self.dest_root, exclude_list, backup_dir)
+
+    # ============================================================
+    # SSH 远端同步
+    # ============================================================
+
+    def _execute_ssh_sync(self, tool, exclude_list, backup_enabled, max_backups):
+        """执行 SSH 远端同步（rsync 或 rclone）。"""
+        remote = self.dest_backend.remote
+
         backup_dir = None
         if backup_enabled:
-            backup_dir = self._setup_backup_dir(
-                self.dest_root, max_backups, exclude_list
-            )
+            backup_dir = self._setup_ssh_backup_dir(max_backups, exclude_list)
 
-        _sync_runners = {
-            "rsync": _run_rsync_sync,
-            "rclone": _run_rclone_sync,
-        }
-        _sync_runners[tool](self.source_root, self.dest_root, exclude_list, backup_dir)
+        if tool == "rsync":
+            self._run_ssh_rsync(remote, exclude_list, backup_dir)
+        else:
+            self._run_ssh_rclone(remote, exclude_list, backup_dir)
+
+    def _build_rsync_ssh_rsh(self, remote):
+        """构建 rsync 的 -e 参数值（SSH 远程 shell 命令字符串）。"""
+        opts = [
+            "ssh",
+            "-o", "StrictHostKeyChecking=no",
+            "-o", "UserKnownHostsFile=/dev/null",
+            "-o", "LogLevel=ERROR",
+        ]
+        if remote.port != 22:
+            opts.extend(["-p", str(remote.port)])
+        if remote.key_file:
+            opts.extend(["-i", remote.key_file])
+
+        rsh = " ".join(opts)
+        if remote.password_file:
+            rsh = f"sshpass -f {remote.password_file} {rsh}"
+
+        return rsh
+
+    def _run_ssh_rsync(self, remote, exclude_list, backup_dir):
+        """通过 rsync + SSH 同步到远端主机。"""
+        ctx = AppContext.get()
+        if not shutil.which("rsync"):
+            ctx.logger.error("未找到 rsync，无法执行 sync 模式，跳过该任务。")
+            return
+
+        src = self.source_root
+        src = src if src.endswith("/") else src + "/"
+        dest = f"{remote.user}@{remote.host}:{self.dest_root}"
+
+        cmd = ["rsync", "-av", "--delete"]
+        rsh = self._build_rsync_ssh_rsh(remote)
+        cmd.extend(["-e", rsh])
+
+        for ex in exclude_list:
+            cmd.extend(["--exclude", ex])
+
+        if backup_dir:
+            remote_dest = f"{remote.user}@{remote.host}:{backup_dir}"
+            cmd.extend(["--backup", f"--backup-dir={remote_dest}"])
+
+        cmd.extend([src, dest])
+        _run_sync_command(cmd, "rsync", prepend_timestamp=True)
+
+    def _run_ssh_rclone(self, remote, exclude_list, backup_dir):
+        """通过 rclone SFTP 同步到远端主机。"""
+        ctx = AppContext.get()
+        if not shutil.which("rclone"):
+            ctx.logger.error("未找到 rclone，无法执行 sync 模式，跳过该任务。")
+            return
+
+        # 使用 :sftp: 后端，通过命令行参数指定连接信息，无需预配置
+        dest = f":sftp:{self.dest_root}"
+
+        cmd = [
+            "rclone", "sync",
+            self.source_root, dest,
+            "--sftp-host", remote.host,
+            "--sftp-user", remote.user,
+        ]
+
+        if remote.port != 22:
+            cmd.extend(["--sftp-port", str(remote.port)])
+
+        if remote.key_file:
+            cmd.extend(["--sftp-key-file", remote.key_file])
+
+        for ex in exclude_list:
+            cmd.extend(["--exclude", ex])
+
+        if backup_dir:
+            remote_dest = f":sftp:{backup_dir}"
+            cmd.extend(["--backup-dir", remote_dest])
+
+        # 处理密码文件：通过环境变量传入，避免密码出现在进程列表中
+        env = os.environ.copy()
+        if remote.password_file:
+            try:
+                with open(remote.password_file, "r") as f:
+                    password = f.read().strip()
+                env["RCLONE_SFTP_PASS"] = password
+            except OSError as e:
+                ctx.logger.error(f"读取密码文件失败: {e}，跳过该任务。")
+                return
+
+        ctx.logger.info("正在使用 rclone (SFTP) 进行同步……")
+        try:
+            start_time = time.time()
+            process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                env=env,
+            )
+            for line in process.stdout:
+                ctx.logger.info(line.strip())
+            process.wait()
+            if process.returncode != 0:
+                ctx.logger.error(f"rclone 同步失败，退出码: {process.returncode}")
+            else:
+                end_time = time.time()
+                exec_time = end_time - start_time
+                ctx.logger.success(
+                    f"rclone 同步完成，耗时: {fmt_timespan(exec_time)}。"
+                )
+        except Exception as e:
+            ctx.logger.error(f"执行 rclone 时发生错误: {e}")
+
+    def _setup_ssh_backup_dir(self, max_backups, exclude_list):
+        """为 SSH 远端目标设置备份目录。
+
+        在远端计算备份路径，清理旧备份，返回远端备份目录路径。
+        """
+        ctx = AppContext.get()
+
+        backup_base = posixpath.join(self.dest_root, ".smart-archiver.backups")
+        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        backup_dir = posixpath.join(backup_base, timestamp)
+
+        exclude_list.append(".smart-archiver.backups/")
+
+        if max_backups > 0:
+            try:
+                all_dirs = self.dest_backend.remote_list_dir(backup_base)
+                if all_dirs and len(all_dirs) >= max_backups:
+                    num_to_delete = len(all_dirs) - max_backups + 1
+                    for d in all_dirs[:num_to_delete]:
+                        remote_path = posixpath.join(backup_base, d)
+                        ok = self.dest_backend.remote_rmdir(remote_path)
+                        if ok:
+                            ctx.logger.debug(f"已删除远端旧备份: {d}")
+                        else:
+                            ctx.logger.warning(f"删除远端旧备份失败: {d}")
+            except Exception as e:
+                ctx.logger.error(f"清理远端旧备份失败: {e}")
+
+        return backup_dir
+
+    # ============================================================
+    # 本地备份目录
+    # ============================================================
 
     def _setup_backup_dir(self, dest_root, max_backups, exclude_list):
         ctx = AppContext.get()
