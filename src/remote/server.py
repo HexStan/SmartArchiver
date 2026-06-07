@@ -252,14 +252,7 @@ def run_server(config, logger):
         max_queue_uploads=max_q_up,
     )
 
-    logger.info(f"服务器模式启动，监听端口: {port}")
-    logger.info(
-        f"并发控制: 元数据 并发{max_meta}/队列{max_q_meta}  |  "
-        f"上传 并发{max_up}/队列{max_q_up}"
-    )
+    logger.info(f"监听端口: {port}")
 
     app = create_app(api_key, logger, gate)
-    # 使用 Flask 内置多线程服务器保持原始流式 I/O 行为
-    # （request.stream 直接从 socket 读取，无中间临时文件）
-    # 并发接入由 threaded=True 支持，并发控制由 ConcurrencyGate 保证
     app.run(host="0.0.0.0", port=port, debug=False, threaded=True)

@@ -184,7 +184,7 @@ def run_server():
 
     from src.remote.server import run_server as start_server
 
-    logger.info("以服务器模式启动，不会执行任何任务配置。")
+    logger.info("以服务器模式启动，请从客户端连接。")
     start_server(config, logger)
 
 
