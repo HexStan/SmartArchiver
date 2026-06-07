@@ -60,15 +60,6 @@ def run_client():
     remote_clients = parse_remote_config(config)
     ssh_remotes = parse_ssh_remotes(config)
 
-    # 别名冲突检测
-    conflicts = set(remote_clients.keys()) & set(ssh_remotes.keys())
-    if conflicts:
-        for alias in conflicts:
-            logger.warning(
-                f"远端别名 '{alias}' 同时出现在 http_remotes 和 ssh_remotes 中，"
-                f"将以 http_remotes 为准。"
-            )
-
     AppContext.init(logger, history_mgr, config, remote_clients, ssh_remotes)
 
     schedule_config = config.get("schedule", {})

@@ -26,8 +26,15 @@ def process_task(task, now=None):
         ctx.logger.error(f"不支持的任务模式: {mode}，跳过该任务。")
         return
 
-    remote_clients = getattr(ctx, "remote_clients", {})
-    ssh_remotes = getattr(ctx, "ssh_remotes", {})
+    # sync 模式只解析 ssh_remotes；其他模式只解析 http_remotes。
+    # 两者路径完全隔离，因此允许别名重名。
+    if mode == "sync":
+        remote_clients = {}
+        ssh_remotes = getattr(ctx, "ssh_remotes", {})
+    else:
+        remote_clients = getattr(ctx, "remote_clients", {})
+        ssh_remotes = {}
+
     dest_root = task.get("dest", "")
     dest_backend = create_dest_backend(dest_root, remote_clients, ssh_remotes)
 

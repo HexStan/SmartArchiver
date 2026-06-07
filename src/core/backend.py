@@ -192,23 +192,46 @@ class SshDestBackend(DestBackend):
         self._raise_not_supported("list_dir")
 
 
-def create_dest_backend(dest_root, remote_clients, ssh_remotes=None):
-    if dest_root and isinstance(dest_root, str):
-        # HTTP 远端优先匹配
-        for alias, client in remote_clients.items():
-            prefix = f"{{{alias}}}?"
-            if dest_root.startswith(prefix):
-                remote_path = dest_root[len(prefix) :]
-                remote_path = "/" + remote_path.lstrip("/")
-                return RemoteDestBackend(client, remote_path)
+def _match_remote_prefix(dest_root, remotes, backend_ctor):
+    """尝试将 dest_root 与 remotes 中的别名前缀匹配。
 
-        # SSH 远端匹配
-        if ssh_remotes:
-            for alias, ssh_config in ssh_remotes.items():
-                prefix = f"{{{alias}}}?"
-                if dest_root.startswith(prefix):
-                    remote_path = dest_root[len(prefix) :]
-                    remote_path = "/" + remote_path.lstrip("/")
-                    return SshDestBackend(ssh_config, remote_path)
+    Args:
+        dest_root: 目标路径字符串，可能为 ``{alias}?/path`` 格式。
+        remotes: ``{alias: config_or_client}`` 字典。
+        backend_ctor: 单参数工厂，接收 ``(remote_config, remote_path)``。
+
+    Returns:
+        DestBackend | None: 匹配成功返回对应 backend，否则返回 None。
+    """
+    if not remotes:
+        return None
+    for alias, cfg in remotes.items():
+        prefix = f"{{{alias}}}?"
+        if dest_root.startswith(prefix):
+            remote_path = "/" + dest_root[len(prefix) :].lstrip("/")
+            return backend_ctor(cfg, remote_path)
+    return None
+
+
+def create_dest_backend(dest_root, remote_clients, ssh_remotes=None):
+    if not dest_root or not isinstance(dest_root, str):
+        return LocalDestBackend(dest_root)
+
+    # 两种远端地位平等 — 调用方按 mode 分流，故至多一种非空
+    http = _match_remote_prefix(
+        dest_root,
+        remote_clients,
+        lambda client, path: RemoteDestBackend(client, path),
+    )
+    if http is not None:
+        return http
+
+    ssh = _match_remote_prefix(
+        dest_root,
+        ssh_remotes or {},
+        lambda ssh_config, path: SshDestBackend(ssh_config, path),
+    )
+    if ssh is not None:
+        return ssh
 
     return LocalDestBackend(dest_root)
