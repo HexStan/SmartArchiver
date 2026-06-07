@@ -3,9 +3,9 @@ FROM python:3.14-slim-trixie
 # 设置环境变量，确保 Python 输出不被缓冲，以便日志能实时显示
 ENV PYTHONUNBUFFERED=1
 
-# 安装 rsync
+# 安装 rsync、SSH 客户端及 sshpass（用于 SSH 远端同步）
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends rsync && \
+    apt-get install -y --no-install-recommends rsync openssh-client sshpass && \
     rm -rf /var/lib/apt/lists/*
 
 # 设置工作目录

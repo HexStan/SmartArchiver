@@ -10,6 +10,7 @@ services:
       - ./logs:/app/logs
       - ./source:/app/source
       - ./dest:/app/dest
+      - ./ssh:/root/.ssh
 
 #  server:
 #    image: ghcr.io/hexstan/smart-archiver:latest
