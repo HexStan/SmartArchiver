@@ -71,6 +71,35 @@ max_log_files = 30
 # dest = "{bob_server}?/mnt/ext_users/backup"
 
 # ==================================================
+# SSH 远端配置（可选，仅用于 sync 模式）
+# ==================================================
+
+# sync 模式下通过 SSH 连接远端主机，使用 rsync 或 rclone 进行镜像同步。
+# 格式与其他模式一致：dest = "{alias}?/path/to/dest"
+
+# [[ssh_remotes]]
+# alias = "my_ecs"           # 【必填】远端别名（仅允许 a-z、A-Z、0-9、-、_）
+# address = "192.168.1.100"  # 【必填】远端主机地址（IP 或域名）
+# port = 22                  # 【选填】SSH 端口，默认 22
+# user = "root"              # 【必填】SSH 登录用户名
+# credential_file = "/home/user/.ssh/id_rsa"  # 【选填】SSH 私钥文件路径
+# password_file = "/home/user/.ssh/password"  # 【选填】明文密码文件路径
+
+# 说明：
+# - credential_file 和 password_file 均为选填；都不填则走默认 SSH 认证
+#   （尝试 ~/.ssh/id_rsa、ssh-agent 等）
+# - password_file 指向的文件内容会被自动 strip 后用作密码
+# - 使用密码认证时需要系统安装 sshpass 工具
+# - rsync 方案：通过 -e "ssh ..." 连接
+# - rclone 方案：通过 SFTP on-the-fly 后端连接，无需 rclone config 交互式配置
+# - Docker 环境提示：docker-compose 已将 ./ssh 目录映射到容器内 /root/.ssh，
+#   可将私钥和 known_hosts 放入 ./ssh 目录，配置中引用 /root/.ssh/... 路径即可
+
+# dest 示例：
+# dest = "{my_ecs}?/data/backup"         # rsync → root@192.168.1.100:/data/backup
+# dest = "{my_ecs}?/mnt/storage/archive"  # rclone → :sftp,host=192.168.1.100,...:/mnt/storage/archive
+
+# ==================================================
 # 任务列表
 # ==================================================
 

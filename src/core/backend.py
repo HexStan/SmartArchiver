@@ -146,13 +146,69 @@ class RemoteDestBackend(DestBackend):
         ]
 
 
-def create_dest_backend(dest_root, remote_clients):
+class SshDestBackend(DestBackend):
+    """SSH 远端标记型后端 — 仅用于 sync 模式。
+
+    不实现 DestBackend 的具体操作方法；sync handler 通过 isinstance
+    识别该类型后直接从 ssh_config 读取连接信息来构建 rsync/rclone 命令。
+    其他模式使用 SSH 远端时会在调用未实现方法时自然报错。
+    """
+
+    def __init__(self, ssh_config, remote_root):
+        super().__init__(remote_root)
+        self.ssh_config = ssh_config
+
+    def _raise_not_supported(self, method_name):
+        raise NotImplementedError(
+            f"SSH 远端不支持 {method_name} 操作。"
+            f"SSH 远端仅用于 sync 模式，请使用 rsync 或 rclone 进行同步。"
+        )
+
+    def exists(self, path):
+        self._raise_not_supported("exists")
+
+    def is_dir(self, path):
+        self._raise_not_supported("is_dir")
+
+    def remove_file(self, path):
+        self._raise_not_supported("remove_file")
+
+    def remove_dir(self, path):
+        self._raise_not_supported("remove_dir")
+
+    def makedirs(self, path):
+        self._raise_not_supported("makedirs")
+
+    def copy_file(self, src_local_path, dest_path):
+        self._raise_not_supported("copy_file")
+
+    def move_file(self, src_local_path, dest_path):
+        self._raise_not_supported("move_file")
+
+    def stat(self, path):
+        self._raise_not_supported("stat")
+
+    def list_dir(self, path):
+        self._raise_not_supported("list_dir")
+
+
+def create_dest_backend(dest_root, remote_clients, ssh_remotes=None):
     if dest_root and isinstance(dest_root, str):
+        # HTTP 远端优先匹配
         for alias, client in remote_clients.items():
             prefix = f"{{{alias}}}?"
             if dest_root.startswith(prefix):
                 remote_path = dest_root[len(prefix) :]
                 remote_path = "/" + remote_path.lstrip("/")
                 return RemoteDestBackend(client, remote_path)
+
+        # SSH 远端匹配
+        if ssh_remotes:
+            for alias, ssh_config in ssh_remotes.items():
+                prefix = f"{{{alias}}}?"
+                if dest_root.startswith(prefix):
+                    remote_path = dest_root[len(prefix) :]
+                    remote_path = "/" + remote_path.lstrip("/")
+                    return SshDestBackend(ssh_config, remote_path)
 
     return LocalDestBackend(dest_root)

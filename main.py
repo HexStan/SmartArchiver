@@ -12,7 +12,7 @@ from src.core import process_task
 from src.history import HistoryManager
 from src.logger import setup_logger
 from src.utils import load_config, SingleInstance
-from src.remote import parse_remote_config
+from src.remote import parse_remote_config, parse_ssh_remotes
 
 
 def run_tasks():
@@ -58,8 +58,18 @@ def run_client():
     history_mgr = HistoryManager(config["log_dir"])
 
     remote_clients = parse_remote_config(config)
+    ssh_remotes = parse_ssh_remotes(config)
 
-    AppContext.init(logger, history_mgr, config, remote_clients)
+    # 别名冲突检测
+    conflicts = set(remote_clients.keys()) & set(ssh_remotes.keys())
+    if conflicts:
+        for alias in conflicts:
+            logger.warning(
+                f"远端别名 '{alias}' 同时出现在 http_remotes 和 ssh_remotes 中，"
+                f"将以 http_remotes 为准。"
+            )
+
+    AppContext.init(logger, history_mgr, config, remote_clients, ssh_remotes)
 
     schedule_config = config.get("schedule", {})
     mode = schedule_config.get("mode")

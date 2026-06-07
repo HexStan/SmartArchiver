@@ -10,6 +10,9 @@ services:
       - ./logs:/app/logs
       - ./source:/app/source
       - ./dest:/app/dest
+      # SSH 凭据目录：将私钥、known_hosts 等放入 ./ssh 目录，映射到容器内 /root/.ssh
+      # 容器首次启动后请手动执行一次 SSH 以接受主机密钥，或在此目录中预置 known_hosts
+      - ./ssh:/root/.ssh
 
 #  server:
 #    image: ghcr.io/hexstan/smart-archiver:latest
