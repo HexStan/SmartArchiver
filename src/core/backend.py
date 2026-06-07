@@ -192,23 +192,32 @@ class SshDestBackend(DestBackend):
         self._raise_not_supported("list_dir")
 
 
-def create_dest_backend(dest_root, remote_clients, ssh_remotes=None):
-    if dest_root and isinstance(dest_root, str):
-        # HTTP 远端优先匹配
-        for alias, client in remote_clients.items():
-            prefix = f"{{{alias}}}?"
-            if dest_root.startswith(prefix):
-                remote_path = dest_root[len(prefix) :]
-                remote_path = "/" + remote_path.lstrip("/")
-                return RemoteDestBackend(client, remote_path)
+def create_dest_backend(dest_root, remote_clients, ssh_remotes=None, mode=None):
+    """根据 dest 前缀和任务模式创建目标后端。
 
-        # SSH 远端匹配
-        if ssh_remotes:
-            for alias, ssh_config in ssh_remotes.items():
+    - sync 模式优先匹配 ssh_remotes（其 handler 会拒绝 HTTP 远端）。
+    - 其他模式优先匹配 http_remotes（SSH 后端的方法会抛 NotImplementedError）。
+    - 两类远端属于独立命名空间，允许同名别名。
+    """
+    if dest_root and isinstance(dest_root, str):
+        first_pass = (
+            ("ssh", ssh_remotes) if mode == "sync" else ("http", remote_clients)
+        )
+        second_pass = (
+            ("http", remote_clients) if mode == "sync" else ("ssh", ssh_remotes)
+        )
+
+        for source, pool in (first_pass, second_pass):
+            if not pool:
+                continue
+            for alias, entry in pool.items():
                 prefix = f"{{{alias}}}?"
                 if dest_root.startswith(prefix):
                     remote_path = dest_root[len(prefix) :]
                     remote_path = "/" + remote_path.lstrip("/")
-                    return SshDestBackend(ssh_config, remote_path)
+                    if source == "ssh":
+                        return SshDestBackend(entry, remote_path)
+                    else:
+                        return RemoteDestBackend(entry, remote_path)
 
     return LocalDestBackend(dest_root)

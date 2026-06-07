@@ -29,7 +29,7 @@ def process_task(task, now=None):
     remote_clients = getattr(ctx, "remote_clients", {})
     ssh_remotes = getattr(ctx, "ssh_remotes", {})
     dest_root = task.get("dest", "")
-    dest_backend = create_dest_backend(dest_root, remote_clients, ssh_remotes)
+    dest_backend = create_dest_backend(dest_root, remote_clients, ssh_remotes, mode)
 
     handler = handler_cls(task, dest_backend, now)
     handler.execute()
