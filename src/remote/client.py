@@ -27,7 +27,9 @@ class RemoteClientError(Exception):
 class RemoteClient:
     _DEFAULT_TIMEOUT = 14400
 
-    def __init__(self, address, api_key, alias="", logger=None, timeout=None, queue_time=0):
+    def __init__(
+        self, address, api_key, alias="", logger=None, timeout=None, queue_time=0
+    ):
         self.address = address.rstrip("/")
         self.api_key = api_key
         self.alias = alias
@@ -88,15 +90,11 @@ class RemoteClient:
                 status_code = e.response.status_code
                 body_raw = e.response.text or ""
                 if status_code == 503:
-                    raise RemoteClientError(
-                        f"Server {self.alias} busy: {body_raw}"
-                    )
+                    raise RemoteClientError(f"Server {self.alias} busy: {body_raw}")
                 raise RemoteClientError(
                     f"HTTP {status_code} from {self.alias}: {body_raw}"
                 )
-            raise RemoteClientError(
-                f"HTTP error from {self.alias}: {e}"
-            )
+            raise RemoteClientError(f"HTTP error from {self.alias}: {e}")
         except json.JSONDecodeError:
             raise RemoteClientError(f"Invalid JSON response from {self.alias}")
         except _RETRYABLE_EXCEPTIONS as e:
@@ -156,15 +154,11 @@ class RemoteClient:
                 status_code = e.response.status_code
                 body_raw = e.response.text or ""
                 if status_code == 503:
-                    raise RemoteClientError(
-                        f"Server {self.alias} busy: {body_raw}"
-                    )
+                    raise RemoteClientError(f"Server {self.alias} busy: {body_raw}")
                 raise RemoteClientError(
                     f"HTTP {status_code} from {self.alias}: {body_raw}"
                 )
-            raise RemoteClientError(
-                f"HTTP error from {self.alias}: {e}"
-            )
+            raise RemoteClientError(f"HTTP error from {self.alias}: {e}")
         except json.JSONDecodeError:
             raise RemoteClientError(f"Invalid JSON response from {self.alias}")
         except _RETRYABLE_EXCEPTIONS as e:
