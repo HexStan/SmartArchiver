@@ -203,7 +203,7 @@ class SyncHandler(BaseTaskHandler):
 
         src = self.source_root
         src = src if src.endswith("/") else src + "/"
-        dest = f"{remote.user}@{remote.host}:{self.dest_root}"
+        dest = f"{remote.user}@{remote.host}:{self.dest_backend.root_path}"
 
         cmd = ["rsync", "-av", "--delete"]
         rsh = self._build_rsync_ssh_rsh(remote)
@@ -227,7 +227,7 @@ class SyncHandler(BaseTaskHandler):
             return
 
         # 使用 :sftp: 后端，通过命令行参数指定连接信息，无需预配置
-        dest = f":sftp:{self.dest_root}"
+        dest = f":sftp:{self.dest_backend.root_path}"
 
         cmd = [
             "rclone",
@@ -297,7 +297,7 @@ class SyncHandler(BaseTaskHandler):
         """
         ctx = AppContext.get()
 
-        backup_base = posixpath.join(self.dest_root, ".smart-archiver.backups")
+        backup_base = posixpath.join(self.dest_backend.root_path, ".smart-archiver.backups")
         timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
         backup_dir = posixpath.join(backup_base, timestamp)
 
