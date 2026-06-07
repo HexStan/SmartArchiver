@@ -226,6 +226,12 @@ dest = "./dest-4"
 # "sync" - 将源目录以镜像方式同步到目标目录
 mode = "sync"
 
+# 【选填】同步工具选择（默认 "auto"）：
+# - "auto"：自动判断 — Windows 上使用 rclone，Linux/macOS 上使用 rsync
+# - "rsync"：强制使用 rsync（需确保系统中已安装）
+# - "rclone"：强制使用 rclone（需确保系统中已安装）
+# tool = "auto"
+
 # 【选填】排除同步的文件或目录（支持通配符，由 rclone/rsync 处理）
 # exclude = ["*.tmp", "node_modules/"]
 

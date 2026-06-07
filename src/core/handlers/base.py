@@ -21,6 +21,13 @@ def validate_task_config(task, task_mode):
 
     if task_mode == "sync":
         required_fields = ["mode"]
+        tool = task.get("tool", "auto").lower()
+        if tool not in ("auto", "rsync", "rclone"):
+            ctx.logger.error(
+                f"sync 模式的 tool 配置值无效: '{task.get('tool')}'，"
+                f"可选值: auto、rsync、rclone，跳过该任务。"
+            )
+            return False
     elif task_mode == "rotate":
         required_fields = [
             "mode",

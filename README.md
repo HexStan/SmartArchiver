@@ -152,8 +152,8 @@ SmartArchiver 支持 6 种任务模式，对应 3 个处理器。
 
 **工作流程**：
 
-1. 在 Linux 上调用 `rsync -av --delete` 进行镜像同步（源目录和目标目录完全一致，目标中多余的文件会被删除）。
-2. 在 Windows 上调用 `rclone sync` 实现同等效果。
+1. 调用 `rsync -av --delete` 或 `rclone sync` 进行镜像同步（源目录和目标目录完全一致，目标中多余的文件会被删除）。
+2. 默认行为（`tool = "auto"`）：Windows 上自动使用 rclone，Linux/macOS 上自动使用 rsync。可通过 `tool` 配置项强制指定工具（`"rsync"` 或 `"rclone"`）。
 3. 支持通过 `exclude` 列表排除不需要同步的文件/目录（通配符由底层工具处理）。
 4. 可选开启备份功能（`create_backups`），在替换/删除文件前将其备份到 `.smart-archiver.backups/<时间戳>/` 目录，并通过 `max_backups` 限制保留的备份份数。
 

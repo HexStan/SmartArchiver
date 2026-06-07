@@ -12,6 +12,33 @@ from src.core.backend import RemoteDestBackend
 from src import fs_ops
 
 
+# ============================================================
+# 同步工具注册与解析
+# ============================================================
+
+
+def _resolve_sync_tool(task):
+    """根据配置和平台解析要使用的同步工具。
+
+    Returns:
+        str | None: 解析后的工具名（"rsync" 或 "rclone"），解析失败返回 None。
+    """
+    tool = task.get("tool", "auto").lower()
+
+    if tool == "auto":
+        return "rclone" if os.name == "nt" else "rsync"
+
+    if tool in ("rsync", "rclone"):
+        return tool
+
+    ctx = AppContext.get()
+    ctx.logger.error(
+        f"sync 模式的 tool 配置值无效: '{tool}'，"
+        f"可选值: auto、rsync、rclone，跳过该任务。"
+    )
+    return None
+
+
 def _run_sync_command(cmd, tool_name, prepend_timestamp=False):
     ctx = AppContext.get()
     ctx.logger.info(f"正在使用 {tool_name} 进行同步……")
@@ -98,7 +125,9 @@ class SyncHandler(BaseTaskHandler):
             ctx.logger.critical("!!! CRUCIAL: 目标目录不存在 !!!")
             return
 
-        is_windows = os.name == "nt"
+        tool = _resolve_sync_tool(self.task)
+        if tool is None:
+            return
 
         exclude_list = self.task.get("exclude", [])
         if isinstance(exclude_list, str):
@@ -113,10 +142,11 @@ class SyncHandler(BaseTaskHandler):
                 self.dest_root, max_backups, exclude_list
             )
 
-        if is_windows:
-            _run_rclone_sync(self.source_root, self.dest_root, exclude_list, backup_dir)
-        else:
-            _run_rsync_sync(self.source_root, self.dest_root, exclude_list, backup_dir)
+        _sync_runners = {
+            "rsync": _run_rsync_sync,
+            "rclone": _run_rclone_sync,
+        }
+        _sync_runners[tool](self.source_root, self.dest_root, exclude_list, backup_dir)
 
     def _setup_backup_dir(self, dest_root, max_backups, exclude_list):
         ctx = AppContext.get()
