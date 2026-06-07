@@ -160,7 +160,9 @@ def build_ssh_shell_args(remote: SshRemote, remote_command: str) -> list[str]:
     return cmd
 
 
-def run_ssh_command(remote: SshRemote, remote_command: str, timeout: int = 30) -> tuple[int, str, str]:
+def run_ssh_command(
+    remote: SshRemote, remote_command: str, timeout: int = 30
+) -> tuple[int, str, str]:
     """在远端主机上执行 shell 命令并返回结果。
 
     Args:

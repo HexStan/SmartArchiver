@@ -151,7 +151,9 @@ class SyncHandler(BaseTaskHandler):
                 "rsync": _run_rsync_sync,
                 "rclone": _run_rclone_sync,
             }
-            _sync_runners[tool](self.source_root, self.dest_root, exclude_list, backup_dir)
+            _sync_runners[tool](
+                self.source_root, self.dest_root, exclude_list, backup_dir
+            )
 
     # ============================================================
     # SSH 远端同步
@@ -174,9 +176,12 @@ class SyncHandler(BaseTaskHandler):
         """构建 rsync 的 -e 参数值（SSH 远程 shell 命令字符串）。"""
         opts = [
             "ssh",
-            "-o", "StrictHostKeyChecking=no",
-            "-o", "UserKnownHostsFile=/dev/null",
-            "-o", "LogLevel=ERROR",
+            "-o",
+            "StrictHostKeyChecking=no",
+            "-o",
+            "UserKnownHostsFile=/dev/null",
+            "-o",
+            "LogLevel=ERROR",
         ]
         if remote.port != 22:
             opts.extend(["-p", str(remote.port)])
@@ -225,10 +230,14 @@ class SyncHandler(BaseTaskHandler):
         dest = f":sftp:{self.dest_root}"
 
         cmd = [
-            "rclone", "sync",
-            self.source_root, dest,
-            "--sftp-host", remote.host,
-            "--sftp-user", remote.user,
+            "rclone",
+            "sync",
+            self.source_root,
+            dest,
+            "--sftp-host",
+            remote.host,
+            "--sftp-user",
+            remote.user,
         ]
 
         if remote.port != 22:
