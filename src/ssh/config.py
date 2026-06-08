@@ -1,10 +1,16 @@
 """SSH 远端主机配置解析与 SSH 命令构建辅助函数。"""
 
 import os
+import re
 import subprocess
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
-from src.remote.factory import validate_remote_alias
+_ALIAS_PATTERN = re.compile(r"^[a-zA-Z0-9\-_]+$")
+
+
+def _validate_alias(alias: str) -> bool:
+    """验证别名是否仅包含字母、数字、连字符和下划线。"""
+    return bool(_ALIAS_PATTERN.match(alias))
 
 
 # ============================================================
@@ -52,7 +58,7 @@ def parse_ssh_remote_config(config: dict) -> dict[str, SshRemote]:
         if not alias or not host or not user:
             continue
 
-        if not validate_remote_alias(alias):
+        if not _validate_alias(alias):
             continue
 
         # 端口：选填，默认 22
