@@ -14,8 +14,8 @@ AuthorizedKeysFile .ssh/authorized_keys
 
 # 禁用不安全的认证方式
 ChallengeResponseAuthentication no
-KerberosAuthentication no
-GSSAPIAuthentication no
+# KerberosAuthentication no
+# GSSAPIAuthentication no
 HostbasedAuthentication no
 
 # 严格模式：关闭，允许挂载的 .ssh 目录权限不被 sshd 拒绝
@@ -28,7 +28,7 @@ Subsystem sftp internal-sftp
 LogLevel INFO
 
 # 性能与连接
-UsePAM no
+# UsePAM no
 TCPKeepAlive yes
 ClientAliveInterval 60
 ClientAliveCountMax 3
