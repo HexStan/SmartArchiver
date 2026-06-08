@@ -68,6 +68,11 @@ class DestBackend(ABC):
             counter += 1
 
 
+# ============================================================
+# 本地后端
+# ============================================================
+
+
 class LocalDestBackend(DestBackend):
     def exists(self, path):
         return fs_ops.path_exists(path)
@@ -95,6 +100,11 @@ class LocalDestBackend(DestBackend):
 
     def list_dir(self, path):
         return fs_ops.list_dir(path)
+
+
+# ============================================================
+# HTTP 远程后端
+# ============================================================
 
 
 class RemoteDestBackend(DestBackend):
@@ -148,6 +158,16 @@ class RemoteDestBackend(DestBackend):
             )
             for e in entries
         ]
+
+
+# ============================================================
+# SSH 远程后端
+# ============================================================
+
+
+def _shell_quote(s: str) -> str:
+    """用单引号包裹字符串，安全地用于 shell 命令参数。"""
+    return "'" + s.replace("'", "'\\''") + "'"
 
 
 class SshDestBackend(DestBackend):
@@ -247,10 +267,9 @@ class SshDestBackend(DestBackend):
         raise NotImplementedError
 
 
-def _shell_quote(s: str) -> str:
-    """用单引号包裹字符串，安全地用于 shell 命令参数。"""
-    return "'" + s.replace("'", "'\\''") + "'"
-
+# ============================================================
+# 创建后端
+# ============================================================
 
 _REMOTE_DEST_PATTERN = re.compile(r"^\{([a-z]+):([a-zA-Z0-9\-_]+)\}\?(.*)")
 
