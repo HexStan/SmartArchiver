@@ -213,8 +213,9 @@ class SyncHandler(BaseTaskHandler):
             cmd.extend(["--exclude", ex])
 
         if backup_dir:
-            remote_dest = f"{remote.user}@{remote.host}:{backup_dir}"
-            cmd.extend(["--backup", f"--backup-dir={remote_dest}"])
+            # --backup-dir 只接受目录路径，不支持 user@host: 前缀。
+            # rsync 已经知道备份放在接收端（远端主机），直接传绝对路径即可。
+            cmd.extend(["--backup", f"--backup-dir={backup_dir}"])
 
         cmd.extend([src, dest])
         _run_sync_command(cmd, "rsync", prepend_timestamp=True)
