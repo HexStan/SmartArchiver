@@ -1,9 +1,6 @@
 name: SSH Server Image - Build and Publish
 
 on:
-  push:
-    tags:
-      - "ssh-server/*"
   workflow_dispatch:
 
 env:
@@ -42,11 +39,7 @@ jobs:
           flavor: |
             latest=false
           tags: |
-            # Tag 触发时提取 ssh-server/ 之后的版本号作为标签
-            type=match,pattern=ssh-server/(.*),group=1
-            # Tag 触发时额外输出 latest 标签
-            type=raw,value=latest,enable=${{ github.ref_type == 'tag' }}
-            # 手动触发时输出 main 标签
+            type=raw,value=latest
             type=raw,value=main
 
       - name: Build and push Docker image

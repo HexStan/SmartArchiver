@@ -104,10 +104,10 @@ max_log_files = 30
 #   [[ssh_remotes]]
 #   alias = "nas_ssh"
 #   host = "192.168.1.100"
-#   user = "syncer"                         # sa-ssh-server 的专用用户
-#   port = 2222                             # sa-ssh-server 暴露的端口
+#   user = "root"                            # sa-ssh-server 容器以 root 运行
+#   port = 2222                              # sa-ssh-server 暴露的端口
 #   key_file = "/root/.ssh/id_rsa"
-#   dest = "{nas_ssh}?/data"               # /data 是容器内挂载的数据目录
+#   dest = "{nas_ssh}?/data"                # /data 是容器内挂载的数据目录
 
 # ==================================================
 # 任务列表
