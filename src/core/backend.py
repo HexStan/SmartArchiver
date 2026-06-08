@@ -1,8 +1,10 @@
 import os
+import re
 import subprocess
 from abc import ABC, abstractmethod
 
 from src import fs_ops
+from src.app_context import AppContext
 from src.ssh.config import SshRemote, build_ssh_command, build_ssh_target
 
 
@@ -250,23 +252,46 @@ def _shell_quote(s: str) -> str:
     return "'" + s.replace("'", "'\\''") + "'"
 
 
+_REMOTE_DEST_PATTERN = re.compile(r"^\{([a-z]+):([a-zA-Z0-9\-_]+)\}\?(.*)")
+
+
 def create_dest_backend(dest_root, remote_clients, ssh_remotes=None):
     if dest_root and isinstance(dest_root, str):
-        # 1. 先检查 HTTP remote 命名空间
-        for alias, client in remote_clients.items():
-            prefix = f"{{{alias}}}?"
-            if dest_root.startswith(prefix):
-                remote_path = dest_root[len(prefix) :]
-                remote_path = "/" + remote_path.lstrip("/")
-                return RemoteDestBackend(client, remote_path)
+        m = _REMOTE_DEST_PATTERN.match(dest_root)
+        if m:
+            remote_type = m.group(1)
+            alias = m.group(2)
+            remote_path = "/" + m.group(3).lstrip("/")
 
-        # 2. 再检查 SSH remote 命名空间（与 HTTP 隔离）
-        ssh_dict = ssh_remotes or {}
-        for alias, ssh_remote in ssh_dict.items():
-            prefix = f"{{{alias}}}?"
-            if dest_root.startswith(prefix):
-                remote_path = dest_root[len(prefix) :]
-                remote_path = "/" + remote_path.lstrip("/")
-                return SshDestBackend(ssh_remote, remote_path)
+            if remote_type == "http":
+                client = remote_clients.get(alias)
+                if client is not None:
+                    return RemoteDestBackend(client, remote_path)
+                ctx = AppContext.get()
+                ctx.logger.error(
+                    f"HTTP 远端别名 '{alias}' 未在 http_remotes 中配置，"
+                    f"fallback 到本地路径"
+                )
+                return LocalDestBackend(dest_root)
+
+            elif remote_type == "ssh":
+                ssh_dict = ssh_remotes or {}
+                ssh_remote = ssh_dict.get(alias)
+                if ssh_remote is not None:
+                    return SshDestBackend(ssh_remote, remote_path)
+                ctx = AppContext.get()
+                ctx.logger.error(
+                    f"SSH 远端别名 '{alias}' 未在 ssh_remotes 中配置，"
+                    f"fallback 到本地路径"
+                )
+                return LocalDestBackend(dest_root)
+
+            else:
+                ctx = AppContext.get()
+                ctx.logger.error(
+                    f"未知的远端类型 '{remote_type}'（dest 路径: {dest_root}），"
+                    f"仅支持 http 和 ssh，fallback 到本地路径"
+                )
+                return LocalDestBackend(dest_root)
 
     return LocalDestBackend(dest_root)

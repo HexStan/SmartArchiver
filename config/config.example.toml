@@ -66,9 +66,14 @@ max_log_files = 30
 # key = "your_api_key"
 
 # 使用远程实例的目录作为 dest 的写法：
-# dest = "{my_nas}?/vol/1000/backup"
-# dest = "{my_pc}?D:/Backup"  # Windows 环境
-# dest = "{bob_server}?/mnt/ext_users/backup"
+# 格式：{类型:别名}?路径
+#   - 类型：http 或 ssh
+#   - 别名：在 [[http_remotes]] 或 [[ssh_remotes]] 中定义的 alias
+#   - 路径：远端目标目录路径
+# 示例：
+# dest = "{http:my_nas}?/vol/1000/backup"
+# dest = "{http:my_pc}?D:/Backup"  # Windows 环境
+# dest = "{http:bob_server}?/mnt/ext_users/backup"
 
 # ==================================================
 # SSH 远端主机配置（可选，用于 sync 模式）
@@ -77,6 +82,7 @@ max_log_files = 30
 # 通过 SSH 连接远端主机，将其目录作为 sync 模式的同步目标。
 # SSH 远端与 HTTP 远端的配置完全隔离，允许别名重复。
 # 目前仅 sync 模式支持 SSH 远端。
+# dest 格式示例：dest = "{ssh:my_vps}?/var/backups/data"
 
 # [[ssh_remotes]]
 # alias = "my_vps"                          # 必填，仅允许 a-z、A-Z、0-9、-、_
@@ -96,8 +102,8 @@ max_log_files = 30
 # key_file = "/home/user/.ssh/backup_key"
 
 # 使用格式与 http_remotes 一致：
-# dest = "{my_vps}?/var/backups/data"
-# dest = "{backup_host}?/mnt/storage/archive"
+# dest = "{ssh:my_vps}?/var/backups/data"
+# dest = "{ssh:backup_host}?/mnt/storage/archive"
 
 # ==================================================
 # 任务列表
