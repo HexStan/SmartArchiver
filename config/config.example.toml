@@ -98,6 +98,16 @@ max_log_files = 30
 # 使用格式与 http_remotes 一致：
 # dest = "{my_vps}?/var/backups/data"
 # dest = "{backup_host}?/mnt/storage/archive"
+#
+# 提示：如果远端主机不允许 root 登录且未配置 sudo 免密，
+# 可以部署 sa-ssh-server 镜像（ghcr.io/hexstan/sa-ssh-server）来替代直连：
+#   [[ssh_remotes]]
+#   alias = "nas_ssh"
+#   host = "192.168.1.100"
+#   user = "syncer"                         # sa-ssh-server 的专用用户
+#   port = 2222                             # sa-ssh-server 暴露的端口
+#   key_file = "/root/.ssh/id_rsa"
+#   dest = "{nas_ssh}?/data"               # /data 是容器内挂载的数据目录
 
 # ==================================================
 # 任务列表

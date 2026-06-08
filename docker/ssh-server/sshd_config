@@ -1,0 +1,25 @@
+Port 2222
+Protocol 2
+HostKey /etc/ssh/ssh_host_rsa_key
+HostKey /etc/ssh/ssh_host_ecdsa_key
+HostKey /etc/ssh/ssh_host_ed25519_key
+
+# 认证：仅允许密钥登录，禁止密码和 root
+PermitRootLogin no
+PubkeyAuthentication yes
+PasswordAuthentication no
+ChallengeResponseAuthentication no
+UsePAM no
+
+# 仅允许 syncer 用户连接
+AllowUsers syncer
+
+# 安全加固：关闭不必要的转发
+X11Forwarding no
+AllowTcpForwarding no
+AllowAgentForwarding no
+PermitTunnel no
+
+# 日志
+LogLevel INFO
+SyslogFacility AUTH

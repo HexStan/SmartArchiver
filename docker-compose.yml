@@ -14,7 +14,7 @@ services:
 
 #  server:
 #    image: ghcr.io/hexstan/smart-archiver:latest
-#    container_name: smart-archiver-server
+#    container_name: sa-http-server
 #    restart: unless-stopped
 #    command: ["--server"]
 #    environment:
@@ -25,3 +25,23 @@ services:
 #      - ./config/config.server.toml:/app/config/config.server.toml
 #      - ./logs:/app/logs
 #      - ./dest:/app/dest
+
+#  --- SSH 服务器（部署在远端主机上，为 SmartArchiver sync 模式提供 SSH 接入）---
+#  部署到远端主机后，在 SmartArchiver 的 config.toml 中配置 [[ssh_remotes]]：
+#    user = "syncer"
+#    port = 2222（与下方 ports 映射一致）
+#  ssh-server:
+#    image: ghcr.io/hexstan/sa-ssh-server:latest
+#    container_name: sa-ssh-server
+#    restart: unless-stopped
+#    environment:
+#      - TZ=Asia/Shanghai
+#      - AUTHORIZED_KEYS=ssh-rsa AAAAB3... your-public-key-here
+#      - SSH_PORT=2222
+#      # - SYNCER_UID=1000   # 可选：匹配主机文件所有者 UID
+#      # - SYNCER_GID=1000   # 可选：匹配主机文件所有者 GID
+#    ports:
+#      - "2222:2222"
+#    volumes:
+#      - /path/to/your/data:/data
+#      # - ./ssh/authorized_keys:/ssh/authorized_keys  # 替代 AUTHORIZED_KEYS 环境变量
