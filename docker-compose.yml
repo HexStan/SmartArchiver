@@ -14,7 +14,7 @@ services:
 
 #  server:
 #    image: ghcr.io/hexstan/smart-archiver:latest
-#    container_name: smart-archiver-server
+#    container_name: sa-server
 #    restart: unless-stopped
 #    command: ["--server"]
 #    environment:
@@ -25,3 +25,16 @@ services:
 #      - ./config/config.server.toml:/app/config/config.server.toml
 #      - ./logs:/app/logs
 #      - ./dest:/app/dest
+#
+#  ssh-server:
+#    image: ghcr.io/hexstan/sa-ssh-server:latest
+#    container_name: sa-ssh-server
+#    restart: unless-stopped
+#    ports:
+#      - "2222:22"
+#    environment:
+#      - ROOT_PASSWORD=your_secure_password
+#      # - AUTHORIZED_KEYS=ssh-rsa AAAA...
+#    volumes:
+#      - /path/to/data:/data
+#      # - ./ssh/authorized_keys:/root/.ssh/authorized_keys
