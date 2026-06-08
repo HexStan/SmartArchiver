@@ -5,7 +5,7 @@ on:
 
 env:
   GHCR_REPO: ghcr.io/hexstan/sa-ssh-server
-  CODE_BRANCH: main
+  CODE_BRANCH: dev
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
