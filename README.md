@@ -16,12 +16,13 @@ SmartArchiver 解决的核心问题是：**"磁盘上有一堆文件，我想根
 - **选择性同步**：将源目录镜像同步到目标，但排除临时文件、缓存目录等不需要同步的内容。
 - **白名单模式**：仅处理符合特定命名规则的文件（如只搬运 `*.mp4`），其他一律不动。
 - **定时自动运行**：通过 cron 表达式或固定间隔，让程序在后台持续执行上述任务。
+- **跨主机远程操作**：将文件归档到另一台主机（HTTP 远端），或通过 SSH 将目录镜像同步到远端服务器。
 
 ---
 
 ## 安装与部署
 
-### 本地运行
+### 本地运行（客户端）
 
 需要 Python 3.11+（内置 `tomllib`，无需额外安装 TOML 解析库）。
 
@@ -37,33 +38,60 @@ pip install -r requirements.txt
 cp config/config.example.toml config/config.toml
 # 按需编辑 config/config.toml，参考示例文件中的注释
 
-# 4. 一次性运行
+# 4. 一次性运行（客户端模式）
 python main.py
 ```
 
 如需使用同步（sync）模式：
 - **Linux**：需安装 `rsync`（`apt install rsync` / `yum install rsync`）
 - **Windows**：需安装 [`rclone`](https://rclone.org/downloads/) 并将其加入 PATH
+- 可通过 `tool` 配置项强制指定工具（`"rsync"` 或 `"rclone"`）
+
+### 服务器模式（HTTP Server）
+
+SmartArchiver 可作为 HTTP 服务器运行，接受来自其他客户端实例的远程文件操作请求。
+
+```bash
+# 1. 创建服务器配置文件
+cp config/config.server.example.toml config/config.server.toml
+# 编辑 api_key（API 认证密钥）、port（监听端口）等参数
+
+# 2. 启动服务器
+python main.py --server
+```
+
+服务器提供两个 API 端点：`POST /api/remote`（元数据操作）和 `POST /api/remote/upload`（文件上传），支持并发控制和排队机制。详细配置见 `config/config.server.example.toml`。
 
 ### Docker 部署（推荐）
 
+项目为三种角色提供了独立的镜像：**客户端**、**HTTP 服务器**和 **SSH 远端服务器**。
+
+#### 客户端 / HTTP 服务器镜像
+
+应用镜像基于 `python:3.14-slim-trixie`，已内置 `rsync`。GitHub Actions 自动构建 `linux/amd64` 和 `linux/arm64` 多架构镜像，发布到 `ghcr.io/hexstan/smart-archiver`。
+
 ```bash
-# 1. 创建并编辑配置文件（同上）
+# 1. 创建并编辑配置文件
 cp config/config.example.toml config/config.toml
 
 # 2. 按需编辑 docker-compose.yml 中的目录挂载映射
 
-# 3. 启动（会持续运行，容器退出后自动重启）
+# 3. 启动客户端容器
 docker-compose up -d
 
 # 查看日志
 docker-compose logs -f
 ```
 
-也可直接构建镜像：
+`docker-compose.yml` 中预置了三种服务，按需取消注释即可启用：
+- **client**（默认启用）：运行客户端任务
+- **server**（已注释）：运行 HTTP 服务器，需配合 `command: ["--server"]` 和 `config.server.toml`
+- **ssh-server**（已注释）：SSH 远端目标，供 sync 模式使用
+
+也可直接构建镜像（注意 Dockerfile 路径）：
 
 ```bash
-docker build -t smart-archiver .
+docker build -f docker/app/Dockerfile -t smart-archiver .
 docker run -d \
   --name smart-archiver \
   --restart unless-stopped \
@@ -74,7 +102,31 @@ docker run -d \
   smart-archiver
 ```
 
-Docker 镜像基于 `python:3.14-slim-trixie`，已内置 `rsync`，同步模式开箱即用。GitHub Actions 会自动构建 `linux/amd64` 和 `linux/arm64` 多架构镜像并推送到 GHCR。
+#### SSH 远端服务器镜像
+
+为 SSH 同步模式提供即用的远端目标容器（Alpine + OpenSSH + rsync）。镜像发布到 `ghcr.io/hexstan/sa-ssh-server`。
+
+```bash
+# 在远端主机上运行
+docker run -d \
+  --name sa-ssh-server \
+  --restart unless-stopped \
+  -p 2222:22 \
+  -e ROOT_PASSWORD=your_password \
+  -v /path/to/data:/data \
+  ghcr.io/hexstan/sa-ssh-server:latest
+
+# 或使用密钥认证
+docker run -d \
+  --name sa-ssh-server \
+  --restart unless-stopped \
+  -p 2222:22 \
+  -e AUTHORIZED_KEYS="ssh-rsa AAAA..." \
+  -v /path/to/data:/data \
+  ghcr.io/hexstan/sa-ssh-server:latest
+```
+
+容器启动时自动生成 SSH 主机密钥，支持密码和公钥两种认证方式（通过 `ROOT_PASSWORD` 和 `AUTHORIZED_KEYS` 环境变量配置）。
 
 ---
 
@@ -82,27 +134,44 @@ Docker 镜像基于 `python:3.14-slim-trixie`，已内置 `rsync`，同步模式
 
 ```
 SmartArchiver/
-├── main.py                         # 程序入口：一次性 / cron / interval 三种运行模式
+├── main.py                         # 程序入口：一次性 / cron / interval / --server 四种模式
 ├── config/
-│   └── config.example.toml         # 带中文注释的示例配置文件
+│   ├── config.example.toml         # 客户端配置文件示例（带中文注释）
+│   └── config.server.example.toml  # 服务器模式配置文件示例
+├── docker/
+│   ├── app/Dockerfile              # 应用镜像定义
+│   └── ssh-server/                 # SSH 远端服务器镜像（rsync + OpenSSH）
+│       ├── Dockerfile
+│       ├── entrypoint.sh
+│       └── sshd_config
 ├── src/
-│   ├── app_context.py              # 单例上下文，解耦 Logger、HistoryManager、Config 的传递
+│   ├── app_context.py              # 单例上下文，解耦 Logger、HistoryManager、Config 传递
 │   ├── logger.py                   # 日志系统：自定义级别、双格式输出、按天滚动
 │   ├── history.py                  # 失败历史管理：记录失败次数，超阈值自动跳过
-│   ├── presentation.py             # 表现层：统一格式化调用，任务输出头/统计信息
-│   ├── utils.py                    # 工具函数：文件锁、路径匹配、大小解析、空目录清理等
+│   ├── presentation.py             # 表现层：统��格式化调用，任务输出头/统计信息
+│   ├── utils.py                    # 工具函数：文件锁、路径匹配、大小解析
+│   ├── fs_ops.py                   # 本地文件系统操作原语（异常体系 + 结构化返回）
+│   ├── remote/                     # HTTP 远程通信
+│   │   ├── __init__.py
+│   │   ├── client.py               # RemoteClient：HTTP 客户端，含重试与认证
+│   │   ├── server.py               # Flask 服务器：接收远程 API 调用
+│   │   ├── concurrency.py          # ConcurrencyGate：并发控制（信号量 + FIFO 队��）
+│   │   ├── factory.py              # 远程客户端工厂：解析 http_remotes 配置
+│   │   └── protocol.py             # RemoteAction 枚举 + API 路径常量
+│   ├── ssh/                        # SSH 远端支持
+│   │   ├── __init__.py
+│   │   └── config.py               # SshRemote 数据类 + SSH 命令构建/执行
 │   └── core/
 │       ├── __init__.py             # 包入口，触发 handler 注册，导出 process_task
 │       ├── types.py                # FileAction 枚举 + MoverStats 统计类
 │       ├── filters.py              # 规则引擎：keep/delete/whitelist 规则的解析与决策
-│       ├── actions.py              # 动作函数：任务校验、文件删除、文件传输（含冲突策略）
+│       ├── backend.py              # DestBackend 抽象层：本地/HTTP/SSH 三种目标后端
 │       ├── registry.py             # 处理器注册中心：装饰器注册 + process_task 调度
 │       └── handlers/
 │           ├── base.py             # 抽象基类 + FileChecker + ActionExecutor
 │           ├── standard.py         # StandardHandler：move / copy / whitelist_move / whitelist_copy
 │           ├── rotate.py           # RotateHandler：轮转模式 + RotateGroupManager
-│           └── sync.py             # SyncHandler：同步模式（rsync / rclone）
-├── Dockerfile                      # Docker 镜像定义
+│           └── sync.py             # SyncHandler：同步模式（rsync / rclone / SSH）
 ├── docker-compose.yml              # Docker Compose 编排
 └── requirements.txt                # Python 依赖
 ```
@@ -158,6 +227,53 @@ SmartArchiver 支持 6 种任务模式，对应 3 个处理器。
 4. 可选开启备份功能（`create_backups`），在替换/删除文件前将其备份到 `.smart-archiver.backups/<时间戳>/` 目录，并通过 `max_backups` 限制保留的备份份数。
 
 **重要**：同步模式**不支持** SmartArchiver 的 keep/delete/whitelist 规则系统，所有过滤通过 rsync/rclone 的 `--exclude` 参数实现。
+
+**SSH 远端同步**：sync 模式额外支持通过 SSH 将源目录同步到远端主机。配置 `[[ssh_remotes]]` 后，将 `dest` 设为 `{ssh:别名}?路径` 格式即可。底层通过 `rsync -e "ssh ..."` 或 `rclone :sftp:` 实现，支持密钥和密码两种认证方式。
+
+---
+
+## 远程目标
+
+SmartArchiver 支持三种目标后端：**本地路径**、**HTTP 远端**和 **SSH 远端**。后两者通过 `{type:alias}?path` 格式的 URL 语法指定 `dest`：
+
+- `{http:my_nas}?/vol/backup` → 通过 HTTP API 连接另一台运行 SmartArchiver 的服务器
+- `{ssh:my_vps}?/var/data` → 通过 SSH 连接远端主机（仅 sync 模式支持）
+- `./local/path` → 普通本地路径（LocalDestBackend）
+
+HTTP 远端和 SSH 远端的命名空间完全隔离，同一别名可同时在两者中使用。
+
+### HTTP 远端
+
+适用于任何支持 `dest` 字段的任务模式（move、copy、whitelist、rotate）。客户端通过 HTTP API 将文件上传到远端服务器，由服务器执行实际的本地文件操作。
+
+```toml
+# 在 config.toml 中配置远端实例
+[[http_remotes]]
+alias = "my_nas"
+address = "http://192.168.10.10:13579"
+key = "your_api_key"
+timeout = 14400      # 请求超时（秒），默认 4 小时
+queue_time = 120     # 服务器繁忙时排队秒数，0 表示不排队
+```
+
+远端需运行 `python main.py --server` 启动 HTTP 服务（详见[服务器模式](#服务器模式http-server)）。
+
+### SSH 远端
+
+**仅 sync 模式支持**。通过 SSH 连接远端主机，底层使用 `rsync -e "ssh ..."` 或 `rclone :sftp:` 进行镜像同步，无需远端运行 SmartArchiver 服务器。
+
+```toml
+# 在 config.toml 中配置 SSH 远端主机
+[[ssh_remotes]]
+alias = "my_vps"
+host = "192.168.1.100"
+user = "root"
+port = 22                                  # 选填，默认 22
+key_file = "/home/user/.ssh/id_rsa"        # 选填，私钥路径
+password_file = "/home/user/.ssh/pass"     # 选填，明文密码文件路径
+```
+
+远端需安装 `rsync`（rsync-over-SSH 模式）或启用 SFTP 子系统（rclone 模式）。可使用项目提供的 SSH 远端 Docker 镜像快速部署。
 
 ---
 
