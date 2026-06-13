@@ -1,4 +1,8 @@
 import os
+import sys
+
+import pytest
+
 from src.core.backend import DestBackend, LocalDestBackend, create_dest_backend
 
 
@@ -60,6 +64,7 @@ class TestBuildDestPath:
         expected = os.path.normpath("/dest/other/file.txt")
         assert result == expected
 
+    @pytest.mark.skipif(sys.platform != "win32", reason="Windows-specific path test")
     def test_windows_path_separators(self):
         backend = _TestBackend("C:\\dest")
         result = backend.build_dest_path("sub\\file.txt")
