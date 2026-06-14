@@ -5,8 +5,8 @@ class AppContext:
     _instance = None
 
     @classmethod
-    def init(cls, logger, history_mgr, config):
-        cls._instance = cls(logger, history_mgr, config)
+    def init(cls, logger, history_mgr, config, remote_clients=None, ssh_remotes=None):
+        cls._instance = cls(logger, history_mgr, config, remote_clients, ssh_remotes)
 
     @classmethod
     def get(cls):
@@ -14,7 +14,9 @@ class AppContext:
             raise RuntimeError("AppContext 未初始化，请先调用 AppContext.init()")
         return cls._instance
 
-    def __init__(self, logger, history_mgr, config):
+    def __init__(self, logger, history_mgr, config, remote_clients=None, ssh_remotes=None):
         self.logger = logger
         self.history_mgr = history_mgr
         self.config = config
+        self.remote_clients = remote_clients or {}
+        self.ssh_remotes = ssh_remotes or {}

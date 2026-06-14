@@ -8,3 +8,5 @@ __pycache__
 tests/
 logs/
 config.toml
+AGENTS.md
+ROADMAP.md

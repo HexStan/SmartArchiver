@@ -4,14 +4,9 @@ import time
 from src.app_context import AppContext
 from src.presentation import fmt_size, print_task_header, print_task_summary
 from src.core.types import FileAction
-import shutil
 
-from src.utils import (
-    copy_file,
-    move_file,
-    get_dir_size_and_mtime,
-    clean_empty_dirs,
-)
+from src import fs_ops
+from src.fs_ops import get_dir_size_and_mtime, clean_empty_dirs
 from src.core.registry import register_handler
 from src.core.handlers.base import BaseTaskHandler
 
@@ -34,16 +29,12 @@ class StandardHandler(BaseTaskHandler):
             return
 
         is_copy = self.task_mode in ["copy", "whitelist_copy"]
-        transfer_func = copy_file if is_copy else move_file
-        action_name = "复制" if is_copy else "移动"
 
         start_time = time.time()
 
         for root, dirs, files in os.walk(self.source_root):
             self._process_directories(dirs, root, mtime_threshold_seconds)
-            success = self._process_files(
-                files, root, mtime_threshold_seconds, transfer_func, action_name
-            )
+            success = self._process_files(files, root, mtime_threshold_seconds, is_copy)
             if not success:
                 break
 
@@ -86,12 +77,12 @@ class StandardHandler(BaseTaskHandler):
 
                 if (self.now - dir_mtime) > mtime_threshold_seconds:
                     try:
-                        shutil.rmtree(dir_path)
+                        fs_ops.delete_dir(dir_path)
                         ctx.logger.success(
                             f"删除目录: {rel_dir_path} ({fmt_size(dir_size, binary=True)})"
                         )
                         self.stats.record_deleted()
-                    except OSError as e:
+                    except fs_ops.FsOpError as e:
                         ctx.logger.error(f"删除目录失败: {rel_dir_path}\nError: {e}")
                 dirs_to_remove.append(d)
             elif action == FileAction.SKIP:
@@ -107,9 +98,7 @@ class StandardHandler(BaseTaskHandler):
         for d in dirs_to_remove:
             dirs.remove(d)
 
-    def _process_files(
-        self, files, root, mtime_threshold_seconds, transfer_func, action_name
-    ):
+    def _process_files(self, files, root, mtime_threshold_seconds, is_copy):
         for file in files:
             src_path = os.path.join(root, file)
             rel_path = os.path.relpath(src_path, self.source_root)
@@ -128,7 +117,7 @@ class StandardHandler(BaseTaskHandler):
 
             action = self.policy.decide(rel_path, size)
             success = self.executor.execute(
-                action, src_path, rel_path, size, self.stats, transfer_func, action_name
+                action, src_path, rel_path, size, self.stats, is_copy
             )
             if not success:
                 return False

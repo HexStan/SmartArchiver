@@ -76,40 +76,45 @@ class DailyRotatingFileHandler(logging.FileHandler):
     按天滚动的日志处理器，每天生成一个新的日志文件，并清理旧日志。
     """
 
-    def __init__(self, log_dir, max_log_files, encoding="utf-8"):
+    def __init__(
+        self, log_dir, max_log_files, prefix="smartarchiver", encoding="utf-8"
+    ):
         self.log_dir = log_dir
         self.max_log_files = max_log_files
-        self.current_date = datetime.now().strftime("%Y%m%d")
-        filename = os.path.join(log_dir, f"smartarchiver-{self.current_date}.log")
+        self.prefix = prefix
+        self.current_date = datetime.now().strftime("%Y-%m-%d")
+        filename = os.path.join(log_dir, f"{self.prefix}.{self.current_date}.log")
         super().__init__(filename, encoding=encoding)
 
     def emit(self, record):
-        new_date = datetime.now().strftime("%Y%m%d")
+        new_date = datetime.now().strftime("%Y-%m-%d")
         if new_date != self.current_date:
             self.current_date = new_date
             self.close()
             filename = os.path.join(
-                self.log_dir, f"smartarchiver-{self.current_date}.log"
+                self.log_dir, f"{self.prefix}.{self.current_date}.log"
             )
             self.baseFilename = os.path.abspath(filename)
             self.stream = self._open()
 
             # 日期变化时，执行旧日志清理
             if self.max_log_files > 0:
-                clean_old_logs(self.log_dir, self.max_log_files)
+                clean_old_logs(self.log_dir, self.max_log_files, self.prefix)
 
         super().emit(record)
 
 
-def setup_logger(log_dir, max_log_files=0, log_level="INFO"):
+def setup_logger(log_dir, max_log_files=0, log_level="INFO", prefix="smartarchiver"):
     """
     配置日志记录器，格式：2025-01-01 08:00:00 [INFO] 消息内容
     """
     if not os.path.exists(log_dir):
         os.makedirs(log_dir)
 
-    # 获取原生 logger
-    logger = logging.getLogger("smartarchiver")
+    logger = logging.getLogger(prefix)
+
+    # 禁止向 root logger 传播，避免其他库配置的 handler 导致日志重复输出
+    logger.propagate = False
 
     # 设置日志级别
     numeric_level = getattr(logging, log_level.upper(), logging.INFO)
@@ -119,12 +124,13 @@ def setup_logger(log_dir, max_log_files=0, log_level="INFO"):
     if logger.handlers:
         logger.handlers = []
 
-    file_handler = DailyRotatingFileHandler(log_dir, max_log_files, encoding="utf-8")
+    file_handler = DailyRotatingFileHandler(
+        log_dir, max_log_files, prefix=prefix, encoding="utf-8"
+    )
 
     # 执行旧日志清理 (启动时清理一次)
     if max_log_files > 0:
-        # 注意：这里会把今天刚生成的文件也算在总数里（如果文件已存在）
-        clean_old_logs(log_dir, max_log_files)
+        clean_old_logs(log_dir, max_log_files, prefix)
 
     # 定义标准格式字符串
     fmt_str = "%(asctime)s [%(levelname)s] %(message)s"
@@ -140,24 +146,30 @@ def setup_logger(log_dir, max_log_files=0, log_level="INFO"):
     console_handler.setFormatter(formatter)
     logger.addHandler(console_handler)
 
+    # 桥接 fs_ops 日志：让统一文件操作模块的日志输出到相同的 handler
+    _fs_ops_logger = logging.getLogger("src.fs_ops")
+    _fs_ops_logger.setLevel(numeric_level)
+    _fs_ops_logger.propagate = False
+    _fs_ops_logger.addHandler(file_handler)
+    _fs_ops_logger.addHandler(console_handler)
+
     # 返回包装后的 Logger 对象
     return LoggerWrapper(logger)
 
 
-def clean_old_logs(log_dir, max_files):
+def clean_old_logs(log_dir, max_files, prefix="smartarchiver"):
     """
     清理旧日志文件，只保留最近的 max_files 个
     """
     if max_files <= 0:
         return
 
-    # 匹配日志文件模式
-    log_pattern = os.path.join(log_dir, "smartarchiver-*.log")
+    log_pattern = os.path.join(log_dir, f"{prefix}.*.log")
 
     # 获取所有匹配的日志文件
     files = glob.glob(log_pattern)
 
-    # 按照文件名排序 (因为文件名包含 YYYYMMDD，所以按字母排序即按时间排序)
+    # 按照文件名排序 (因为文件名包含 YYYY-MM-DD，所以按字母排序即按时间排序)
     # 从旧到新排序
     files.sort()
 

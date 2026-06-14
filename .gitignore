@@ -3,7 +3,6 @@
 .trae/
 deprecated/
 __pycache__/
-tests/
 logs/
 config.toml
 failure_history.json
