@@ -12,8 +12,24 @@ from src.core import process_task
 from src.history import HistoryManager
 from src.logger import setup_logger
 from src.utils import load_config, SingleInstance
+from src.config_reloader import ConfigReloader
 from src.remote import parse_remote_config
 from src.ssh import parse_ssh_remote_config
+
+
+def _reload_config_if_changed(config_reloader):
+    ctx = AppContext.get()
+    if not config_reloader.has_changed():
+        return
+    try:
+        new_config, used_backup = config_reloader.reload(ctx.logger)
+        if used_backup:
+            ctx.logger.warning("新配置加载失败，已回退到备份配置。")
+        remote_clients = parse_remote_config(new_config)
+        ssh_remotes = parse_ssh_remote_config(new_config)
+        ctx.update_config(new_config, remote_clients, ssh_remotes)
+    except Exception as e:
+        ctx.logger.error(f"配置重载异常: {e}")
 
 
 def run_tasks():
@@ -63,6 +79,9 @@ def run_client():
 
     AppContext.init(logger, history_mgr, config, remote_clients, ssh_remotes)
 
+    config_reloader = ConfigReloader(config_path)
+    config_reloader.save_backup()
+
     schedule_config = config.get("schedule", {})
     mode = schedule_config.get("mode")
 
@@ -91,7 +110,9 @@ def run_client():
             if run_immediately:
                 logger.debug("设置为启动后立即执行一次任务。")
                 try:
-                    with SingleInstance(config.get("lock_file"), logger):
+                    _reload_config_if_changed(config_reloader)
+                    ctx = AppContext.get()
+                    with SingleInstance(ctx.config.get("lock_file"), logger):
                         run_tasks()
                         history_mgr.save()
                 except SystemExit:
@@ -112,7 +133,9 @@ def run_client():
                 time.sleep(sleep_seconds)
 
                 try:
-                    with SingleInstance(config.get("lock_file"), logger):
+                    _reload_config_if_changed(config_reloader)
+                    ctx = AppContext.get()
+                    with SingleInstance(ctx.config.get("lock_file"), logger):
                         run_tasks()
                         history_mgr.save()
                 except SystemExit:
@@ -141,7 +164,9 @@ def run_client():
             while True:
                 if not first_run or run_immediately:
                     try:
-                        with SingleInstance(config.get("lock_file"), logger):
+                        _reload_config_if_changed(config_reloader)
+                        ctx = AppContext.get()
+                        with SingleInstance(ctx.config.get("lock_file"), logger):
                             run_tasks()
                             history_mgr.save()
                     except SystemExit:
