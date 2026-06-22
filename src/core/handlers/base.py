@@ -139,7 +139,7 @@ class ActionExecutor:
             if not self._dest_checked:
                 self._dest_checked = True
                 if not self.dest_backend.is_dir(self.dest_backend.root_path):
-                    ctx.logger.critical("!!! CRUCIAL: 目标目录不存在 !!!")
+                    ctx.logger.critical("!!! 致命错误: 目标目录不存在 !!!")
                     self._dest_valid = False
                     return False
                 self._dest_valid = True

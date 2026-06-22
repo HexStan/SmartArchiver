@@ -124,7 +124,7 @@ class SyncHandler(BaseTaskHandler):
             return
 
         if not self.dest_backend.is_dir(self.dest_backend.root_path):
-            ctx.logger.critical("!!! CRUCIAL: 目标目录不存在 !!!")
+            ctx.logger.critical("!!! 致命错误: 目标目录不存在 !!!")
             return
 
         tool = _resolve_sync_tool(self.task)
