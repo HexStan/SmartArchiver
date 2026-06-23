@@ -63,10 +63,9 @@ def _load_and_init(config_path, logger_prefix=""):
 
     max_log_files = raw_config.get("max_log_files", 0)
     log_level = raw_config.get("log_level", "INFO")
-    logger = setup_logger(
-        raw_config["log_dir"], max_log_files, log_level, prefix=logger_prefix
-    )
-    history_mgr = HistoryManager(raw_config["log_dir"])
+    log_dir = raw_config.get("log_dir", "./logs")
+    logger = setup_logger(log_dir, max_log_files, log_level, prefix=logger_prefix)
+    history_mgr = HistoryManager(log_dir)
 
     manager = ConfigManager(config_path, logger)
     cfg = manager.load(raw_config)

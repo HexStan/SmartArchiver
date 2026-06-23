@@ -43,8 +43,7 @@ class ConfigManager:
     def load(self, config=None):
         """初始加载配置。
 
-        如果调用方已为了获取 ``log_dir`` 预先读取过配置文件，
-        可传入 *config* 字典以避免重复读取文件。
+        若调用方已预先读取过配置文件，可传入 *config* 字典以避免重复读取。
         """
         if config is None:
             config = self._load_toml(self._config_path)
@@ -84,13 +83,11 @@ class ConfigManager:
         """致命的结构验证——失败意味着配置文件不可用。"""
         if not isinstance(config, dict):
             raise ConfigError("配置文件内容不是有效的字典结构")
-        if "log_dir" not in config:
-            raise ConfigError("配置文件缺少 log_dir 字段")
 
     # -- internal ------------------------------------------------------------
 
     def _process(self, config, save_backup=False):
-        """加载流程核心：解析远端 → 可选保存备份 → 更新 mtime。"""
+        """加载流程核心：验证 → 解析远端 → 保存备份 → 更新 mtime。"""
         self._validate_structure(config)
         self._warn_task_structure(config)
 
