@@ -86,9 +86,6 @@ class ConfigManager:
             raise ConfigError("配置文件内容不是有效的字典结构")
         if "log_dir" not in config:
             raise ConfigError("配置文件缺少 log_dir 字段")
-        tasks = config.get("tasks")
-        if not tasks or not isinstance(tasks, list) or len(tasks) == 0:
-            raise ConfigError("配置文件没有有效的任务列表（tasks 为空或格式错误）")
 
     # -- internal ------------------------------------------------------------
 
