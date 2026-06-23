@@ -1,6 +1,5 @@
 import os
 import sys
-import tomllib
 import fnmatch
 
 from humanfriendly import parse_size, InvalidSize
@@ -51,16 +50,6 @@ class SingleInstance:
                 self.fp.close()
             except Exception:
                 pass
-
-
-# ============================================================
-# 配置加载
-# ============================================================
-
-
-def load_config(config_path):
-    with open(config_path, "rb") as f:
-        return tomllib.load(f)
 
 
 # ============================================================
