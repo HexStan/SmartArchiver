@@ -313,7 +313,7 @@ class SyncHandler(BaseTaskHandler):
                         remote_path = posixpath.join(backup_base, d)
                         ok = self.dest_backend.remote_rmdir(remote_path)
                         if ok:
-                            ctx.logger.debug(f"已删除远端旧备份: {d}")
+                            ctx.logger.info(f"已删除远端旧备份: {d}")
                         else:
                             ctx.logger.warning(f"删除远端旧备份失败: {d}")
             except Exception as e:
@@ -345,7 +345,7 @@ class SyncHandler(BaseTaskHandler):
                     num_to_delete = len(backups) - max_backups + 1
                     for b in backups[:num_to_delete]:
                         fs_ops.delete_dir(b)
-                        ctx.logger.debug(f"已删除旧备份: {b}")
+                        ctx.logger.info(f"已删除旧备份: {b}")
             except Exception as e:
                 ctx.logger.error(f"清理旧备份失败: {e}")
 
