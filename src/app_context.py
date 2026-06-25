@@ -20,3 +20,10 @@ class AppContext:
         self.config = config
         self.remote_clients = remote_clients or {}
         self.ssh_remotes = ssh_remotes or {}
+
+    def update_config(self, config, remote_clients=None, ssh_remotes=None):
+        self.config = config
+        if remote_clients is not None:
+            self.remote_clients = remote_clients
+        if ssh_remotes is not None:
+            self.ssh_remotes = ssh_remotes

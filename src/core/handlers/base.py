@@ -20,7 +20,7 @@ def validate_task_config(task, task_mode):
     ctx = AppContext.get()
 
     if task_mode == "sync":
-        required_fields = ["mode"]
+        required_fields = ["mode", "source"]
         tool = task.get("tool", "auto").lower()
         if tool not in ("auto", "rsync", "rclone"):
             ctx.logger.error(
@@ -31,6 +31,7 @@ def validate_task_config(task, task_mode):
     elif task_mode == "rotate":
         required_fields = [
             "mode",
+            "source",
             "remove_empty_dirs",
         ]
         size_limit = parse_size_string(str(task.get("size_limit", "0")))
@@ -53,6 +54,7 @@ def validate_task_config(task, task_mode):
     else:
         required_fields = [
             "mode",
+            "source",
             "mtime_threshold_minutes",
             "conflict_policy",
             "remove_empty_dirs",
@@ -139,7 +141,7 @@ class ActionExecutor:
             if not self._dest_checked:
                 self._dest_checked = True
                 if not self.dest_backend.is_dir(self.dest_backend.root_path):
-                    ctx.logger.critical("!!! CRUCIAL: 目标目录不存在 !!!")
+                    ctx.logger.critical("!!! 致命错误: 目标目录不存在 !!!")
                     self._dest_valid = False
                     return False
                 self._dest_valid = True

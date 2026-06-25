@@ -170,9 +170,9 @@ def clean_empty_dirs(source_root):
                 if any(it):
                     continue
             os.rmdir(root)
-            logger.debug(f"删除空目录: {root}")
+            logger.info(f"删除空目录: {root}")
         except OSError as e:
-            logger.debug(f"跳过删除空目录 (出现错误): {root}\n{e}")
+            logger.info(f"跳过删除空目录 (出现错误): {root}\n{e}")
 
 
 def get_dir_size_and_mtime(dir_path):
