@@ -1,0 +1,128 @@
+name: Version Release
+
+on:
+  push:
+    branches:
+      - master
+      - dev
+    paths:
+      - 'VERSION'
+  workflow_dispatch:
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Read version
+        id: version
+        run: |
+          VERSION=$(head -1 VERSION | tr -d '[:space:]')
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+          if echo "$VERSION" | grep -qE '\-dev'; then
+            echo "is_dev=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "is_dev=false" >> "$GITHUB_OUTPUT"
+            if grep -qE "^## \[$VERSION\]" CHANGELOG.md; then
+              echo "changelog_match=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "changelog_match=false" >> "$GITHUB_OUTPUT"
+              echo "::warning::CHANGELOG.md 中未找到版本 $VERSION 的更新日志，跳过 Release 和 Docker 构建"
+            fi
+          fi
+
+      - name: Create tag
+        if: steps.version.outputs.is_dev == 'false' && steps.version.outputs.changelog_match == 'true'
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          TAG="v${VERSION}"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "标签 $TAG 已存在，跳过创建"
+          else
+            git tag -a "$TAG" -m "Release $TAG"
+            git push origin "$TAG"
+            echo "标签 $TAG 已创建并推送"
+          fi
+
+      - name: Extract release notes
+        if: steps.version.outputs.is_dev == 'false' && steps.version.outputs.changelog_match == 'true'
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          python3 << 'PYEOF'
+          import re, os
+          with open('CHANGELOG.md', encoding='utf-8') as f:
+              content = f.read()
+          version = os.environ['RELEASE_VERSION']
+          pattern = rf'## \[{re.escape(version)}\].*?(?=\n## \[|\Z)'
+          match = re.search(pattern, content, re.DOTALL)
+          if match:
+              with open('release_notes.md', 'w', encoding='utf-8') as f:
+                  f.write(match.group(0).strip())
+          PYEOF
+          cat release_notes.md || echo "## [${{ steps.version.outputs.version }}]" > release_notes.md
+
+      - name: Create GitHub Release
+        if: steps.version.outputs.is_dev == 'false' && steps.version.outputs.changelog_match == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version.outputs.version }}
+          name: v${{ steps.version.outputs.version }}
+          body_path: release_notes.md
+          draft: false
+          prerelease: false
+
+      - name: Set up QEMU
+        if: steps.version.outputs.is_dev == 'true' || steps.version.outputs.changelog_match == 'true'
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        if: steps.version.outputs.is_dev == 'true' || steps.version.outputs.changelog_match == 'true'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        if: steps.version.outputs.is_dev == 'true' || steps.version.outputs.changelog_match == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Generate Docker tags
+        if: steps.version.outputs.is_dev == 'true' || steps.version.outputs.changelog_match == 'true'
+        id: docker-tags
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          REPO="ghcr.io/$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')"
+
+          if [ "${{ steps.version.outputs.is_dev }}" = "true" ]; then
+            TAGS="${REPO}:${VERSION},${REPO}:dev"
+          else
+            TAGS="${REPO}:${VERSION},${REPO}:latest"
+          fi
+
+          echo "tags=$TAGS" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push Docker image
+        if: steps.version.outputs.is_dev == 'true' || steps.version.outputs.changelog_match == 'true'
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.docker-tags.outputs.tags }}
+          labels: |
+            org.opencontainers.image.version=${{ steps.version.outputs.version }}
