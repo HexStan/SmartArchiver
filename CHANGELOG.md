@@ -32,5 +32,6 @@
 
 - 初次发布 Release
 
+[0.24.2]: https://github.com/HexStan/SmartArchiver/releases/tag/v0.24.2
 [0.24.0]: https://github.com/HexStan/SmartArchiver/releases/tag/v0.24.0
 [0.23.0]: https://github.com/HexStan/SmartArchiver/releases/tag/v0.23.0
