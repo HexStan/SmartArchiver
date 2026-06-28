@@ -3,21 +3,23 @@ from src.core.handlers.base import validate_task_config
 
 class TestSyncModeValidation:
     def test_valid_sync_minimal(self, app_context):
-        assert validate_task_config({"mode": "sync", "source": "/tmp/test"}, "sync")
+        assert validate_task_config(
+            {"mode": "sync", "source": "/tmp/test", "dest": "/tmp/dest"}, "sync"
+        )
 
     def test_valid_sync_with_tool_auto(self, app_context):
         assert validate_task_config(
-            {"mode": "sync", "source": "/tmp/test", "tool": "auto"}, "sync"
+            {"mode": "sync", "source": "/tmp/test", "dest": "/tmp/dest", "tool": "auto"}, "sync"
         )
 
     def test_valid_sync_with_tool_rsync(self, app_context):
         assert validate_task_config(
-            {"mode": "sync", "source": "/tmp/test", "tool": "rsync"}, "sync"
+            {"mode": "sync", "source": "/tmp/test", "dest": "/tmp/dest", "tool": "rsync"}, "sync"
         )
 
     def test_valid_sync_with_tool_rclone(self, app_context):
         assert validate_task_config(
-            {"mode": "sync", "source": "/tmp/test", "tool": "rclone"}, "sync"
+            {"mode": "sync", "source": "/tmp/test", "dest": "/tmp/dest", "tool": "rclone"}, "sync"
         )
 
     def test_invalid_tool(self, app_context, mock_logger):
@@ -29,11 +31,16 @@ class TestSyncModeValidation:
 
     def test_tool_case_insensitive(self, app_context):
         assert validate_task_config(
-            {"mode": "sync", "source": "/tmp/test", "tool": "RSYNC"}, "sync"
+            {"mode": "sync", "source": "/tmp/test", "dest": "/tmp/dest", "tool": "RSYNC"}, "sync"
         )
 
+    def test_missing_dest(self, app_context, mock_logger):
+        result = validate_task_config({"mode": "sync", "source": "/tmp/test", "tool": "rsync"}, "sync")
+        assert not result
+        assert any("dest" in msg for _, msg in mock_logger.messages)
+
     def test_missing_source(self, app_context, mock_logger):
-        result = validate_task_config({"mode": "sync", "tool": "rsync"}, "sync")
+        result = validate_task_config({"mode": "sync", "dest": "/tmp/dest", "tool": "rsync"}, "sync")
         assert not result
         assert any("source" in msg for _, msg in mock_logger.messages)
 

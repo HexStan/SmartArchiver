@@ -20,7 +20,7 @@ def validate_task_config(task, task_mode):
     ctx = AppContext.get()
 
     if task_mode == "sync":
-        required_fields = ["mode", "source"]
+        required_fields = ["mode", "source", "dest"]
         tool = task.get("tool", "auto").lower()
         if tool not in ("auto", "rsync", "rclone"):
             ctx.logger.error(
@@ -135,8 +135,8 @@ class ActionExecutor:
 
         if action == FileAction.TRANSFER:
             if not self.dest_root:
-                ctx.logger.warning(f"跳过文件 (目标目录非法): {rel_path}")
-                return False
+                ctx.logger.warning(f"跳过文件 (未配置目标目录): {rel_path}")
+                return True
 
             if not self._dest_checked:
                 self._dest_checked = True

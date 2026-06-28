@@ -219,10 +219,6 @@ class RotateHandler(BaseTaskHandler):
 
             action = self.policy.decide(f["rel_path"], f["size"])
 
-            if action == FileAction.TRANSFER and not self.dest_root:
-                ctx.logger.warning(f"跳过 (未配置目标目录): {f['rel_path']}")
-                continue
-
             success = self.executor.execute(
                 action,
                 f["path"],

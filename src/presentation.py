@@ -34,7 +34,7 @@ def print_task_header(task):
     ctx.logger.info(f" - 任务模式: {mode_str}")
     ctx.logger.info(f" - 源目录: {source_root}")
 
-    if not dest_root and task_mode == "rotate":
+    if not dest_root and task_mode != "sync":
         ctx.logger.info(" - 目标目录: 无")
     else:
         ctx.logger.info(f" - 目标目录: {dest_root}")
