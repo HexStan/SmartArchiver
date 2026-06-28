@@ -270,25 +270,26 @@ flowchart TD
 
     MODE -->|"move / copy"| EVAL
     MODE -->|"whitelist_move<br>whitelist_copy"| WHITELIST
-    MODE -->|"rotate"| ROTATE_RULES
+    MODE -->|"rotate"| EXCEED
     MODE -->|"sync"| SYNC["rsync / rclone 同步<br>仅支持 exclude 过滤"]
 
     subgraph ENGINE["规则引擎"]
         direction TB
 
-        ROTATE_RULES["rotate_rules<br>分组 size / count 限制"] --> OLDEST["超限后按 mtime<br>最旧优先处理"]
-        OLDEST --> EVAL
+        EXCEED{"超出 size /<br>count 限制?"} -->ROTATE_MATCH{"命中 rotate_rules?"}
+        ROTATE_MATCH -->|"是"| EVAL
+        ROTATE_MATCH -->|"否"| KEEP
 
-        WHITELIST{"命中 whitelist_rules?<br>（含父目录继承）"} -->|"是"| EVAL
-        WHITELIST -->|"否"| SKIP1["跳过"]
+        WHITELIST{"命中 whitelist_rules?"} -->|"是"| EVAL
+        WHITELIST -->|"否"| KEEP
 
-        EVAL{"keep / delete<br>规则匹配"} -->|"仅命中 keep"| SKIP2["保留"]
-        EVAL -->|"仅命中 delete"| DEL1["删除"]
+        EVAL{"命中 keep_rules /<br>delete_rules?"} -->|"仅命中 delete"| DELETE["删除"]
         EVAL -->|"同时命中"| PREFERRED{"preferred_rule"}
+        EVAL -->|"仅命中 keep"| KEEP
         EVAL -->|"均未命中"| TRANSFER["传输"]
 
-        PREFERRED -->|"keep（默认）"| SKIP3["保留"]
-        PREFERRED -->|"delete"| DEL2["删除"]
+        PREFERRED -->|"delete"| DELETE
+        PREFERRED -->|"keep"| KEEP
     end
 ```
 
