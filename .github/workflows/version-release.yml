@@ -70,8 +70,11 @@ jobs:
           pattern = rf'## \[{re.escape(version)}\].*?(?=\n## \[|\Z)'
           match = re.search(pattern, content, re.DOTALL)
           if match:
+              notes = match.group(0).strip()
+              notes = notes.split('\n', 1)[1] if '\n' in notes else ''
+              notes = re.sub(r'\n---\s*$', '', notes).strip()
               with open('release_notes.md', 'w', encoding='utf-8') as f:
-                  f.write(match.group(0).strip())
+                  f.write(notes)
           PYEOF
           cat release_notes.md || echo "## [${{ steps.version.outputs.version }}]" > release_notes.md
 
@@ -121,6 +124,7 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: .
+          file: docker/app/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.docker-tags.outputs.tags }}
