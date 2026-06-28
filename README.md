@@ -204,13 +204,9 @@ SmartArchiver 的核心能力是**对源目录中的文件执行某种操作**�
 
 **轮转模式（rotate）不需要此参数**。轮转按文件 mtime 升序处理（最旧的优先），新文件天然排在后面。
 
-> ⚠️ 为什么新写入的文件无法被删除？因为 mtime 阈值是保护机制，确保程序不会动还在被其他进程修改的文件。如果你需要立即删除某些文件，可以考虑使用 `rotate` + `delete_rules.ge."*" = -1` 的组合。
-
 **`remove_empty_dirs`**（move / copy / whitelist / rotate 模式）：
 
 任务结束后自底向上清理源目录中的空目录。清理时会跳过符号链接和挂载点，不会意外卸载外部存储。
-
-> ⚠️ 复制模式（`copy` / `whitelist_copy`）下不会清理空目录，因为源文件未被移除。
 
 **rotate 模式的限制条件**（`size_limit` / `count_limit` / `rotate_rules`）：
 
@@ -266,16 +262,35 @@ dest = "./mirror"
 
 > ⚠️ sync 模式不支持规则系统，所有过滤通过 `exclude` 参数实现。
 
-#### 规则类型一览
+#### 规则系统流程一览
 
-每个任务可配置三组规则块：
+```mermaid
+flowchart TD
+    TASK["任务配置"] --> MODE{"mode"}
 
-| 规则块 | 作用 | 适用模式 |
-|--------|------|----------|
-| `[tasks.keep_rules]` | 命中后**保留**在原地，不传输也不删除 | 全部（除 sync） |
-| `[tasks.delete_rules]` | 命中后**直接删除**，不移动到 dest | 全部（除 sync） |
-| `[tasks.whitelist_rules]` | 白名单过滤器，**仅命中项**进入后续流程 | whitelist_move / whitelist_copy |
-| `[tasks.rotate_rules]` | 轮转分组限制，触发文件处理 | rotate |
+    MODE -->|"move / copy"| EVAL
+    MODE -->|"whitelist_move<br>whitelist_copy"| WHITELIST
+    MODE -->|"rotate"| ROTATE_RULES
+    MODE -->|"sync"| SYNC["rsync / rclone 同步<br>仅支持 exclude 过滤"]
+
+    subgraph ENGINE["规则引擎"]
+        direction TB
+
+        ROTATE_RULES["rotate_rules<br>分组 size / count 限制"] --> OLDEST["超限后按 mtime<br>最旧优先处理"]
+        OLDEST --> EVAL
+
+        WHITELIST{"命中 whitelist_rules?<br>（含父目录继承）"} -->|"是"| EVAL
+        WHITELIST -->|"否"| SKIP1["跳过"]
+
+        EVAL{"keep / delete<br>规则匹配"} -->|"仅命中 keep"| SKIP2["保留"]
+        EVAL -->|"仅命中 delete"| DEL1["删除"]
+        EVAL -->|"同时命中"| PREFERRED{"preferred_rule"}
+        EVAL -->|"均未命中"| TRANSFER["传输"]
+
+        PREFERRED -->|"keep（默认）"| SKIP3["保留"]
+        PREFERRED -->|"delete"| DEL2["删除"]
+    end
+```
 
 #### 规则语法
 
@@ -372,8 +387,6 @@ ge."alpha/beta/charlie.txt" = -1  # 精确路径匹配
 - 选择性保护：`keep_rules.ge."*.important" = -1`，某些重要文件即使超限也不会被轮转处理
 
 **`rotate_rules` 不支持匹配目录**：`rotate_rules` 的 pattern 不能以 `/` 结尾。要限制某个目录下的文件，用 `"目录名/*"` 而非 `"目录名/"`。
-
-> ℹ️ 为什么？因为轮转处理的基本单元是文件（排序、移动、删除），目录级别的限制会引入大量歧义——一个目录算多少个文件？嵌套目录的归属怎么算？目录有旧文件也有新文件时如何处理？这些都没有唯一正确答案。用 `keep_rules` / `delete_rules` 组合可以实现等同效果且语义明确。
 
 **`rotate_rules` 的全局限制与规则限制**：全局 `size_limit` / `count_limit` 对所有文件生效，规则级限制只对匹配特定模式的文件生效。一个文件可能同时属于全局组和多个规则组——只要任一关联分组超限，该文件就会被处理。处理完成后会从所有关联分组中扣除该文件的统计值。
 
@@ -477,3 +490,30 @@ max_log_files = 30                        # 保留的日志文件数量，0 表�
 5. **轮转的"最旧优先"不等于"全删旧文件"**：轮转处理到所有分组不超限就停止，不是把所有旧文件都处理掉。
 
 6. **白名单模式必须配置 whitelist_rules**：否则程序会报错并跳过该任务。
+
+---
+
+## 设计考量
+
+### 1. 为什么没有几十种模式和规则？
+
+如果为每种场景都创建一个专属模式，SmartArchiver 的配置将变成一份冗长的菜单——`move_logs_by_age`、`copy_videos_above_size`、`rotate_backups_by_count`、`sync_except_temp`……每种组合都需要一个名字，用户只能在预设的选项中挑选，稍有偏差就无从下手。SmartArchiver 选择了一条不同的路径：**提供少量正交的"动词"（move / copy / rotate / sync）和一套可组合的"条件表达式"（keep_rules / delete_rules / whitelist_rules / rotate_rules）**，让用户像搭积木一样，通过排列组合来表达任意文件管理逻辑。move 配上 `mtime_threshold_minutes` 就是"按时间归档"；rotate 配上 `delete_rules` 就是"纯清理"；whitelist_move 配上 `keep_rules.lt` 就是"只搬运某个目录下超过特定大小的文件"。模式负责"要做什么"（传输/删除/同步），规则负责"对谁做"（命名、大小、时间的筛选条件），两者解耦后，6 种模式 + 4 类规则所能表达的组合远远超过为每种组合单独设计一个模式。工程上，这也意味着规则引擎只需实现一次，所有处理器共享同一套决策逻辑，新增模式时也无需在配置层引入破坏性变更——因为规则语法对任何模式都是统一的。
+
+### 2. 为什么 `rotate_rules` 不支持匹配目录
+
+在 `keep_rules` / `delete_rules` / `whitelist_rules` 中，规则系统通过模式末尾是否带 `/` 来区分匹配目标——`"xxx/"` 匹配目录自身，`"xxx/*"` 匹配目录下的文件。虽然两个模式的匹配对象不同（一个匹配目录、一个匹配文件），但 `delete_rules` 和 `whitelist_rules` 的行为简单直接、歧义小，用户按直觉配置通常不会出问题。
+
+但是，给 `rotate_rules` 设计目录匹配逻辑极为困难。轮转模式的操作单元是**文件**：遍历文件列表、按 `mtime` 排序、逐个移除旧文件以腾出空间。如果引入目录级别的分组，会引发一系列难以自洽的问题：
+
+- **`"xxx/"` 的歧义问题在 `rotate_rules` 中会被严重放大，比如**：
+
+   - `rotate_rules.count."xxx/*" = 5` → 限制 `xxx/` 下的**文件数量**不超过 5 个（合理、直观）
+   - `rotate_rules.count."xxx/" = 5` → 名为 xxx 的目录数量不超过 5 个？每个 xxx 目录下的文件数量不超过 5 个？所有名为 xxx 的目录下的总文件数量不超过 5 个？
+   - `rotate_rules.size."xxx/" = "1GB"` → 每个 xxx 目录下的文件体积不超过 1GB？所有名为 xxx 的目录下的总体积不超过 1GB？
+
+- **计数单位不统一**：目录和文件如何统一计入同一个 count 限制？一个目录算一个文件还是算 N 个？
+- **嵌套目录的归属**：`"a/"` 匹配了目录 `a/`，那么 `a/b/` 是否需要独立分组？还是两个目录共享同一个配额？
+- **mtime 排序失效**：轮转从最旧的文件开始处理，但如果一个「旧目录」下有一个「新文件」，应该如何处理？取目录 mtime 还是文件 mtime？
+- **移除语义模糊**：轮转一个文件是指移动或删除它，那轮转一个目录是针对整个目录，还是目录中的部分旧文件？
+
+这些问题没有唯一正确的答案，强行设计只会引入逻辑漏洞和配置歧义。因此 `rotate_rules` 刻意保持了**仅匹配文件**的简单语义，将复杂度留给更自然的 `keep_rules` / `delete_rules` 组合去解决（例如用 `delete_rules` 删除整个目录，或用 `keep_rules` 保护目录内的部分文件不被轮转处理）。
