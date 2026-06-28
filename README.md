@@ -130,140 +130,290 @@ docker run -d \
 
 ---
 
-## 项目模块结构
+## 配置向导
 
-```
-SmartArchiver/
-├── main.py                         # 程序入口：一次性 / cron / interval / --server 四种模式
-├── config/
-│   ├── config.example.toml         # 客户端配置文件示例（带中文注释）
-│   └── config.server.example.toml  # 服务器模式配置文件示例
-├── docker/
-│   ├── app/Dockerfile              # 应用镜像定义
-│   └── ssh-server/                 # SSH 远端服务器镜像（rsync + OpenSSH）
-│       ├── Dockerfile
-│       ├── entrypoint.sh
-│       └── sshd_config
-├── src/
-│   ├── app_context.py              # 单例上下文，解耦 Logger、HistoryManager、Config 传递
-│   ├── logger.py                   # 日志系统：自定义级别、双格式输出、按天滚动
-│   ├── history.py                  # 失败历史管理：记录失败次数，超阈值自动跳过
-│   ├── presentation.py             # 表现层：统��格式化调用，任务输出头/统计信息
-│   ├── utils.py                    # 工具函数：文件锁、路径匹配、大小解析
-│   ├── fs_ops.py                   # 本地文件系统操作原语（异常体系 + 结构化返回）
-│   ├── remote/                     # HTTP 远程通信
-│   │   ├── __init__.py
-│   │   ├── client.py               # RemoteClient：HTTP 客户端，含重试与认证
-│   │   ├── server.py               # Flask 服务器：接收远程 API 调用
-│   │   ├── concurrency.py          # ConcurrencyGate：并发控制（信号量 + FIFO 队��）
-│   │   ├── factory.py              # 远程客户端工厂：解析 http_remotes 配置
-│   │   └── protocol.py             # RemoteAction 枚举 + API 路径常量
-│   ├── ssh/                        # SSH 远端支持
-│   │   ├── __init__.py
-│   │   └── config.py               # SshRemote 数据类 + SSH 命令构建/执行
-│   └── core/
-│       ├── __init__.py             # 包入口，触发 handler 注册，导出 process_task
-│       ├── types.py                # FileAction 枚举 + MoverStats 统计类
-│       ├── filters.py              # 规则引擎：keep/delete/whitelist 规则的解析与决策
-│       ├── backend.py              # DestBackend 抽象层：本地/HTTP/SSH 三种目标后端
-│       ├── registry.py             # 处理器注册中心：装饰器注册 + process_task 调度
-│       └── handlers/
-│           ├── base.py             # 抽象基类 + FileChecker + ActionExecutor
-│           ├── standard.py         # StandardHandler：move / copy / whitelist_move / whitelist_copy
-│           ├── rotate.py           # RotateHandler：轮转模式 + RotateGroupManager
-│           └── sync.py             # SyncHandler：同步模式（rsync / rclone / SSH）
-├── docker-compose.yml              # Docker Compose 编排
-└── requirements.txt                # Python 依赖
-```
+本章以**决策树**的方式引导你完成 `config.toml` 的编写：先明确目标，再选择模式和参数，最后按需叠加规则和远程目标。
 
 ---
 
-## 各模式工作原理
+### 第一步：明确你的目标
 
-SmartArchiver 支持 6 种任务模式，对应 3 个处理器。
+SmartArchiver 的核心能力是**对源目录中的文件执行某种操作**。根据你想做的事，选择对应的任务模式（`mode`）：
 
-### 1. 标准模式（move / copy / whitelist_move / whitelist_copy）
+| 我想做什么 | 应选模式 | 关键词 |
+|-----------|---------|--------|
+| 把文件批量搬运到另一个目录 | `move` | 移动、归档、冷热分层 |
+| 把文件批量复制到另一个目录 | `copy` | 复制、备份、多副本 |
+| **只**搬运命中特定命名规则的文件 | `whitelist_move` | 白名单、选择性搬运 |
+| **只**复制命中特定命名规则的文件 | `whitelist_copy` | 白名单、选择性复制 |
+| 限制目录体积/数量，超出部分自动清理 | `rotate` | 轮转、限额、清理 |
+| 让两个目录保持完全一致（镜像同步） | `sync` | 同步、镜像、rsync |
 
-**处理器**：[`StandardHandler`](src/core/handlers/standard.py)
+**决策要点**：
 
-**工作流程**：
-
-1. 使用 `os.walk` 自顶向下遍历源目录。
-2. **先处理目录**：对每个子目录执行 `FileFilterPolicy.decide()`，判断是删除、保留还是继续遍历。如果目录被判定为 DELETE 且其 `mtime` 超过时间阈值，则递归删除整个目录。
-3. **再处理文件**：对每个文件先通过 `FileChecker` 三重检查（失败历史、mtime 阈值、文件锁），再通过规则引擎决策，最后执行传输或删除。
-4. 如果启用了 `remove_empty_dirs`，任务结束后自底向上清理空目录。
-
-**move 与 copy 的区别**：仅在于传输时调用 `shutil.move` 还是 `shutil.copy2`。
-
-**whitelist 变体的区别**：在执行 keep/delete 规则判断之前，先引入白名单过滤——只有命中白名单的文件/目录才会进入后续流程，未命中的直接跳过。
-
-### 2. 轮转模式（rotate）
-
-**处理器**：[`RotateHandler`](src/core/handlers/rotate.py)
-
-**工作流程**：
-
-1. 扫描源目录下所有文件，构建「分组统计」（`RotateGroupManager`）。
-2. 分组统计支持两个层级：
-   - **全局限制**：`size_limit`（总体积上限）和 `count_limit`（总数量上限）
-   - **规则级限制**：`rotate_rules.size` 和 `rotate_rules.count`，按命名模式匹配分组，每组有独立的大小或数量上限
-3. 将所有文件按 `mtime` 升序排列（最旧的在前）。
-4. 从最旧的文件开始迭代，依次检查该文件所属的分组是否超出限制。如果任一关联分组已超限，则处理该文件（移动或删除）。
-5. 每处理完一个文件，更新该文件所属的所有分组的统计值。
-6. 循环直到所有分组均不超限为止。
-7. 如果文件已全部处理完毕但仍有分组超限，则记录警告日志。
-
-**重要细节**：轮转模式下**不使用** `mtime_threshold_minutes`，文件的「新旧」仅由 `mtime` 决定——最旧的最先被处理。如果同时配置了 `dest`，超限文件会被移动到目标目录；如果未配置 `dest`，文件将被留在原地（除非被 delete_rules 匹配删除）。
-
-### 3. 同步模式（sync）
-
-**处理器**：[`SyncHandler`](src/core/handlers/sync.py)
-
-**工作流程**：
-
-1. 调用 `rsync -av --delete` 或 `rclone sync` 进行镜像同步（源目录和目标目录完全一致，目标中多余的文件会被删除）。
-2. 默认行为（`tool = "auto"`）：Windows 上自动使用 rclone，Linux/macOS 上自动使用 rsync。可通过 `tool` 配置项强制指定工具（`"rsync"` 或 `"rclone"`）。
-3. 支持通过 `exclude` 列表排除不需要同步的文件/目录（通配符由底层工具处理）。
-4. 可选开启备份功能（`create_backups`），在替换/删除文件前将其备份到 `.smart-archiver.backups/<时间戳>/` 目录，并通过 `max_backups` 限制保留的备份份数。
-
-**重要**：同步模式**不支持** SmartArchiver 的 keep/delete/whitelist 规则系统，所有过滤通过 rsync/rclone 的 `--exclude` 参数实现。
-
-**SSH 远端同步**：sync 模式额外支持通过 SSH 将源目录同步到远端主机。配置 `[[ssh_remotes]]` 后，将 `dest` 设为 `{ssh:别名}?路径` 格式即可。底层通过 `rsync -e "ssh ..."` 或 `rclone :sftp:` 实现，支持密钥和密码两种认证方式。
+- 如果源目录文件**各式各样**，但你只想动其中某几类 → 选 `whitelist_move` 或 `whitelist_copy`
+- 如果目标是**"目录不能超过某个大小"**而非"移动具体哪个文件" → 选 `rotate`
+- 如果源和目标需要**时刻保持一致**，且不关心单文件粒度规则 → 选 `sync`
+- 其余常规归档/备份需求 → 选 `move` 或 `copy`
 
 ---
 
-## 远程目标
+### 第二步：填写基础参数
 
-SmartArchiver 支持三种目标后端：**本地路径**、**HTTP 远端**和 **SSH 远端**。后两者通过 `{type:alias}?path` 格式的 URL 语法指定 `dest`：
+确定模式后，每个任务需要填写以下必填字段。参数是否必须取决于所选模式——下表中 `✓` 表示必填，`○` 表示选填，`✗` 表示该模式不支持此参数。
 
-- `{http:my_nas}?/vol/backup` → 通过 HTTP API 连接另一台运行 SmartArchiver 的服务器
-- `{ssh:my_vps}?/var/data` → 通过 SSH 连接远端主机（仅 sync 模式支持）
-- `./local/path` → 普通本地路径（LocalDestBackend）
+#### 通用参数
 
-HTTP 远端和 SSH 远端的命名空间完全隔离，同一别名可同时在两者中使用。
+| 参数 | move | copy | whitelist_move | whitelist_copy | rotate | sync | 说明 |
+|------|:----:|:----:|:--------------:|:--------------:|:------:|:----:|------|
+| `name` | ○ | ○ | ○ | ○ | ○ | ○ | 任务名称，仅用于日志展示 |
+| `source` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | 源目录路径 |
+| `dest` | ✓ | ✓ | ✓ | ✓ | ○ | ✓ | 目标目录路径（rotate 模式下选填） |
+| `conflict_policy` | ✓ | ✓ | ✓ | ✓ | ○ | ✗ | 同名文件冲突策略 |
+| `remove_empty_dirs` | ✓ | ✓ | ✓ | ✓ | ○ | ✗ | 任务结束后是否清理空目录 |
+| `mtime_threshold_minutes` | ✓ | ✓ | ✓ | ✓ | ✗ | ✗ | 修改时间阈值（分钟） |
 
-### HTTP 远端
+#### 模式专属参数
 
-适用于任何支持 `dest` 字段的任务模式（move、copy、whitelist、rotate）。客户端通过 HTTP API 将文件上传到远端服务器，由服务器执行实际的本地文件操作。
+| 参数 | 适用模式 | 说明 |
+|------|---------|------|
+| `size_limit` | rotate | 全局目录总体积上限，如 `"1GB"`，`0` 表示不限制 |
+| `count_limit` | rotate | 全局目录文件总数量上限，`0` 表示不限制 |
+| `tool` | sync | 同步工具：`"auto"`（自动）、`"rsync"`、`"rclone"` |
+| `exclude` | sync | 排除模式列表，由底层工具处理 |
+| `create_backups` | sync | 替换/删除前是否备份，默认 `false` |
+| `max_backups` | sync | 最多保留备份份数，`0` 表示不限制 |
+
+---
+
+#### 参数详解
+
+**`conflict_policy`**（move / copy / whitelist 模式必填）：
+
+当目标位置已存在同名文件时的处理策略：
+
+- `"overwrite"` — 覆盖目标文件
+- `"skip"` — 跳过该文件，不传输
+- `"copy"` — 创建带编号的副本，如 `file.txt` → `file-1.txt`。「copy」在此处指「保留两份」，不是指任务模式为复制
+
+**`mtime_threshold_minutes`**（move / copy / whitelist 模式必填）：
+
+文件最近修改时间需超过该阈值（分钟）才会被处理。**该阈值同时约束传输和删除**——即便是被 `delete_rules` 匹配的文件，如果其 mtime 不满足阈值也不会被删除。建议至少设为几分钟，避免处理仍在写入的文件。
+
+设为 `0` 表示无时间限制，所有文件立即参与处理。
+
+**轮转模式（rotate）不需要此参数**。轮转按文件 mtime 升序处理（最旧的优先），新文件天然排在后面。
+
+> ⚠️ 为什么新写入的文件无法被删除？因为 mtime 阈值是保护机制，确保程序不会动还在被其他进程修改的文件。如果你需要立即删除某些文件，可以考虑使用 `rotate` + `delete_rules.ge."*" = -1` 的组合。
+
+**`remove_empty_dirs`**（move / copy / whitelist / rotate 模式）：
+
+任务结束后自底向上清理源目录中的空目录。清理时会跳过符号链接和挂载点，不会意外卸载外部存储。
+
+> ⚠️ 复制模式（`copy` / `whitelist_copy`）下不会清理空目录，因为源文件未被移除。
+
+**rotate 模式的限制条件**（`size_limit` / `count_limit` / `rotate_rules`）：
+
+至少配置一项，程序才会执行。如果所有限制都未触发，任务会直接跳过。
+
+**sync 模式的 `tool` 选择**：
+
+- `"auto"`（默认）：Windows 上自动使用 rclone，Linux/macOS 上自动使用 rsync
+- `"rsync"`：强制使用 rsync（需预装，Linux/macOS 通常自带）
+- `"rclone"`：强制使用 rclone（需预装，[下载地址](https://rclone.org/downloads/)）
+
+---
+
+#### 最小配置示例
+
+以下是三种典型模式的最简配置——去掉所有可选字段，只保留启动任务所需的最低限度：
+
+**move / copy 最小配置**：
 
 ```toml
-# 在 config.toml 中配置远端实例
+[[tasks]]
+mode = "move"
+source = "./my_files"
+dest = "./archive"
+mtime_threshold_minutes = 1440    # 1 天
+conflict_policy = "skip"
+remove_empty_dirs = false
+```
+
+**rotate 最小配置**（仅全局体积限制）：
+
+```toml
+[[tasks]]
+mode = "rotate"
+source = "./logs"
+size_limit = "500MB"
+remove_empty_dirs = false
+```
+
+**sync 最小配置**：
+
+```toml
+[[tasks]]
+mode = "sync"
+source = "./data"
+dest = "./mirror"
+```
+
+---
+
+### 第三步：用规则精确筛选（move / copy / whitelist / rotate 模式）
+
+如果基础参数不能满足你的需求——比如"只移动大于 100MB 的文件"、"删除所有 .tmp 但保护 .important.tmp"——你需要配置**规则**。
+
+> ⚠️ sync 模式不支持规则系统，所有过滤通过 `exclude` 参数实现。
+
+#### 规则类型一览
+
+每个任务可配置三组规则块：
+
+| 规则块 | 作用 | 适用模式 |
+|--------|------|----------|
+| `[tasks.keep_rules]` | 命中后**保留**在原地，不传输也不删除 | 全部（除 sync） |
+| `[tasks.delete_rules]` | 命中后**直接删除**，不移动到 dest | 全部（除 sync） |
+| `[tasks.whitelist_rules]` | 白名单过滤器，**仅命中项**进入后续流程 | whitelist_move / whitelist_copy |
+| `[tasks.rotate_rules]` | 轮转分组限制，触发文件处理 | rotate |
+
+#### 规则语法
+
+每组规则内部按阈值方向分为两个子表：
+
+- **`lt`（less than）**：当目标大小**小于**阈值时命中
+- **`ge`（greater or equal）**：当目标大小**大于等于**阈值时命中
+
+每个键值对是一条规则：`lt|ge."模式" = 阈值`。模式支持通配符 `*`（匹配任意字符）和 `?`（匹配单个字符）。
+
+阈值可以是大小字符串（`"10MB"`、`"1GB"`、`"500KB"`）或特殊值 `-1`（匹配所有大小，不受大小限制）。
+
+**区分文件和目录**：模式末尾带 `/` 匹配目录，不带 `/` 匹配文件。
+
+```toml
+[tasks.keep_rules]
+# 文件规则（模式末尾无 /）：
+lt."*.log" = "10MB"              # 小于 10MB 的 .log 文件 → 保留
+ge."backup.iso" = -1              # 所有 backup.iso 文件 → 保留（-1 无条件命中）
+
+# 目录规则（模式末尾有 /）：
+lt."cache/" = "500MB"             # 小于 500MB 的 cache 目录 → 保留
+ge."backups/" = "1GB"             # 大于等于 1GB 的 backups 目录 → 删除
+```
+
+#### 多级路径匹配
+
+模式可包含 `/` 来匹配嵌套路径（规则引擎接收的是相对源目录的路径）：
+
+```toml
+lt."logs/*.log" = "100MB"         # logs/ 下所有 .log 文件
+lt."data/*/cache/" = "50MB"       # data/ 下一级子目录中的 cache/ 目录
+ge."alpha/beta/charlie.txt" = -1  # 精确路径匹配
+```
+
+> ⚠️ 规则匹配的是**相对于源目录的路径**。例如源目录为 `./source`，文件为 `./source/a/b/file.txt`，编写规则时应使用 `"a/b/file.txt"` 或 `"*/*/file.txt"`。
+
+**单级模式**（不含 `/` 的模式）只匹配文件名的最后一部分，例如 `"*.log"` 可匹配任意深度的 `.log` 文件。
+
+#### 规则决策流程
+
+当 `FileFilterPolicy` 评估一个文件/目录时，按以下顺序决策：
+
+1. **检查 keep_rules**：命中 → `FileAction.SKIP`（保留）
+2. **检查 delete_rules**：命中 → `FileAction.DELETE`
+3. **同时命中 keep 和 delete**：由 `preferred_rule` 决定：
+   - `"keep"`（默认）→ 保留
+   - `"delete"` → 删除
+4. **白名单模式**：未命中 whitelist_rules → 跳过（其父目录若命中则继承白名单状态）
+5. **都不命中** → 正常传输（`FileAction.TRANSFER`）
+
+> ℹ️ 配置示例：要删除所有 .tmp 文件但保护 important.tmp：
+> ```toml
+> keep_rules.ge."important.tmp" = -1
+> delete_rules.ge."*.tmp" = -1
+> preferred_rule = "keep"   # 默认值，可省略
+> ```
+> 这里 `important.tmp` 同时命中 keep（精确匹配）和 delete（被 `*.tmp` 通配），但 `preferred_rule = "keep"` 使保留规则优先。如果改为 `preferred_rule = "delete"`，则 `important.tmp` 也会被删除。
+
+#### `preferred_rule` 的正确用法
+
+将 `preferred_rule` 设为 `"delete"` 的典型场景是**宁可错杀不可放过**——当一个文件同时符合保留条件和删除条件时，你选择删除。很少有人需要这样配置。大多数情况下保持默认的 `"keep"` 即可。
+
+#### 惰性求值
+
+规则引擎在检查规则时尽可能避免计算目录大小（递归扫描开销大）：
+
+1. 先做名称匹配（字符串比较，极快）
+2. 如果命中 `ge."模式" = -1`，直接返回命中，**不计算大小**
+3. 只有名称匹配且阈值非 -1 时才实际计算大小
+
+利用这一点，将无条件命中的规则写为 `ge."模式" = -1` 可以提升性能。
+
+#### 白名单模式的特殊行为
+
+在白名单模式下，**只有命中 `whitelist_rules` 的文件/目录才会被处理**。未命中的直接跳过。
+
+**父目录继承**：如果一个目录命中白名单，该目录下的所有子文件和子目录自动继承白名单状态——即使它们自身的名称不匹配任何白名单规则。这意味着：
+- 配置 `whitelist_rules.ge."videos/" = -1` 会将 `videos/` 下所有内容纳入处理范围
+- 你不需要为 `videos/` 下的每个子目录单独配置白名单
+
+**白名单与 keep/delete 的关系**：白名单先过滤，keep/delete 再对通过白名单的项做二次判断。你可以在白名单限定的范围内再用 keep/delete 做更精细的控制。
+
+#### 轮转模式中的规则
+
+轮转模式会先扫描所有文件建立分组统计，然后从最旧的文件开始逐个处理（移动或删除），直到所有分组都不再超限。在决定具体如何处理一个文件时，规则系统才会介入：
+
+- 命中 `keep_rules` → 跳过，该文件留在原地，其统计值也保留（不会从分组中扣除）
+- 命中 `delete_rules` → 直接删除，不移动到 dest
+- 都不命中 → 若有 dest 则移动，若无 dest 则跳过（留在原地）
+
+**典型用法**：
+- 纯清理：`delete_rules.ge."*" = -1`，无需配置 dest，所有轮转产生的文件直接删除
+- 选择性保护：`keep_rules.ge."*.important" = -1`，某些重要文件即使超限也不会被轮转处理
+
+**`rotate_rules` 不支持匹配目录**：`rotate_rules` 的 pattern 不能以 `/` 结尾。要限制某个目录下的文件，用 `"目录名/*"` 而非 `"目录名/"`。
+
+> ℹ️ 为什么？因为轮转处理的基本单元是文件（排序、移动、删除），目录级别的限制会引入大量歧义——一个目录算多少个文件？嵌套目录的归属怎么算？目录有旧文件也有新文件时如何处理？这些都没有唯一正确答案。用 `keep_rules` / `delete_rules` 组合可以实现等同效果且语义明确。
+
+**`rotate_rules` 的全局限制与规则限制**：全局 `size_limit` / `count_limit` 对所有文件生效，规则级限制只对匹配特定模式的文件生效。一个文件可能同时属于全局组和多个规则组——只要任一关联分组超限，该文件就会被处理。处理完成后会从所有关联分组中扣除该文件的统计值。
+
+**轮转停止条件**：一旦所有分组（全局 + 规则级）都不再超限，轮转立即停止。已无可处理文件但仍有分组超限时，会输出警告日志。
+
+---
+
+### 第四步：配置远程目标（可选）
+
+如果 `dest` 不是本地路径，你需要配置远程目标后端。SmartArchiver 支持三种后端：
+
+| 后端 | dest 格式 | 支持的模式 | 说明 |
+|------|----------|-----------|------|
+| 本地 | `"./local/path"` | 全部 | 默认，无需额外配置 |
+| HTTP 远端 | `"{http:别名}?路径"` | move / copy / whitelist / rotate | 远端需运行 SmartArchiver 服务器 |
+| SSH 远端 | `"{ssh:别名}?路径"` | 仅 sync | 远端需安装 rsync 或启用 SFTP |
+
+HTTP 和 SSH 的别名命名空间完全隔离，同一别名可同时用于两者。
+
+#### HTTP 远端
+
+在 `config.toml` 中配置 `[[http_remotes]]`，然后在任务的 `dest` 中引用：
+
+```toml
 [[http_remotes]]
 alias = "my_nas"
 address = "http://192.168.10.10:13579"
 key = "your_api_key"
-timeout = 14400      # 请求超时（秒），默认 4 小时
-queue_time = 120     # 服务器繁忙时排队秒数，0 表示不排队
+timeout = 14400       # 请求超时（秒），默认 4 小时
+queue_time = 120      # 服务器繁忙时排队秒数，0 表示不排队直接放弃
 ```
 
-远端需运行 `python main.py --server` 启动 HTTP 服务（详见[服务器模式](#服务器模式http-server)）。
+远端需运行 `python main.py --server`（详见[服务器模式](#服务器模式http-server)）。
 
-### SSH 远端
+#### SSH 远端
 
-**仅 sync 模式支持**。通过 SSH 连接远端主机，底层使用 `rsync -e "ssh ..."` 或 `rclone :sftp:` 进行镜像同步，无需远端运行 SmartArchiver 服务器。
+仅 sync 模式支持。在 `config.toml` 中配置 `[[ssh_remotes]]`：
 
 ```toml
-# 在 config.toml 中配置 SSH 远端主机
 [[ssh_remotes]]
 alias = "my_vps"
 host = "192.168.1.100"
@@ -273,225 +423,58 @@ key_file = "/home/user/.ssh/id_rsa"        # 选填，私钥路径
 password_file = "/home/user/.ssh/pass"     # 选填，明文密码文件路径
 ```
 
-远端需安装 `rsync`（rsync-over-SSH 模式）或启用 SFTP 子系统（rclone 模式）。可使用项目提供的 SSH 远端 Docker 镜像快速部署。
+底层通过 `rsync -e "ssh ..."` 或 `rclone :sftp:` 实现。
 
 ---
 
-## 规则系统工作原理
+### 第五步：配置定时调度（可选）
 
-**核心模块**：[`FileFilterPolicy`](src/core/filters.py)
+如果不配置 `[schedule]` 块，程序将作为一次性脚本运行（执行完所有任务后退出）。要让它常驻运行，添加：
 
-规则系统决定了每个文件或目录的最终命运——**传输**、**删除**或**跳过（保留）**。
+```toml
+[schedule]
+mode = "interval"            # "cron" 或 "interval"
+interval_seconds = 3600      # interval 模式：每次执行完等待的秒数
+# cron_expr = "0 * * * *"   # cron 模式：cron 表达式
+# run_immediately = true    # 启动后是否立即执行（interval 默认 true，cron 默认 false）
+```
 
-### 规则类型
+**两种定时模式**：
+- `interval`：每次任务执行完毕后开始计时，等待指定秒数后再次执行
+- `cron`：按 cron 表达式定时执行（如 `"0 2 * * *"` 表示每天凌晨 2 点）
 
-| 规则 | 作用 | 适用模式 |
-|------|------|----------|
-| `keep_rules` | 命中后保留文件/目录，不传输不删除 | move / copy / whitelist / rotate |
-| `delete_rules` | 命中后直接删除文件/目录 | move / copy / whitelist / rotate |
-| `whitelist_rules` | 白名单过滤，仅命中项进入后续流程 | whitelist_move / whitelist_copy |
-| `rotate_rules` | 轮转限制条件，触发文件处理 | rotate |
+**`run_immediately`** 控制启动后是否立即执行一次：
+- `interval` 模式默认 `true`（启动即执行）
+- `cron` 模式默认 `false`（等到下一个 cron 时间点）
 
-### 规则结构
-
-每组规则（keep/delete/whitelist）内部包含两类阈值匹配：
-
-- **`lt`（less than）**：当目标**小于**阈值时命中
-- **`ge`（greater or equal）**：当目标**大于等于**阈值时命中
-
-每个模式（pattern）的值是一个大小字符串（如 `"10MB"`、`"1GB"`）或特殊值 `-1`（匹配所有大小）。模式支持通配符 `*` 和 `?`。
-
-### 文件与目录的区分
-
-规则系统通过模式末尾是否带 `/` 来区分匹配目标：
-
-- **`"*.log"`**（无尾部 `/`）→ 匹配**文件**
-- **`"logs/"`**（有尾部 `/`）→ 匹配**目录**
-
-例如 `lt."*.log" = "10MB"` 表示"匹配小于 10MB 的 .log 文件"；`ge."backups/" = "1GB"` 表示"匹配大于等于 1GB 的 backups 目录"。
-
-### 多级路径匹配
-
-模式支持多级路径，通过 `/` 分隔：
-
-- `"logs/*.log"` — 匹配 `logs/` 目录下所有 `.log` 后缀的文件
-- `"data/*/cache/"` — 匹配 `data/` 下一级子目录中的 `cache/` 目录
-- `"alpha/beta/charlie.txt"` — 精确匹配路径 `alpha/beta/charlie.txt`
-
-### 惰性求值（Lazy Evaluation）
-
-目录大小的获取需要递归扫描，开销较大。规则引擎仅在必要时才触发大小计算：
-
-1. 先检查名称是否匹配模式（字符串比较，开销极低）。
-2. 如果存在 `ge:"*" = -1` 这样的无条件命中规则，直接返回结果，**不计算大小**。
-3. 只有名称匹配且规则有实际大小阈值时，才调用 `get_dir_size_and_mtime()` 逐个文件扫描。
-
-这一设计使得大部分目录能在步骤 1 或 2 就完成判断，避免不必要的磁盘 I/O。
-
-### 规则优先级（Ambiguity Resolution）
-
-当一个文件同时命中 keep_rules 和 delete_rules 时，由 `preferred_rule` 决定最终行为：
-
-- `preferred_rule = "keep"`（默认）：**保留**该文件（遵循 keep_rules）
-- `preferred_rule = "delete"`：**删除**该文件（遵循 delete_rules）
-
-### 白名单的父目录继承
-
-在白名单模式下，如果一个**目录**命中了 whitelist_rules，该目录会被记录到 `whitelisted_dirs` 集合中。后续遍历时，该目录下的**所有子文件和子目录**会自动继承白名单状态——即便它们自身的名称不匹配任何白名单规则。
-
-这个设计解决了"我只配置了 `whitelist_rules.ge."videos/" = -1`，`videos/` 下的 `subdir/` 目录是否会被处理？"这类问题——答案是**会**，因为 `subdir/` 的父目录 `videos/` 已在白名单中。
+程序支持配置热重载：在 `interval` 或 `cron` 定时运行期间，修改 `config.toml` 后程序会在下次执行前自动加载新配置。如新配置验证失败，会自动回退到备份配置。
 
 ---
 
-## 容易产生歧义的功能逻辑
+### 第六步：全局设置
 
-### 1. `mtime_threshold_minutes` 的适用范围
+```toml
+lock_file = "/tmp/smartarchiver.lock"    # 锁文件路径，Linux 上防止多实例同时运行
+max_retries = 3                           # 单文件失败最大重试次数
+log_dir = "./logs"                        # 日志目录
+log_level = "INFO"                        # 日志级别：DEBUG / INFO / WARNING / ERROR
+max_log_files = 30                        # 保留的日志文件数量，0 表示不清理
+```
 
-**仅在 move/copy/whitelist_move/whitelist_copy 模式下生效**。轮转模式和同步模式不使用此参数。
-
-在标准模式下，它同时作用于**传输**和**删除**——即便是 delete_rules 匹配的文件，也必须先满足 mtime 阈值才会被删除。这意味着你无法通过 delete_rules 删除最近才修改过的文件。
-
-### 2. 轮转模式的「最旧优先」不等于「全部删除」
-
-轮转模式的逻辑是：**从最旧的文件开始处理，只要所有分组限制都满足就立即停止**。它不是"把所有旧文件都删掉"，而是"刚好处理到满足条件为止"。
-
-例如：配置 `count_limit = 10`，目录有 15 个文件。轮转只会处理最旧的 5 个文件（移动或删除），保留最新的 10 个。
-
-### 3. `rotate_rules` 不支持匹配目录
-
-`rotate_rules` 的键（pattern）**不支持以 `/` 结尾**来匹配目录，仅支持匹配文件路径。如果需要约束某个目录下的文件数量或体积，应使用 `"目录名/*"` 的形式（如 `"logs/*"`），而非 `"logs/"`。
-
-### 4. 轮转中的 keep_rules / delete_rules 作用
-
-轮转模式先通过分组统计确定**哪些文件需要处理**（因超限而需要被移除），然后对每个待处理文件再执行 keep_rules / delete_rules 判断：
-
-- 如果文件命中 `keep_rules`，则**跳过不处理**（该文件的统计值也会被保留）
-- 如果文件命中 `delete_rules`，则**直接删除**而不是移动到目标目录
-- 如果都不命中，且配置了 `dest`，则**移动到目标目录**
-
-一个典型用法：`delete_rules.ge."*" = -1` — 让所有轮转产生的文件都直接删除而不是移动，实现纯清理效果。
-
-### 5. 规则只匹配当前目录下的子项名称
-
-在 `os.walk` 遍历过程中，规则引擎接收的是**相对于源目录的路径**。例如源目录是 `./source`，文件是 `./source/a/b/file.txt`，则传递给规则的是 `a/b/file.txt`。因此在配置规则时，应以源目录为根的相对路径来编写模式。
-
-### 6. 空目录清理不会删除符号链接和挂载点
-
-`clean_empty_dirs()` 在遍历时会跳过符号链接和挂载点（`os.path.islink` / `os.path.ismount`），避免意外卸载外部存储或删除特殊目录。
-
-### 7. 冲突策略 `copy` 的含义
-
-`conflict_policy = "copy"` 并非指任务模式为复制的意思。它的含义是：**当目标位置已存在同名文件时，为源文件创建一个带编号的副本**（如 `file.txt` → `file-1.txt`）。"copy" 在这里表示"保留两份"，而非"覆盖"或"跳过"。
+**关于锁文件**：`lock_file` 仅在 Linux 上通过 `fcntl.flock` 生效，Windows 上不使用文件锁。Docker 容器不受实例锁限制且环境互相隔离。
 
 ---
 
-## 设计考量
+### 常见配置误区
 
-### 1. 为什么没有几十种模式和规则？
+1. **delete_rules 也受 mtime 阈值约束**：在 move/copy/whitelist 模式下，被 delete_rules 匹配但 mtime 不足的文件不会被删除。这是设计意图——保护正在使用的文件。
 
-如果为每种场景都创建一个专属模式，SmartArchiver 的配置将变成一份冗长的菜单——`move_logs_by_age`、`copy_videos_above_size`、`rotate_backups_by_count`、`sync_except_temp`……每种组合都需要一个名字，用户只能在预设的选项中挑选，稍有偏差就无从下手。SmartArchiver 选择了一条不同的路径：**提供少量正交的"动词"（move / copy / rotate / sync）和一套可组合的"条件表达式"（keep_rules / delete_rules / whitelist_rules / rotate_rules）**，让用户像搭积木一样，通过排列组合来表达任意文件管理逻辑。move 配上 `mtime_threshold_minutes` 就是"按时间归档"；rotate 配上 `delete_rules` 就是"纯清理"；whitelist_move 配上 `keep_rules.lt` 就是"只搬运某个目录下超过特定大小的文件"。模式负责"要做什么"（传输/删除/同步），规则负责"对谁做"（命名、大小、时间的筛选条件），两者解耦后，6 种模式 + 4 类规则所能表达的组合远远超过为每种组合单独设计一个模式。工程上，这也意味着规则引擎只需实现一次，所有处理器共享同一套决策逻辑，新增模式时也无需在配置层引入破坏性变更——因为规则语法对任何模式都是统一的。
+2. **rotate 模式下 dest 选填**：如果未配置 dest，轮转不会移动文件（留在原地）。只有配合 `delete_rules` 删除才能真正腾出空间。如果你既没有 dest 也没有 delete_rules，轮转实际上什么都不会改变。
 
-### 2. 为什么 `rotate_rules` 不支持匹配目录
+3. **`conflict_policy = "copy"` 不是指模式为复制**：它只决定同名冲突时创建编号副本，与任务是 move 还是 copy 无关。
 
-在 `keep_rules` / `delete_rules` / `whitelist_rules` 中，规则系统通过模式末尾是否带 `/` 来区分匹配目标——`"xxx/"` 匹配目录自身，`"xxx/*"` 匹配目录下的文件。虽然两个模式的匹配对象不同（一个匹配目录、一个匹配文件），但 `delete_rules` 和 `whitelist_rules` 的行为简单直接、歧义小，用户按直觉配置通常不会出问题。
+4. **规则路径以源目录为根**：模式 `"data/file.txt"` 匹配的是 `源目录/data/file.txt`，不是绝对路径。
 
-但是，给 `rotate_rules` 设计目录匹配逻辑极为困难。轮转模式的操作单元是**文件**：遍历文件列表、按 `mtime` 排序、逐个移除旧文件以腾出空间。如果引入目录级别的分组，会引发一系列难以自洽的问题：
+5. **轮转的"最旧优先"不等于"全删旧文件"**：轮转处理到所有分组不超限就停止，不是把所有旧文件都处理掉。
 
-- **`"xxx/"` 的歧义问题在 `rotate_rules` 中会被严重放大，比如**：
-
-   - `rotate_rules.count."xxx/*" = 5` → 限制 `xxx/` 下的**文件数量**不超过 5 个（合理、直观）
-   - `rotate_rules.count."xxx/" = 5` → 名为 xxx 的目录数量不超过 5 个？每个 xxx 目录下的文件数量不超过 5 个？所有名为 xxx 的目录下的总文件数量不超过 5 个？
-   - `rotate_rules.size."xxx/" = "1GB"` → 每个 xxx 目录下的文件体积不超过 1GB？所有名为 xxx 的目录下的总体积不超过 1GB？
-
-- **计数单位不统一**：目录和文件如何统一计入同一个 count 限制？一个目录算一个文件还是算 N 个？
-- **嵌套目录的归属**：`"a/"` 匹配了目录 `a/`，那么 `a/b/` 是否需要独立分组？还是两个目录共享同一个配额？
-- **mtime 排序失效**：轮转从最旧的文件开始处理，但如果一个「旧目录」下有一个「新文件」，应该如何处理？取目录 mtime 还是文件 mtime？
-- **移除语义模糊**：轮转一个文件是指移动或删除它，那轮转一个目录是针对整个目录，还是目录中的部分旧文件？
-
-这些问题没有唯一正确的答案，强行设计只会引入逻辑漏洞和配置歧义。因此 `rotate_rules` 刻意保持了**仅匹配文件**的简单语义，将复杂度留给更自然的 `keep_rules` / `delete_rules` 组合去解决（例如用 `delete_rules` 删除整个目录，或用 `keep_rules` 保护目录内的部分文件不被轮转处理）。
-
----
-
-## 通过组合规则满足特殊需求（示例）
-
-以下示例展示如何通过**模式选择 + 规则组合**实现一些项目没有显式设计但实际可完成的复杂需求：
-
-### 示例 1：只保留最近 7 天的日志，归档其余部分
-
-```toml
-mode = "move"
-mtime_threshold_minutes = 10080   # 7 天
-source = "./logs"
-dest = "./log_archive"
-keep_rules = {}   # 不保留任何文件，全部移动
-delete_rules = {}
-```
-
-通过增大 mtime 阈值，只有超过 7 天未修改的文件才会被移动，最近 7 天的文件自动留在原地。
-
-### 示例 2：删除所有 .tmp 和 .cache 文件，但保护 .important.cache
-
-```toml
-mode = "move"
-mtime_threshold_minutes = 0
-source = "./data"
-dest = "./backup"
-keep_rules.ge."*.important.cache" = -1
-delete_rules.ge."*.tmp" = -1
-delete_rules.ge."*.cache" = -1
-preferred_rule = "delete"
-```
-
-设置 `preferred_rule = "delete"` 确保 `*.important.cache`（同时命中 keep 和 delete）被保留；其余 `.tmp` 和 `.cache` 被删除。注意 `mtime_threshold_minutes` 设为 0 使所有文件立即参与处理。
-
-### 示例 3：目录超过 500MB 时仅删除超过 30 天的备份，不删除近期备份
-
-```toml
-mode = "rotate"
-source = "./backups"
-size_limit = "500MB"
-keep_rules.ge."*recent*" = -1
-delete_rules = {}
-```
-
-轮转从最旧文件开始处理（移动或删除），但标记了 `*recent*` 的文件永远不会被处理（命中 keep_rules）。旋转只处理那些非 recent 且最旧的文件。
-
-### 示例 4：只搬运 videos/ 和 music/ 下超过 100MB 的大文件
-
-```toml
-mode = "whitelist_move"
-source = "./media"
-dest = "./archive"
-mtime_threshold_minutes = 0
-whitelist_rules.ge."videos/*" = -1
-whitelist_rules.ge."music/*" = -1
-keep_rules.lt."*.mp4" = "100MB"
-keep_rules.lt."*.flac" = "100MB"
-```
-
-白名单限制了只有 `videos/` 和 `music/` 下的文件参与处理。再通过 keep_rules 将其中小于 100MB 的文件保留在原处。最终效果：只有 `videos/` 和 `music/` 下大于等于 100MB 的文件被移动。
-
-### 示例 5：源目录即归档 — 纯清理旧备份，保留最近 N 份
-
-```toml
-mode = "rotate"
-source = "./backups"
-size_limit = "10GB"
-count_limit = 5
-rotate_rules.count."*.tar.gz" = 3
-delete_rules.ge."*" = -1   # 命中轮转后直接删除，不移动
-remove_empty_dirs = true
-```
-
-全局最多保留 5 个文件且不超过 10GB，`.tar.gz` 备份最多保留 3 份。由于 `delete_rules.ge."*" = -1`，所有轮转处理都会直接删除，无需目标目录。
-
-### 示例 6：同步媒体库但排除缓存和临时文件
-
-```toml
-mode = "sync"
-source = "./media_library"
-dest = "/mnt/backup/media_library"
-exclude = ["*.tmp", "*.partial", "Thumbs.db", ".cache/", "@eaDir/"]
-```
-
-通过 rsync 的 exclude 排除临时文件和系统生成的文件，保持媒体库的干净镜像。
+6. **白名单模式必须配置 whitelist_rules**：否则程序会报错并跳过该任务。
