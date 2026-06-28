@@ -53,7 +53,7 @@ def run_tasks():
     ctx.logger.info(f"{'=' * 80}", raw=True)
 
 
-def _load_and_init(config_path, logger_prefix=""):
+def _load_and_init(config_path, logger_prefix="smartarchiver"):
     """加载配置文件并执行初始化流程。"""
     if not os.path.exists(config_path):
         print(f"Error: 配置文件 {config_path} 未找到。")
