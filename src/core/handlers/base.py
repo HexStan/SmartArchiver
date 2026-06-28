@@ -56,7 +56,6 @@ def validate_task_config(task, task_mode):
             "mode",
             "source",
             "mtime_threshold_minutes",
-            "conflict_policy",
             "remove_empty_dirs",
         ]
 
@@ -125,7 +124,7 @@ class ActionExecutor:
         self.source_root = task.get("source")
         self.dest_root = task.get("dest")
         self.dest_backend = dest_backend
-        self.conflict_policy = task.get("conflict_policy", "").lower()
+        self.conflict_policy = task.get("conflict_policy", "skip").lower()
         self._dest_checked = False
         self._dest_valid = False
 

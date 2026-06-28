@@ -125,11 +125,11 @@ mode = "copy"
 # 注意：所有操作（包括删除规则）都必须满足此时间阈值
 mtime_threshold_minutes = 180
 
-# 【必填】文件冲突处理策略：
+# 【选填】文件冲突处理策略：
+# "skip" - 跳过已存在的文件（默认）
 # "overwrite" - 覆盖目标文件
-# "skip" - 跳过已存在的文件
 # "copy" - 创建带编号的副本（如 file-1.txt）
-conflict_policy = "overwrite"
+conflict_policy = "skip"
 
 # 【必填】是否删除源目录中的空目录
 remove_empty_dirs = true
@@ -191,7 +191,7 @@ dest = "./dest-2"     # 【该模式下选填】
 # 3. 命中 rotate_rules 中的特定文件限制
 mode = "rotate"
 
-conflict_policy = "overwrite"
+conflict_policy = "skip"
 remove_empty_dirs = true
 
 #【以下四项必填至少一项】
@@ -233,7 +233,7 @@ dest = "./dest-3"
 mode = "whitelist_copy"
 
 mtime_threshold_minutes = 180
-conflict_policy = "overwrite"
+conflict_policy = "skip"
 remove_empty_dirs = true
 
 # 【whitelist_rules 必填】

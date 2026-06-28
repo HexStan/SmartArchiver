@@ -168,9 +168,9 @@ SmartArchiver 的核心能力是**对源目录中的文件执行某种操作**�
 |------|:----:|:----:|:--------------:|:--------------:|:------:|:----:|------|
 | `name` | ○ | ○ | ○ | ○ | ○ | ○ | 任务名称，仅用于日志展示 |
 | `source` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | 源目录路径 |
-| `dest` | ✓ | ✓ | ✓ | ✓ | ○ | ✓ | 目标目录路径（rotate 模式下选填） |
-| `conflict_policy` | ✓ | ✓ | ✓ | ✓ | ○ | ✗ | 同名文件冲突策略 |
-| `remove_empty_dirs` | ✓ | ✓ | ✓ | ✓ | ○ | ✗ | 任务结束后是否清理空目录 |
+| `dest` | ○ | ○ | ○ | ○ | ○ | ✓ | 目标目录路径（仅 sync 模式必填） |
+| `conflict_policy` | ○ | ○ | ○ | ○ | ✗ | ✗ | 同名文件冲突策略（默认 `"skip"`） |
+| `remove_empty_dirs` | ✓ | ✓ | ✓ | ✓ | ✓ | ✗ | 任务结束后是否清理空目录 |
 | `mtime_threshold_minutes` | ✓ | ✓ | ✓ | ✓ | ✗ | ✗ | 修改时间阈值（分钟） |
 
 #### 模式专属参数
@@ -188,7 +188,7 @@ SmartArchiver 的核心能力是**对源目录中的文件执行某种操作**�
 
 #### 参数详解
 
-**`conflict_policy`**（move / copy / whitelist 模式必填）：
+**`conflict_policy`**（move / copy / whitelist 模式选填，默认 `"skip"`）：
 
 当目标位置已存在同名文件时的处理策略：
 
@@ -236,7 +236,6 @@ mode = "move"
 source = "./my_files"
 dest = "./archive"
 mtime_threshold_minutes = 1440    # 1 天
-conflict_policy = "skip"
 remove_empty_dirs = false
 ```
 
@@ -469,7 +468,7 @@ max_log_files = 30                        # 保留的日志文件数量，0 表�
 
 1. **delete_rules 也受 mtime 阈值约束**：在 move/copy/whitelist 模式下，被 delete_rules 匹配但 mtime 不足的文件不会被删除。这是设计意图——保护正在使用的文件。
 
-2. **rotate 模式下 dest 选填**：如果未配置 dest，轮转不会移动文件（留在原地）。只有配合 `delete_rules` 删除才能真正腾出空间。如果你既没有 dest 也没有 delete_rules，轮转实际上什么都不会改变。
+2. **除 sync 外 dest 均选填**：如果未配置 dest，move / copy / whitelist / rotate 模式均不会移动或复制文件（TRANSFER 动作被跳过），但 `delete_rules` 删除仍可正常执行。只有 sync 模式必须有 dest。如果你既没有 dest 也没有 delete_rules，在这些模式中实际上什么都不会改变。
 
 3. **`conflict_policy = "copy"` 不是指模式为复制**：它只决定同名冲突时创建编号副本，与任务是 move 还是 copy 无关。
 

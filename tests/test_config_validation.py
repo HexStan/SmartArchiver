@@ -158,16 +158,14 @@ class TestStandardModeValidation:
         assert not result
         assert any("mtime_threshold_minutes" in msg for _, msg in mock_logger.messages)
 
-    def test_missing_conflict_policy(self, app_context, mock_logger):
+    def test_conflict_policy_optional(self, app_context):
         task = {
             "mode": "move",
             "source": "/tmp/test",
             "mtime_threshold_minutes": 180,
             "remove_empty_dirs": True,
         }
-        result = validate_task_config(task, "move")
-        assert not result
-        assert any("conflict_policy" in msg for _, msg in mock_logger.messages)
+        assert validate_task_config(task, "move")
 
     def test_multiple_missing_fields(self, app_context, mock_logger):
         task = {"mode": "move"}
@@ -176,7 +174,6 @@ class TestStandardModeValidation:
         messages = " ".join(msg for _, msg in mock_logger.messages)
         assert "source" in messages
         assert "mtime_threshold_minutes" in messages
-        assert "conflict_policy" in messages
         assert "remove_empty_dirs" in messages
 
     def test_missing_source(self, app_context, mock_logger):
