@@ -448,16 +448,17 @@ password_file = "/home/user/.ssh/pass"     # 选填，明文密码文件路径
 mode = "interval"            # "cron" 或 "interval"
 interval_seconds = 3600      # interval 模式：每次执行完等待的秒数
 # cron_expr = "0 * * * *"   # cron 模式：cron 表达式
-# run_immediately = true    # 启动后是否立即执行（interval 默认 true，cron 默认 false）
+# first_run_delay = -1      # 启动后首次执行延迟（秒）；-1=等到下个调度点，0=立即，正数=等N秒
 ```
 
 **两种定时模式**：
 - `interval`：每次任务执行完毕后开始计时，等待指定秒数后再次执行
 - `cron`：按 cron 表达式定时执行（如 `"0 2 * * *"` 表示每天凌晨 2 点）
 
-**`run_immediately`** 控制启动后是否立即执行一次：
-- `interval` 模式默认 `true`（启动即执行）
-- `cron` 模式默认 `false`（等到下一个 cron 时间点）
+**`first_run_delay`** 控制启动后首次执行的延迟（秒）：
+- `-1`：等待至下个调度时间点再执行（默认）
+- `0`：立即执行
+- 正数：等待指定秒数后执行第一次任务
 
 程序支持配置热重载：在 `interval` 或 `cron` 定时运行期间，修改 `config.toml` 后程序会在下次执行前自动加载新配置。如新配置验证失败，会自动回退到备份配置。
 

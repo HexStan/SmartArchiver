@@ -53,6 +53,22 @@ def run_tasks():
     ctx.logger.info(f"{'=' * 80}", raw=True)
 
 
+def _execute_tasks(manager):
+    """在锁保护下执行一次任务，支持配置热重载。"""
+    try:
+        _reload_config_if_changed(manager)
+        ctx = AppContext.get()
+        with SingleInstance(ctx.config.get("lock_file"), ctx.logger):
+            run_tasks()
+            ctx.history_mgr.save()
+    except SystemExit:
+        AppContext.get().logger.warning("获取锁失败，可能有其他实例在运行。")
+    except Exception as e:
+        ctx = AppContext.get()
+        ctx.logger.error(f"发生未知错误: {e}")
+        ctx.history_mgr.save()
+
+
 def _load_and_init(config_path, logger_prefix="smartarchiver"):
     """加载配置文件并执行初始化流程。"""
     if not os.path.exists(config_path):
@@ -86,6 +102,7 @@ def run_client():
 
     schedule_config = config.get("schedule", {})
     mode = schedule_config.get("mode")
+    first_run_delay = schedule_config.get("first_run_delay", -1)
 
     if not mode:
         try:
@@ -105,23 +122,12 @@ def run_client():
                 print("cron 模式需要配置 cron_expr。")
                 sys.exit(1)
 
-            run_immediately = schedule_config.get("run_immediately", False)
-
             ctx.logger.info(f"已设置定时任务 (cron 模式): {cron_expr}。")
 
-            if run_immediately:
-                ctx.logger.debug("设置为启动后立即执行一次任务。")
-                try:
-                    _reload_config_if_changed(manager)
-                    ctx = AppContext.get()
-                    with SingleInstance(ctx.config.get("lock_file"), ctx.logger):
-                        run_tasks()
-                        ctx.history_mgr.save()
-                except SystemExit:
-                    ctx.logger.warning("获取锁失败，可能有其他实例在运行。")
-                except Exception as e:
-                    ctx.logger.error(f"发生未知错误: {e}")
-                    ctx.history_mgr.save()
+            if first_run_delay >= 0:
+                ctx.logger.info(f"等待 {first_run_delay} 秒后开始执行任务。")
+                time.sleep(first_run_delay)
+                _execute_tasks(manager)
 
             while True:
                 now = datetime.datetime.now()
@@ -135,17 +141,7 @@ def run_client():
                 )
                 time.sleep(sleep_seconds)
 
-                try:
-                    _reload_config_if_changed(manager)
-                    ctx = AppContext.get()
-                    with SingleInstance(ctx.config.get("lock_file"), ctx.logger):
-                        run_tasks()
-                        ctx.history_mgr.save()
-                except SystemExit:
-                    ctx.logger.warning("上次任务仍在执行，跳过本次执行。")
-                except Exception as e:
-                    ctx.logger.error(f"发生未知错误: {e}")
-                    ctx.history_mgr.save()
+                _execute_tasks(manager)
 
         elif mode == "interval":
             interval_seconds = schedule_config.get("interval_seconds")
@@ -157,29 +153,16 @@ def run_client():
                 print("interval 模式需要配置有效的 interval_seconds (大于0的数字)。")
                 sys.exit(1)
 
-            run_immediately = schedule_config.get("run_immediately", True)
-
             ctx.logger.info(
                 f"已设置定时任务 (interval 模式): 每 {interval_seconds} 秒执行一次。"
             )
 
-            first_run = True
+            if first_run_delay >= 0:
+                ctx.logger.info(f"等待 {first_run_delay} 秒后开始执行任务。")
+                time.sleep(first_run_delay)
+                _execute_tasks(manager)
+
             while True:
-                if not first_run or run_immediately:
-                    try:
-                        _reload_config_if_changed(manager)
-                        ctx = AppContext.get()
-                        with SingleInstance(ctx.config.get("lock_file"), ctx.logger):
-                            run_tasks()
-                            ctx.history_mgr.save()
-                    except SystemExit:
-                        ctx.logger.warning("获取锁失败，可能有其他实例在运行。")
-                    except Exception as e:
-                        ctx.logger.error(f"发生未知错误: {e}")
-                        ctx.history_mgr.save()
-
-                first_run = False
-
                 next_run = datetime.datetime.now() + datetime.timedelta(
                     seconds=interval_seconds
                 )
@@ -188,6 +171,7 @@ def run_client():
                     f"下一次执行时间: {next_run.strftime('%Y-%m-%d %H:%M:%S')}。\n"
                 )
                 time.sleep(interval_seconds)
+                _execute_tasks(manager)
         else:
             print(f"不支持的定时模式: {mode}")
             sys.exit(1)
