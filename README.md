@@ -268,25 +268,24 @@ dest = "./mirror"
 flowchart TD
     TASK["任务配置"] --> MODE{"mode"}
 
-    MODE -->|"move / copy"| EVAL
-    MODE -->|"whitelist_move<br>whitelist_copy"| WHITELIST
-    MODE -->|"rotate"| EXCEED
+    MODE -->|"move / copy"| BASE
+    MODE -->|"whitelist_move /<br>whitelist_copy"| WHITELIST
+    MODE -->|"rotate"| ROTATE
     MODE -->|"sync"| SYNC["rsync / rclone 同步<br>仅支持 exclude 过滤"]
 
     subgraph ENGINE["规则引擎"]
         direction TB
 
-        EXCEED{"超出 size /<br>count 限制?"} -->ROTATE_MATCH{"命中 rotate_rules?"}
-        ROTATE_MATCH -->|"是"| EVAL
-        ROTATE_MATCH -->|"否"| KEEP
+        ROTATE{"超出 size / count 限制 或<br>命中 rotate_rules?"} -->|"是"| BASE
+        ROTATE -->|"否"| KEEP
 
-        WHITELIST{"命中 whitelist_rules?"} -->|"是"| EVAL
+        WHITELIST{"命中 whitelist_rules?"} -->|"是"| BASE
         WHITELIST -->|"否"| KEEP
 
-        EVAL{"命中 keep_rules /<br>delete_rules?"} -->|"仅命中 delete"| DELETE["删除"]
-        EVAL -->|"同时命中"| PREFERRED{"preferred_rule"}
-        EVAL -->|"仅命中 keep"| KEEP
-        EVAL -->|"均未命中"| TRANSFER["传输"]
+        BASE{"命中 keep_rules /<br>delete_rules?"} -->|"仅命中<br>delete_rules"| DELETE["删除"]
+        BASE -->|"同时命中"| PREFERRED{"preferred_rule"}
+        BASE -->|"仅命中<br>keep_rules"| KEEP["保留"]
+        BASE -->|"均未命中"| TRANSFER["传输"]
 
         PREFERRED -->|"delete"| DELETE
         PREFERRED -->|"keep"| KEEP
