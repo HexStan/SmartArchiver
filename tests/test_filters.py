@@ -498,3 +498,171 @@ class TestZeroSize:
             }
         )
         assert policy.decide("empty.log", 0) == FileAction.TRANSFER
+
+
+class TestParentDirCascade:
+    def test_file_skipped_by_parent_keep_rule(self):
+        policy = FileFilterPolicy(
+            {
+                "keep_rules": {"ge": {"backup/": "-1"}},
+                "delete_rules": {},
+                "preferred_rule": "keep",
+                "is_whitelist_mode": False,
+            }
+        )
+        parent_dir_sizes = {"backup": 1000}
+        assert (
+            policy.decide("backup/file.txt", 500, parent_dir_sizes=parent_dir_sizes)
+            == FileAction.SKIP
+        )
+
+    def test_file_deleted_by_parent_delete_rule(self):
+        policy = FileFilterPolicy(
+            {
+                "keep_rules": {},
+                "delete_rules": {"ge": {"backup/": "-1"}},
+                "preferred_rule": "keep",
+                "is_whitelist_mode": False,
+            }
+        )
+        parent_dir_sizes = {"backup": 1000}
+        assert (
+            policy.decide("backup/file.txt", 500, parent_dir_sizes=parent_dir_sizes)
+            == FileAction.DELETE
+        )
+
+    def test_parent_dir_size_check_lt_exceeded(self):
+        policy = FileFilterPolicy(
+            {
+                "keep_rules": {"lt": {"backup/": "1KB"}},
+                "delete_rules": {},
+                "preferred_rule": "keep",
+                "is_whitelist_mode": False,
+            }
+        )
+        parent_dir_sizes = {"backup": 2000}
+        assert (
+            policy.decide("backup/file.txt", 500, parent_dir_sizes=parent_dir_sizes)
+            == FileAction.TRANSFER
+        )
+
+    def test_parent_dir_size_check_lt_matched(self):
+        policy = FileFilterPolicy(
+            {
+                "keep_rules": {"lt": {"backup/": "1KB"}},
+                "delete_rules": {},
+                "preferred_rule": "keep",
+                "is_whitelist_mode": False,
+            }
+        )
+        parent_dir_sizes = {"backup": 500}
+        assert (
+            policy.decide("backup/file.txt", 500, parent_dir_sizes=parent_dir_sizes)
+            == FileAction.SKIP
+        )
+
+    def test_file_keep_parent_delete_prefer_keep(self):
+        policy = FileFilterPolicy(
+            {
+                "keep_rules": {"lt": {"*.txt": "10MB"}},
+                "delete_rules": {"ge": {"backup/": "-1"}},
+                "preferred_rule": "keep",
+                "is_whitelist_mode": False,
+            }
+        )
+        parent_dir_sizes = {"backup": 1000}
+        assert (
+            policy.decide("backup/file.txt", 500, parent_dir_sizes=parent_dir_sizes)
+            == FileAction.SKIP
+        )
+
+    def test_file_keep_parent_delete_prefer_delete(self):
+        policy = FileFilterPolicy(
+            {
+                "keep_rules": {"lt": {"*.txt": "10MB"}},
+                "delete_rules": {"ge": {"backup/": "-1"}},
+                "preferred_rule": "delete",
+                "is_whitelist_mode": False,
+            }
+        )
+        parent_dir_sizes = {"backup": 1000}
+        assert (
+            policy.decide("backup/file.txt", 500, parent_dir_sizes=parent_dir_sizes)
+            == FileAction.DELETE
+        )
+
+    def test_deeply_nested_parent_keep(self):
+        policy = FileFilterPolicy(
+            {
+                "keep_rules": {"ge": {"backup/": "-1"}},
+                "delete_rules": {},
+                "preferred_rule": "keep",
+                "is_whitelist_mode": False,
+            }
+        )
+        parent_dir_sizes = {"backup": 10000, "backup/sub": 5000}
+        assert (
+            policy.decide(
+                "backup/sub/deep/file.txt", 500, parent_dir_sizes=parent_dir_sizes
+            )
+            == FileAction.SKIP
+        )
+
+    def test_multiple_parents_keep_and_delete(self):
+        policy = FileFilterPolicy(
+            {
+                "keep_rules": {"ge": {"data/": "-1"}},
+                "delete_rules": {"ge": {"data/temp/": "-1"}},
+                "preferred_rule": "keep",
+                "is_whitelist_mode": False,
+            }
+        )
+        parent_dir_sizes = {"data": 5000, "data/temp": 1000}
+        assert (
+            policy.decide(
+                "data/temp/file.txt", 500, parent_dir_sizes=parent_dir_sizes
+            )
+            == FileAction.SKIP
+        )
+
+    def test_no_matching_parent_dirs(self):
+        policy = FileFilterPolicy(
+            {
+                "keep_rules": {"ge": {"other/": "-1"}},
+                "delete_rules": {},
+                "preferred_rule": "keep",
+                "is_whitelist_mode": False,
+            }
+        )
+        parent_dir_sizes = {"backup": 1000}
+        assert (
+            policy.decide("backup/file.txt", 500, parent_dir_sizes=parent_dir_sizes)
+            == FileAction.TRANSFER
+        )
+
+    def test_parent_dir_sizes_none_backward_compat(self):
+        policy = FileFilterPolicy(
+            {
+                "keep_rules": {"ge": {"backup/": "-1"}},
+                "delete_rules": {},
+                "preferred_rule": "keep",
+                "is_whitelist_mode": False,
+            }
+        )
+        assert policy.decide("backup/file.txt", 500) == FileAction.TRANSFER
+        assert policy.decide("backup/file.txt", 500, parent_dir_sizes=None) == FileAction.TRANSFER
+
+    def test_is_dir_true_ignores_parent_dir_sizes(self):
+        policy = FileFilterPolicy(
+            {
+                "keep_rules": {"lt": {"backup/": "1KB"}},
+                "delete_rules": {},
+                "preferred_rule": "keep",
+                "is_whitelist_mode": False,
+            }
+        )
+        parent_dir_sizes = {"parent": 0}
+        assert (
+            policy.decide("backup", 500, is_dir=True, parent_dir_sizes=parent_dir_sizes)
+            == FileAction.SKIP
+        )
