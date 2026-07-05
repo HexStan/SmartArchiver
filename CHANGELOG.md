@@ -4,6 +4,10 @@
 
 ## 未发布
 
+### 修复
+
+- `keep_rules` 和 `delete_rules` 在 rotate 模式下对目录不生效的问题，以及同源的逻辑缺陷
+
 ### 变更
 
 - `conflict_policy` 配置项现为选填，默认值为 `"skip"`（跳过已存在的目标文件）。
