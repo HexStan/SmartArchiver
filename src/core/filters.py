@@ -87,13 +87,29 @@ class FileFilterPolicy:
         if self.is_whitelist_mode:
             self.whitelist_rules = self._RuleSet(config.get("whitelist_rules", {}))
 
-    def decide(self, name, size_or_callable, is_dir=False):
+    def decide(self, name, size_or_callable, is_dir=False, parent_dir_sizes=None):
         """
         根据名称和大小，返回 FileAction 决策。
         size_or_callable 可以是一个数值，也可以是一个返回数值的可调用对象（用于惰性求值）。
+        parent_dir_sizes 可选，是一个 dict[str, int | callable]，
+        用于在 is_dir=False 时将父目录的 keep/delete 目录规则级联到文件。
         """
         match_keep = self.keep_rules.matches(name, size_or_callable, is_dir)
         match_delete = self.delete_rules.matches(name, size_or_callable, is_dir)
+
+        if not is_dir and parent_dir_sizes:
+            normalized_name = name.replace("\\", "/")
+            parent = os.path.dirname(normalized_name)
+            while parent:
+                if parent in parent_dir_sizes:
+                    dir_size = parent_dir_sizes[parent]
+                    match_keep = match_keep or self.keep_rules.matches(
+                        parent, dir_size, is_dir=True
+                    )
+                    match_delete = match_delete or self.delete_rules.matches(
+                        parent, dir_size, is_dir=True
+                    )
+                parent = os.path.dirname(parent)
 
         # 1. 如果同时命中保留和删除规则，根据配置项处理
         if match_keep and match_delete:

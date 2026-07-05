@@ -169,6 +169,7 @@ class RotateHandler(BaseTaskHandler):
         start_time = time.time()
 
         all_files = []
+        dir_sizes = {}
         for root, dirs, files in os.walk(self.source_root):
             for file in files:
                 src_path = os.path.join(root, file)
@@ -179,6 +180,12 @@ class RotateHandler(BaseTaskHandler):
                     rel_path = os.path.relpath(src_path, self.source_root)
 
                     groups = rotate_mgr.add_file(rel_path, size)
+
+                    normalized = rel_path.replace("\\", "/")
+                    parent = os.path.dirname(normalized)
+                    while parent:
+                        dir_sizes[parent] = dir_sizes.get(parent, 0) + size
+                        parent = os.path.dirname(parent)
 
                     all_files.append(
                         {
@@ -217,7 +224,7 @@ class RotateHandler(BaseTaskHandler):
             ):
                 continue
 
-            action = self.policy.decide(f["rel_path"], f["size"])
+            action = self.policy.decide(f["rel_path"], f["size"], parent_dir_sizes=dir_sizes)
 
             success = self.executor.execute(
                 action,
