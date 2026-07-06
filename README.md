@@ -266,18 +266,18 @@ flowchart TD
     TASK["任务配置"] --> MODE{"mode"}
   
     MODE -->|"rotate"| ROTATE{"超出 size / count 限制 或<br>命中 rotate_rules?"}
-    MODE -->|"move / copy"| INCLUDE
+    MODE -->|"move / copy"| INCLUDE{"命中 include_rules?"}
     MODE -->|"sync"| SYNC["rsync / rclone 同步<br>仅支持 exclude 过滤"]
 
     subgraph ENGINE["规则引擎（流水线）"]
         direction TB
 
-        ROTATE -->|"是"| EXCLUDE
-        ROTATE -->|"否"| KEEP
+        ROTATE -->|"是"| EXCLUDE{"命中 exclude_rules?"}
+        ROTATE -->|"否"| KEEP["跳过"]
 
-        INCLUDE{"命中 include_rules?<br>（未配置则全部纳入）"} -->|"否"| KEEP
-        INCLUDE -->|"是"| EXCLUDE{"命中 exclude_rules?"}
-        EXCLUDE -->|"是"| KEEP["跳过"]
+        INCLUDE -->|"否"| KEEP
+        INCLUDE -->|"是 / 置空"| EXCLUDE
+        EXCLUDE -->|"是"| KEEP
         EXCLUDE -->|"否"| DEL{"命中 delete_rules?"}
         DEL -->|"是"| DELETE["删除"]
         DEL -->|"否"| TRANSFER["传输"]
