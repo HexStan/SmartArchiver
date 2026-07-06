@@ -5,7 +5,8 @@ from src.core.types import FileAction
 
 class FileFilterPolicy:
     """
-    负责解析过滤规则并决定文件或目录的处理方式
+    负责解析过滤规则并决定文件或目录的处理方式。
+    决策流水线: include → exclude → delete → TRANSFER
     """
 
     class _RuleSet:
@@ -78,14 +79,20 @@ class FileFilterPolicy:
 
             return False
 
+        @property
+        def has_rules(self):
+            return bool(
+                self.dir_rules_lt
+                or self.dir_rules_ge
+                or self.file_rules_lt
+                or self.file_rules_ge
+            )
+
     def __init__(self, config):
-        self.is_whitelist_mode = config.get("is_whitelist_mode", False)
-        self.keep_rules = self._RuleSet(config.get("keep_rules", {}))
+        self.include_rules = self._RuleSet(config.get("include_rules", {}))
+        self.exclude_rules = self._RuleSet(config.get("exclude_rules", {}))
         self.delete_rules = self._RuleSet(config.get("delete_rules", {}))
-        self.preferred_rule = config.get("preferred_rule", "keep")
-        self.whitelisted_dirs = set()
-        if self.is_whitelist_mode:
-            self.whitelist_rules = self._RuleSet(config.get("whitelist_rules", {}))
+        self.included_dirs = set()
 
     def decide(self, name, size_or_callable, is_dir=False, parent_dir_sizes=None):
         """
@@ -94,67 +101,63 @@ class FileFilterPolicy:
         parent_dir_sizes 可选，是一个 dict[str, int | callable]，
         用于在 is_dir=False 时将父目录的 keep/delete 目录规则级联到文件。
         """
-        match_keep = self.keep_rules.matches(name, size_or_callable, is_dir)
-        match_delete = self.delete_rules.matches(name, size_or_callable, is_dir)
+        if self.include_rules.has_rules:
+            is_included = self._is_included(name, size_or_callable, is_dir)
+            if not is_included:
+                return FileAction.SKIP
 
+        if self._check_exclude(name, size_or_callable, is_dir, parent_dir_sizes):
+            return FileAction.SKIP
+
+        if self._check_delete(name, size_or_callable, is_dir, parent_dir_sizes):
+            return FileAction.DELETE
+
+        return FileAction.TRANSFER
+
+    def _is_included(self, name, size_or_callable, is_dir):
+        if is_dir:
+            if self.include_rules.matches(name, size_or_callable, is_dir=True):
+                normalized_name = name.replace("\\", "/")
+                self.included_dirs.add(normalized_name)
+                return True
+            return True
+
+        if self.include_rules.matches(name, size_or_callable, is_dir=False):
+            return True
+
+        normalized_name = name.replace("\\", "/")
+        parent = os.path.dirname(normalized_name)
+        while parent:
+            if parent in self.included_dirs:
+                return True
+            parent = os.path.dirname(parent)
+
+        return False
+
+    def _check_exclude(self, name, size_or_callable, is_dir, parent_dir_sizes):
+        if self.exclude_rules.matches(name, size_or_callable, is_dir):
+            return True
         if not is_dir and parent_dir_sizes:
             normalized_name = name.replace("\\", "/")
             parent = os.path.dirname(normalized_name)
             while parent:
                 if parent in parent_dir_sizes:
                     dir_size = parent_dir_sizes[parent]
-                    match_keep = match_keep or self.keep_rules.matches(
-                        parent, dir_size, is_dir=True
-                    )
-                    match_delete = match_delete or self.delete_rules.matches(
-                        parent, dir_size, is_dir=True
-                    )
+                    if self.exclude_rules.matches(parent, dir_size, is_dir=True):
+                        return True
                 parent = os.path.dirname(parent)
+        return False
 
-        # 1. 如果同时命中保留和删除规则，根据配置项处理
-        if match_keep and match_delete:
-            if self.preferred_rule == "delete":
-                return FileAction.DELETE
-            else:
-                return FileAction.SKIP
-
-        # 2. 如果只命中保留规则，保留目标
-        elif match_keep:
-            return FileAction.SKIP
-
-        # 3. 如果只命中删除规则，删除目标
-        elif match_delete:
-            return FileAction.DELETE
-
-        if self.is_whitelist_mode:
-            is_whitelisted = self.whitelist_rules.matches(
-                name, size_or_callable, is_dir
-            )
-
-            if is_whitelisted and is_dir:
-                # 记录命中的目录，以便其子文件/子目录继承白名单状态
-                # 统一使用正斜杠以避免路径分隔符问题
-                normalized_name = name.replace("\\", "/")
-                self.whitelisted_dirs.add(normalized_name)
-
-            if not is_whitelisted:
-                # 检查父目录是否在白名单中
-                normalized_name = name.replace("\\", "/")
-                parent = os.path.dirname(normalized_name)
-                while parent:
-                    if parent in self.whitelisted_dirs:
-                        is_whitelisted = True
-                        break
-                    parent = os.path.dirname(parent)
-
-            if not is_whitelisted:
-                if not is_dir:
-                    return FileAction.SKIP
-                else:
-                    # 目录未命中白名单，但我们需要遍历它以寻找可能命中白名单的子项
-                    return FileAction.TRANSFER
-            else:
-                return FileAction.TRANSFER
-
-        # 4. 都不命中，正常传输
-        return FileAction.TRANSFER
+    def _check_delete(self, name, size_or_callable, is_dir, parent_dir_sizes):
+        if self.delete_rules.matches(name, size_or_callable, is_dir):
+            return True
+        if not is_dir and parent_dir_sizes:
+            normalized_name = name.replace("\\", "/")
+            parent = os.path.dirname(normalized_name)
+            while parent:
+                if parent in parent_dir_sizes:
+                    dir_size = parent_dir_sizes[parent]
+                    if self.delete_rules.matches(parent, dir_size, is_dir=True):
+                        return True
+                parent = os.path.dirname(parent)
+        return False

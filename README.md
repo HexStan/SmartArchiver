@@ -144,14 +144,11 @@ SmartArchiver 的核心能力是**对源目录中的文件执行某种操作**�
 |-----------|---------|--------|
 | 把文件批量搬运到另一个目录 | `move` | 移动、归档、冷热分层 |
 | 把文件批量复制到另一个目录 | `copy` | 复制、备份、多副本 |
-| **只**搬运命中特定命名规则的文件 | `whitelist_move` | 白名单、选择性搬运 |
-| **只**复制命中特定命名规则的文件 | `whitelist_copy` | 白名单、选择性复制 |
 | 限制目录体积/数量，超出部分自动清理 | `rotate` | 轮转、限额、清理 |
 | 让两个目录保持完全一致（镜像同步） | `sync` | 同步、镜像、rsync |
 
 **决策要点**：
 
-- 如果源目录文件**各式各样**，但你只想动其中某几类 → 选 `whitelist_move` 或 `whitelist_copy`
 - 如果目标是**"目录不能超过某个大小"**而非"移动具体哪个文件" → 选 `rotate`
 - 如果源和目标需要**时刻保持一致**，且不关心单文件粒度规则 → 选 `sync`
 - 其余常规归档/备份需求 → 选 `move` 或 `copy`
@@ -164,14 +161,14 @@ SmartArchiver 的核心能力是**对源目录中的文件执行某种操作**�
 
 #### 通用参数
 
-| 参数 | move | copy | whitelist_move | whitelist_copy | rotate | sync | 说明 |
-|------|:----:|:----:|:--------------:|:--------------:|:------:|:----:|------|
-| `name` | ○ | ○ | ○ | ○ | ○ | ○ | 任务名称，仅用于日志展示 |
-| `source` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | 源目录路径 |
-| `dest` | ○ | ○ | ○ | ○ | ○ | ✓ | 目标目录路径（仅 sync 模式必填） |
-| `conflict_policy` | ○ | ○ | ○ | ○ | ✗ | ✗ | 同名文件冲突策略（默认 `"skip"`） |
-| `remove_empty_dirs` | ✓ | ✓ | ✓ | ✓ | ✓ | ✗ | 任务结束后是否清理空目录 |
-| `mtime_threshold_minutes` | ✓ | ✓ | ✓ | ✓ | ✗ | ✗ | 修改时间阈值（分钟） |
+| 参数 | move | copy | rotate | sync | 说明 |
+|------|:----:|:----:|:------:|:----:|------|
+| `name` | ○ | ○ | ○ | ○ | 任务名称，仅用于日志展示 |
+| `source` | ✓ | ✓ | ✓ | ✓ | 源目录路径 |
+| `dest` | ○ | ○ | ○ | ✓ | 目标目录路径（仅 sync 模式必填） |
+| `conflict_policy` | ○ | ○ | ✗ | ✗ | 同名文件冲突策略（默认 `"skip"`） |
+| `remove_empty_dirs` | ✓ | ✓ | ✓ | ✗ | 任务结束后是否清理空目录 |
+| `mtime_threshold_minutes` | ✓ | ✓ | ✗ | ✗ | 修改时间阈值（分钟） |
 
 #### 模式专属参数
 
@@ -188,7 +185,7 @@ SmartArchiver 的核心能力是**对源目录中的文件执行某种操作**�
 
 #### 参数详解
 
-**`conflict_policy`**（move / copy / whitelist 模式选填，默认 `"skip"`）：
+**`conflict_policy`**（move / copy 模式选填，默认 `"skip"`）：
 
 当目标位置已存在同名文件时的处理策略：
 
@@ -196,7 +193,7 @@ SmartArchiver 的核心能力是**对源目录中的文件执行某种操作**�
 - `"skip"` — 跳过该文件，不传输
 - `"copy"` — 创建带编号的副本，如 `file.txt` → `file-1.txt`。「copy」在此处指「保留两份」，不是指任务模式为复制
 
-**`mtime_threshold_minutes`**（move / copy / whitelist 模式必填）：
+**`mtime_threshold_minutes`**（move / copy 模式必填）：
 
 文件最近修改时间需超过该阈值（分钟）才会被处理。**该阈值同时约束传输和删除**——即便是被 `delete_rules` 匹配的文件，如果其 mtime 不满足阈值也不会被删除。建议至少设为几分钟，避免处理仍在写入的文件。
 
@@ -204,7 +201,7 @@ SmartArchiver 的核心能力是**对源目录中的文件执行某种操作**�
 
 **轮转模式（rotate）不需要此参数**。轮转按文件 mtime 升序处理（最旧的优先），新文件天然排在后面。
 
-**`remove_empty_dirs`**（move / copy / whitelist / rotate 模式）：
+**`remove_empty_dirs`**（move / copy / rotate 模式）：
 
 任务结束后自底向上清理源目录中的空目录。清理时会跳过符号链接和挂载点，不会意外卸载外部存储。
 
@@ -256,7 +253,7 @@ dest = "./mirror"
 
 ---
 
-### 第三步：用规则精确筛选（move / copy / whitelist / rotate 模式）
+### 第三步：用规则精确筛选（move / copy / rotate 模式）
 
 如果基础参数不能满足你的需求——比如"只移动大于 100MB 的文件"、"删除所有 .tmp 但保护 .important.tmp"——你需要配置**规则**。
 
@@ -267,28 +264,23 @@ dest = "./mirror"
 ```mermaid
 flowchart TD
     TASK["任务配置"] --> MODE{"mode"}
-
-    MODE -->|"move / copy"| BASE
-    MODE -->|"whitelist_move /<br>whitelist_copy"| WHITELIST
-    MODE -->|"rotate"| ROTATE
+  
+    MODE -->|"rotate"| ROTATE{"超出 size / count 限制 或<br>命中 rotate_rules?"}
+    MODE -->|"move / copy"| INCLUDE
     MODE -->|"sync"| SYNC["rsync / rclone 同步<br>仅支持 exclude 过滤"]
 
-    subgraph ENGINE["规则引擎"]
+    subgraph ENGINE["规则引擎（流水线）"]
         direction TB
 
-        ROTATE{"超出 size / count 限制 或<br>命中 rotate_rules?"} -->|"是"| BASE
+        ROTATE -->|"是"| EXCLUDE
         ROTATE -->|"否"| KEEP
 
-        WHITELIST{"命中 whitelist_rules?"} -->|"是"| BASE
-        WHITELIST -->|"否"| KEEP
-
-        BASE{"命中 keep_rules /<br>delete_rules?"} -->|"仅命中<br>delete_rules"| DELETE["删除"]
-        BASE -->|"同时命中"| PREFERRED{"preferred_rule"}
-        BASE -->|"仅命中<br>keep_rules"| KEEP["保留"]
-        BASE -->|"均未命中"| TRANSFER["传输"]
-
-        PREFERRED -->|"delete"| DELETE
-        PREFERRED -->|"keep"| KEEP
+        INCLUDE{"命中 include_rules?<br>（未配置则全部纳入）"} -->|"否"| KEEP
+        INCLUDE -->|"是"| EXCLUDE{"命中 exclude_rules?"}
+        EXCLUDE -->|"是"| KEEP["跳过"]
+        EXCLUDE -->|"否"| DEL{"命中 delete_rules?"}
+        DEL -->|"是"| DELETE["删除"]
+        DEL -->|"否"| TRANSFER["传输"]
     end
 ```
 
@@ -306,14 +298,26 @@ flowchart TD
 **区分文件和目录**：模式末尾带 `/` 匹配目录，不带 `/` 匹配文件。
 
 ```toml
-[tasks.keep_rules]
+[tasks.include_rules]
 # 文件规则（模式末尾无 /）：
-lt."*.log" = "10MB"              # 小于 10MB 的 .log 文件 → 保留
-ge."backup.iso" = -1              # 所有 backup.iso 文件 → 保留（-1 无条件命中）
+lt."*.mp4" = "10GB"              # 小于 10GB 的 .mp4 文件 → 纳入处理
+ge."*.doc" = "1MB"               # 大于等于 1MB 的 .doc 文件 → 纳入处理
 
-# 目录规则（模式末尾有 /）：
-lt."cache/" = "500MB"             # 小于 500MB 的 cache 目录 → 保留
-ge."backups/" = "1GB"             # 大于等于 1GB 的 backups 目录 → 删除
+# 目录规则（模式末尾有 /，目录内的子项自动继承纳入状态）：
+ge."videos/" = -1                # videos 目录及其所有子项 → 纳入处理
+
+[tasks.exclude_rules]
+# 文件规则：
+lt."*.log" = "10MB"              # 小于 10MB 的 .log 文件 → 保留（跳过）
+ge."backup.iso" = -1             # 所有 backup.iso 文件 → 保留
+
+# 目录规则：
+lt."cache/" = "500MB"            # 小于 500MB 的 cache 目录 → 保留（跳过，不遍历）
+ge."backups/" = "1GB"            # 大于等于 1GB 的 backups 目录 → 进入 delete 判断
+
+[tasks.delete_rules]
+lt."*.tmp" = "1KB"               # 小于 1KB 的 .tmp 文件 → 删除
+ge."*" = -1                      # 所有文件 → 删除（通常配合 include_rules 使用）
 ```
 
 #### 多级路径匹配
@@ -332,27 +336,22 @@ ge."alpha/beta/charlie.txt" = -1  # 精确路径匹配
 
 #### 规则决策流程
 
-当 `FileFilterPolicy` 评估一个文件/目录时，按以下顺序决策：
+当 `FileFilterPolicy` 评估一个文件/目录时，按以下流水线顺序决策（命中即停止）：
 
-1. **检查 keep_rules**：命中 → `FileAction.SKIP`（保留）
-2. **检查 delete_rules**：命中 → `FileAction.DELETE`
-3. **同时命中 keep 和 delete**：由 `preferred_rule` 决定：
-   - `"keep"`（默认）→ 保留
-   - `"delete"` → 删除
-4. **白名单模式**：未命中 whitelist_rules → 跳过（其父目录若命中则继承白名单状态）
-5. **都不命中** → 正常传输（`FileAction.TRANSFER`）
+1. **检查 include_rules**：未命中 → 跳过
+
+    > 注：目录始终通过 include 检查，以确保能遍历到匹配的子项。若 `include_rules` 未配置，所有文件均视为"已纳入"。
+
+2. **检查 exclude_rules**：命中 → 保留在原处，不处理
+3. **检查 delete_rules**：命中 → 删除
+4. **默认** → 正常传输
 
 > ℹ️ 配置示例：要删除所有 .tmp 文件但保护 important.tmp：
 > ```toml
-> keep_rules.ge."important.tmp" = -1
+> exclude_rules.ge."important.tmp" = -1
 > delete_rules.ge."*.tmp" = -1
-> preferred_rule = "keep"   # 默认值，可省略
 > ```
-> 这里 `important.tmp` 同时命中 keep（精确匹配）和 delete（被 `*.tmp` 通配），但 `preferred_rule = "keep"` 使保留规则优先。如果改为 `preferred_rule = "delete"`，则 `important.tmp` 也会被删除。
-
-#### `preferred_rule` 的正确用法
-
-将 `preferred_rule` 设为 `"delete"` 的典型场景是**宁可错杀不可放过**——当一个文件同时符合保留条件和删除条件时，你选择删除。很少有人需要这样配置。大多数情况下保持默认的 `"keep"` 即可。
+> 这里 `important.tmp` 先命中 `exclude_rules`（精确匹配），流水线停止，文件被保留。
 
 #### 惰性求值
 
@@ -364,27 +363,17 @@ ge."alpha/beta/charlie.txt" = -1  # 精确路径匹配
 
 利用这一点，将无条件命中的规则写为 `ge."模式" = -1` 可以提升性能。
 
-#### 白名单模式的特殊行为
-
-在白名单模式下，**只有命中 `whitelist_rules` 的文件/目录才会被处理**。未命中的直接跳过。
-
-**父目录继承**：如果一个目录命中白名单，该目录下的所有子文件和子目录自动继承白名单状态——即使它们自身的名称不匹配任何白名单规则。这意味着：
-- 配置 `whitelist_rules.ge."videos/" = -1` 会将 `videos/` 下所有内容纳入处理范围
-- 你不需要为 `videos/` 下的每个子目录单独配置白名单
-
-**白名单与 keep/delete 的关系**：白名单先过滤，keep/delete 再对通过白名单的项做二次判断。你可以在白名单限定的范围内再用 keep/delete 做更精细的控制。
-
 #### 轮转模式中的规则
 
 轮转模式会先扫描所有文件建立分组统计，然后从最旧的文件开始逐个处理（移动或删除），直到所有分组都不再超限。在决定具体如何处理一个文件时，规则系统才会介入：
 
-- 命中 `keep_rules` → 跳过，该文件留在原地，其统计值也保留（不会从分组中扣除）
+- 命中 `exclude_rules` → 跳过，该文件留在原地，其统计值也保留（不会从分组中扣除）
 - 命中 `delete_rules` → 直接删除，不移动到 dest
 - 都不命中 → 若有 dest 则移动，若无 dest 则跳过（留在原地）
 
 **典型用法**：
 - 纯清理：`delete_rules.ge."*" = -1`，无需配置 dest，所有轮转产生的文件直接删除
-- 选择性保护：`keep_rules.ge."*.important" = -1`，某些重要文件即使超限也不会被轮转处理
+- 选择性保护：`exclude_rules.ge."*.important" = -1`，某些重要文件即使超限也不会被轮转处理
 
 **`rotate_rules` 不支持匹配目录**：`rotate_rules` 的 pattern 不能以 `/` 结尾。要限制某个目录下的文件，用 `"目录名/*"` 而非 `"目录名/"`。
 
@@ -401,7 +390,7 @@ ge."alpha/beta/charlie.txt" = -1  # 精确路径匹配
 | 后端 | dest 格式 | 支持的模式 | 说明 |
 |------|----------|-----------|------|
 | 本地 | `"./local/path"` | 全部 | 默认，无需额外配置 |
-| HTTP 远端 | `"{http:别名}?路径"` | move / copy / whitelist / rotate | 远端需运行 SmartArchiver 服务器 |
+| HTTP 远端 | `"{http:别名}?路径"` | move / copy / rotate | 远端需运行 SmartArchiver 服务器 |
 | SSH 远端 | `"{ssh:别名}?路径"` | 仅 sync | 远端需安装 rsync 或启用 SFTP |
 
 HTTP 和 SSH 的别名命名空间完全隔离，同一别名可同时用于两者。
@@ -480,9 +469,9 @@ max_log_files = 30                        # 保留的日志文件数量，0 表�
 
 ### 常见配置误区
 
-1. **delete_rules 也受 mtime 阈值约束**：在 move/copy/whitelist 模式下，被 delete_rules 匹配但 mtime 不足的文件不会被删除。这是设计意图——保护正在使用的文件。
+1. **delete_rules 也受 mtime 阈值约束**：在 move/copy 模式下，被 delete_rules 匹配但 mtime 不足的文件不会被删除。这是设计意图——保护正在使用的文件。
 
-2. **除 sync 外 dest 均选填**：如果未配置 dest，move / copy / whitelist / rotate 模式均不会移动或复制文件（TRANSFER 动作被跳过），但 `delete_rules` 删除仍可正常执行。只有 sync 模式必须有 dest。如果你既没有 dest 也没有 delete_rules，在这些模式中实际上什么都不会改变。
+2. **除 sync 外 dest 均选填**：如果未配置 dest，move / copy / rotate 模式均不会移动或复制文件（TRANSFER 动作被跳过），但 `delete_rules` 删除仍可正常执行。只有 sync 模式必须有 dest。如果你既没有 dest 也没有 delete_rules，在这些模式中实际上什么都不会改变。
 
 3. **`conflict_policy = "copy"` 不是指模式为复制**：它只决定同名冲突时创建编号副本，与任务是 move 还是 copy 无关。
 
@@ -490,7 +479,7 @@ max_log_files = 30                        # 保留的日志文件数量，0 表�
 
 5. **轮转的"最旧优先"不等于"全删旧文件"**：轮转处理到所有分组不超限就停止，不是把所有旧文件都处理掉。
 
-6. **白名单模式必须配置 whitelist_rules**：否则程序会报错并跳过该任务。
+6. **include 与 exclude 是顺序流水线**：exclude 在 delete 之前检查。若一个文件同时匹配 exclude 和 delete，会被保留跳过。
 
 ---
 
@@ -498,11 +487,11 @@ max_log_files = 30                        # 保留的日志文件数量，0 表�
 
 ### 1. 为什么没有几十种模式和规则？
 
-如果为每种场景都创建一个专属模式，SmartArchiver 的配置将变成一份冗长的菜单——`move_logs_by_age`、`copy_videos_above_size`、`rotate_backups_by_count`、`sync_except_temp`……每种组合都需要一个名字，用户只能在预设的选项中挑选，稍有偏差就无从下手。SmartArchiver 选择了一条不同的路径：**提供少量正交的"动词"（move / copy / rotate / sync）和一套可组合的"条件表达式"（keep_rules / delete_rules / whitelist_rules / rotate_rules）**，让用户像搭积木一样，通过排列组合来表达任意文件管理逻辑。move 配上 `mtime_threshold_minutes` 就是"按时间归档"；rotate 配上 `delete_rules` 就是"纯清理"；whitelist_move 配上 `keep_rules.lt` 就是"只搬运某个目录下超过特定大小的文件"。模式负责"要做什么"（传输/删除/同步），规则负责"对谁做"（命名、大小、时间的筛选条件），两者解耦后，6 种模式 + 4 类规则所能表达的组合远远超过为每种组合单独设计一个模式。工程上，这也意味着规则引擎只需实现一次，所有处理器共享同一套决策逻辑，新增模式时也无需在配置层引入破坏性变更——因为规则语法对任何模式都是统一的。
+如果为每种场景都创建一个专属模式，SmartArchiver 的配置将变成一份冗长的菜单——`move_logs_by_age`、`copy_videos_above_size`、`rotate_backups_by_count`、`sync_except_temp`……每种组合都需要一个名字，用户只能在预设的选项中挑选，稍有偏差就无从下手。SmartArchiver 选择了一条不同的路径：**提供少量正交的"动词"（move / copy / rotate / sync）和一套可组合的"条件表达式"（include_rules / exclude_rules / delete_rules / rotate_rules）**，让用户像搭积木一样，通过排列组合来表达任意文件管理逻辑。move 配上 `mtime_threshold_minutes` 就是"按时间归档"；rotate 配上 `delete_rules` 就是"纯清理"；move 配上 `include_rules` 就是"只搬运特定文件"。模式负责"要做什么"（传输/删除/同步），规则负责"对谁做"（命名、大小、时间的筛选条件），两者解耦后，4 种模式 + 4 类规则所能表达的组合远远超过为每种组合单独设计一个模式。工程上，这也意味着规则引擎只需实现一次，所有处理器共享同一套决策逻辑，新增模式时也无需在配置层引入破坏性变更——因为规则语法对任何模式都是统一的。
 
 ### 2. 为什么 `rotate_rules` 不支持匹配目录
 
-在 `keep_rules` / `delete_rules` / `whitelist_rules` 中，规则系统通过模式末尾是否带 `/` 来区分匹配目标——`"xxx/"` 匹配目录自身，`"xxx/*"` 匹配目录下的文件。虽然两个模式的匹配对象不同（一个匹配目录、一个匹配文件），但 `delete_rules` 和 `whitelist_rules` 的行为简单直接、歧义小，用户按直觉配置通常不会出问题。
+在 `include_rules` / `exclude_rules` / `delete_rules` 中，规则系统通过模式末尾是否带 `/` 来区分匹配目标——`"xxx/"` 匹配目录自身，`"xxx/*"` 匹配目录下的文件。虽然两个模式的匹配对象不同（一个匹配目录、一个匹配文件），但 `include_rules`、`exclude_rules` 和 `delete_rules` 的行为简单直接、歧义小，用户按直觉配置通常不会出问题。
 
 但是，给 `rotate_rules` 设计目录匹配逻辑极为困难。轮转模式的操作单元是**文件**：遍历文件列表、按 `mtime` 排序、逐个移除旧文件以腾出空间。如果引入目录级别的分组，会引发一系列难以自洽的问题：
 
@@ -517,4 +506,4 @@ max_log_files = 30                        # 保留的日志文件数量，0 表�
 - **mtime 排序失效**：轮转从最旧的文件开始处理，但如果一个「旧目录」下有一个「新文件」，应该如何处理？取目录 mtime 还是文件 mtime？
 - **移除语义模糊**：轮转一个文件是指移动或删除它，那轮转一个目录是针对整个目录，还是目录中的部分旧文件？
 
-这些问题没有唯一正确的答案，强行设计只会引入逻辑漏洞和配置歧义。因此 `rotate_rules` 刻意保持了**仅匹配文件**的简单语义，将复杂度留给更自然的 `keep_rules` / `delete_rules` 组合去解决（例如用 `delete_rules` 删除整个目录，或用 `keep_rules` 保护目录内的部分文件不被轮转处理）。
+这些问题没有唯一正确的答案，强行设计只会引入逻辑漏洞和配置歧义。因此 `rotate_rules` 刻意保持了**仅匹配文件**的简单语义，将复杂度留给更自然的 `exclude_rules` / `delete_rules` 组合去解决（例如用 `delete_rules` 删除整个目录，或用 `exclude_rules` 保护目录内的部分文件不被轮转处理）。

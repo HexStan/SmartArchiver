@@ -112,7 +112,7 @@ max_log_files = 30
 
 [[tasks]]
 # 【选填】任务名称，可自定义
-name = "普通移动/复制任务示例"
+name = "移动/复制任务示例"
 
 source = "./source" # 源目录路径
 dest = "./dest"     # 目标目录路径
@@ -135,46 +135,56 @@ conflict_policy = "skip"
 # 【必填】是否删除源目录中的空目录
 remove_empty_dirs = true
 
-# 匹配规则说明 (适用于 move 和 copy 模式)：
+# 匹配规则说明：
 #
-# 1. 优先级逻辑:
-#   - 默认情况下：保留规则 (keep_rules) > 删除规则 (delete_rules) > 正常传输
-#   - 如果一个文件同时命中保留和删除规则，默认将被【保留】。
-#   - 可以通过 preferred_rule 配置项修改此行为。
+# 决策流水线（按顺序判断，命中即停止）：
+#   1. include_rules 匹配？→ 不匹配则跳过（不处理），匹配则继续
+#      注意：目录始终通过 include 检查，以确保能遍历到匹配的子项
+#   2. exclude_rules 匹配？→ 匹配则跳过（保留在原处），不匹配则继续
+#   3. delete_rules 匹配？→ 匹配则删除，不匹配则正常传输（移动/复制）
 #
-# 2. 大小阈值:
+# 若 include_rules 未配置，则所有文件均视为"已纳入"，直接从第 2 步开始。
+#
+# 大小阈值:
 #   - 仅当文件/目录大小【小于/大于等于】设定的阈值时，规则才会生效。lt 为小于，ge 为大于等于。
 #   - 如果希望匹配所有大小，请使用 ge 规则并设置为 -1（例如: "*.log" = -1）。
 #   - 支持单位: B、KB、MB、GB、TB，-1 表示不限制。
 
-# 【选填】保留规则：命中的文件/目录将留在原处，不进行移动、复制或删除
-# 用不到的规则块可直接删除
-[tasks.keep_rules]
+# 【选填】纳入规则：仅命中的文件会被处理，未命中则跳过
+# 不配置此项（或删除整个 [tasks.include_rules] 块）则所有文件均纳入处理
+[tasks.include_rules]
+# 激活的示例（取消注释即生效）：
+# lt."*.mp4" = "10GB"                 # 纳入小于 10GB 的 .mp4 文件
+# ge."*.doc" = "1MB"                  # 纳入大于等于 1MB 的 .doc 文件
 
-# 文件匹配示例（末尾没有`/`时匹配文件）：
-# lt."alpha.txt" = "1MB"          # 完全匹配：匹配名为 alpha.txt 且小于 1MB 的文件
+# 更多模式示例：
 # lt."*.log" = "10MB"               # 后缀匹配：匹配 .log 后缀且小于 10MB 的文件
 # ge."beta*" = "100MB"              # 前缀匹配：匹配 beta 开头且大于等于 100MB 的文件
 # ge."*charlie*" = "1GB"             # 部分匹配：匹配名称中包含 charlie 且大于等于 1GB 的文件
-# ge."delta.db" = -1          # 匹配所有名称为 delta.db 的文件
+# ge."delta.db" = -1                # 匹配所有名称为 delta.db 的文件
 
-# 目录匹配示例（末尾有`/`时匹配目录）：
-# lt."*echo*/" = "500MB"           # 部分匹配：匹配名称中包含 echo 且小于 500MB 的目录
-# lt."*/foxtrot/" = "1GB"              # 后缀匹配：匹配以 foxtrot 结尾且小于 1GB 的目录
-# ge."golf*/" = "2GB"              # 前缀匹配：匹配 golf 开头且大于等于 2GB 的目录
+# 目录匹配示例（末尾有`/`时匹配目录，目录内的子项自动继承纳入状态）：
+# ge."videos/" = -1                 # 纳入 videos 目录及其所有子项
+# lt."*echo*/" = "500MB"            # 匹配名称中包含 echo 且小于 500MB 的目录
 
 # 多级路径匹配示例：
-# lt."hotel/india/juliett/" = "5GB"    # 匹配 hotel/india/ 下小于 5GB 的 juliet 目录
-# lt."kilo/*.pdf" = "100MB"             # 匹配 kilo 目录下 .pdf 后缀且小于 100MB 的文件
-# lt."lima/*/mike*" = "50MB"             # 匹配 lima 下一级子目录中 mike 开头且小于 50MB 的文件
+# lt."hotel/india/juliett/" = "5GB" # 匹配 hotel/india/ 下小于 5GB 的 juliett 目录
+# lt."kilo/*.pdf" = "100MB"          # 匹配 kilo 目录下 .pdf 后缀且小于 100MB 的文件
+# lt."lima/*/mike*" = "50MB"         # 匹配 lima 下一级子目录中 mike 开头且小于 50MB 的文件
+
+# 【选填】排除规则：命中的文件/目录将保留在原处，不处理
+[tasks.exclude_rules]
+# 示例：
+# lt."*.log" = "10MB"               # 保留小于 10MB 的 .log 文件
+# ge."important.tmp" = -1            # 保留所有 important.tmp 文件
+# ge."backup/" = -1                 # 保留所有 backup 目录（不遍历）
 
 # 【选填】删除规则：命中的文件/目录将被直接删除，不移动到目标目录
 [tasks.delete_rules]
-
-# 【选填】当文件/目录同时命中保留规则和删除规则时的处理方式：
-# "keep" - 遵循保留规则（默认）
-# "delete" - 遵循删除规则
-preferred_rule = "keep"
+# 示例：
+# lt."*.tmp" = "1KB"                # 删除小于 1KB 的 .tmp 文件
+# ge."cache/" = "1GB"               # 删除大于等于 1GB 的 cache 目录
+# ge."*" = -1                       # 删除所有文件（仅删除，不传输）
 
 # --------------------------------------------------
 
@@ -212,51 +222,19 @@ count_limit = 20    # 全局目录文件总数量限制，0 表示不限制。
 "backup.iso" = "100MB"      # 轮转阈值为 backup.iso 文件达到 100MB
 
 # 符合轮转要求的文件会继续匹配以下规则：
-[tasks.keep_rules]
+[tasks.exclude_rules]
 
 [tasks.delete_rules]
 # 如果希望轮转时直接删除而不是移动，可以配置：
-# ge."*" = -1 
-
-preferred_rule = "keep"
-
-# --------------------------------------------------
-
-[[tasks]]
-name = "白名单移动/复制任务示例"
-
-source = "./source-3"
-dest = "./dest-3"
-
-# 【必填】任务执行模式：
-# "whitelist_move" - 白名单移动模式（仅移动命中 whitelist_rules 的文件/目录）
-# "whitelist_copy" - 白名单复制模式（仅复制命中 whitelist_rules 的文件/目录）
-mode = "whitelist_copy"
-
-mtime_threshold_minutes = 180
-conflict_policy = "skip"
-remove_empty_dirs = true
-
-# 【whitelist_rules 必填】
-# 白名单规则（仅在 whitelist_move 和 whitelist_copy 模式下生效）：
-# 命中的文件/目录将被移动或复制，未命中的将被忽略
-[tasks.whitelist_rules]
-
-# 【选填】保留规则，用于指定在命中了白名单规则时，哪些文件/目录需要保留
-[tasks.keep_rules]
-
-# 【选填】删除规则，只有同时满足白名单规则和删除规则的文件/目录才会被删除
-[tasks.delete_rules]
-
-preferred_rule = "keep"
+# ge."*" = -1
 
 # --------------------------------------------------
 
 [[tasks]]
 name = "同步任务示例"
 
-source = "./source-4"
-dest = "./dest-4"
+source = "./source-3"
+dest = "./dest-3"
 
 # 【必填】任务执行模式：
 # "sync" - 将源目录以镜像方式同步到目标目录

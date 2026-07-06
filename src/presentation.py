@@ -25,8 +25,6 @@ def print_task_header(task):
     mode_labels = {
         "move": "移动",
         "copy": "复制",
-        "whitelist_move": "移动 (白名单)",
-        "whitelist_copy": "复制 (白名单)",
         "rotate": "轮转",
         "sync": "同步",
     }

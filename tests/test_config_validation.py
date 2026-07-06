@@ -9,17 +9,35 @@ class TestSyncModeValidation:
 
     def test_valid_sync_with_tool_auto(self, app_context):
         assert validate_task_config(
-            {"mode": "sync", "source": "/tmp/test", "dest": "/tmp/dest", "tool": "auto"}, "sync"
+            {
+                "mode": "sync",
+                "source": "/tmp/test",
+                "dest": "/tmp/dest",
+                "tool": "auto",
+            },
+            "sync",
         )
 
     def test_valid_sync_with_tool_rsync(self, app_context):
         assert validate_task_config(
-            {"mode": "sync", "source": "/tmp/test", "dest": "/tmp/dest", "tool": "rsync"}, "sync"
+            {
+                "mode": "sync",
+                "source": "/tmp/test",
+                "dest": "/tmp/dest",
+                "tool": "rsync",
+            },
+            "sync",
         )
 
     def test_valid_sync_with_tool_rclone(self, app_context):
         assert validate_task_config(
-            {"mode": "sync", "source": "/tmp/test", "dest": "/tmp/dest", "tool": "rclone"}, "sync"
+            {
+                "mode": "sync",
+                "source": "/tmp/test",
+                "dest": "/tmp/dest",
+                "tool": "rclone",
+            },
+            "sync",
         )
 
     def test_invalid_tool(self, app_context, mock_logger):
@@ -31,18 +49,39 @@ class TestSyncModeValidation:
 
     def test_tool_case_insensitive(self, app_context):
         assert validate_task_config(
-            {"mode": "sync", "source": "/tmp/test", "dest": "/tmp/dest", "tool": "RSYNC"}, "sync"
+            {
+                "mode": "sync",
+                "source": "/tmp/test",
+                "dest": "/tmp/dest",
+                "tool": "RSYNC",
+            },
+            "sync",
         )
 
     def test_missing_dest(self, app_context, mock_logger):
-        result = validate_task_config({"mode": "sync", "source": "/tmp/test", "tool": "rsync"}, "sync")
+        result = validate_task_config(
+            {"mode": "sync", "source": "/tmp/test", "tool": "rsync"}, "sync"
+        )
         assert not result
         assert any("dest" in msg for _, msg in mock_logger.messages)
 
     def test_missing_source(self, app_context, mock_logger):
-        result = validate_task_config({"mode": "sync", "dest": "/tmp/dest", "tool": "rsync"}, "sync")
+        result = validate_task_config(
+            {"mode": "sync", "dest": "/tmp/dest", "tool": "rsync"}, "sync"
+        )
         assert not result
         assert any("source" in msg for _, msg in mock_logger.messages)
+
+    def test_sync_rejects_include_rules(self, app_context, mock_logger):
+        task = {
+            "mode": "sync",
+            "source": "/tmp/test",
+            "dest": "/tmp/dest",
+            "include_rules": {"ge": {"*.log": "-1"}},
+        }
+        result = validate_task_config(task, "sync")
+        assert not result
+        assert any("include_rules" in msg for _, msg in mock_logger.messages)
 
 
 class TestRotateModeValidation:
@@ -125,6 +164,18 @@ class TestRotateModeValidation:
         assert not result
         assert any("source" in msg for _, msg in mock_logger.messages)
 
+    def test_rotate_rejects_include_rules(self, app_context, mock_logger):
+        task = {
+            "mode": "rotate",
+            "source": "/tmp/test",
+            "remove_empty_dirs": True,
+            "size_limit": "1GB",
+            "include_rules": {"ge": {"*.log": "-1"}},
+        }
+        result = validate_task_config(task, "rotate")
+        assert not result
+        assert any("include_rules" in msg for _, msg in mock_logger.messages)
+
 
 class TestStandardModeValidation:
     def test_valid_move(self, app_context):
@@ -184,66 +235,5 @@ class TestStandardModeValidation:
             "remove_empty_dirs": True,
         }
         result = validate_task_config(task, "move")
-        assert not result
-        assert any("source" in msg for _, msg in mock_logger.messages)
-
-
-class TestWhitelistModeValidation:
-    def test_valid_whitelist_move(self, app_context):
-        task = {
-            "mode": "whitelist_move",
-            "source": "/tmp/test",
-            "mtime_threshold_minutes": 180,
-            "conflict_policy": "overwrite",
-            "remove_empty_dirs": True,
-            "whitelist_rules": {"lt": {"*.doc": "10MB"}},
-        }
-        assert validate_task_config(task, "whitelist_move")
-
-    def test_valid_whitelist_copy(self, app_context):
-        task = {
-            "mode": "whitelist_copy",
-            "source": "/tmp/test",
-            "mtime_threshold_minutes": 60,
-            "conflict_policy": "skip",
-            "remove_empty_dirs": False,
-            "whitelist_rules": {"ge": {"*.pdf": "1MB"}},
-        }
-        assert validate_task_config(task, "whitelist_copy")
-
-    def test_whitelist_missing_whitelist_rules(self, app_context, mock_logger):
-        task = {
-            "mode": "whitelist_move",
-            "source": "/tmp/test",
-            "mtime_threshold_minutes": 180,
-            "conflict_policy": "overwrite",
-            "remove_empty_dirs": True,
-        }
-        result = validate_task_config(task, "whitelist_move")
-        assert not result
-        assert any("whitelist_rules" in msg for _, msg in mock_logger.messages)
-
-    def test_whitelist_empty_rules(self, app_context, mock_logger):
-        task = {
-            "mode": "whitelist_move",
-            "source": "/tmp/test",
-            "mtime_threshold_minutes": 180,
-            "conflict_policy": "overwrite",
-            "remove_empty_dirs": True,
-            "whitelist_rules": {},
-        }
-        result = validate_task_config(task, "whitelist_move")
-        assert not result
-        assert any("whitelist_rules" in msg for _, msg in mock_logger.messages)
-
-    def test_whitelist_missing_source(self, app_context, mock_logger):
-        task = {
-            "mode": "whitelist_move",
-            "mtime_threshold_minutes": 180,
-            "conflict_policy": "overwrite",
-            "remove_empty_dirs": True,
-            "whitelist_rules": {"lt": {"*.doc": "10MB"}},
-        }
-        result = validate_task_config(task, "whitelist_move")
         assert not result
         assert any("source" in msg for _, msg in mock_logger.messages)

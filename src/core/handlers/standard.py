@@ -11,7 +11,7 @@ from src.core.registry import register_handler
 from src.core.handlers.base import BaseTaskHandler
 
 
-@register_handler("move", "copy", "whitelist_move", "whitelist_copy")
+@register_handler("move", "copy")
 class StandardHandler(BaseTaskHandler):
     def execute(self):
         if not self.validate():
@@ -28,7 +28,7 @@ class StandardHandler(BaseTaskHandler):
             ctx.logger.error(f"源目录不存在: {self.source_root}")
             return
 
-        is_copy = self.task_mode in ["copy", "whitelist_copy"]
+        is_copy = self.task_mode == "copy"
 
         start_time = time.time()
 

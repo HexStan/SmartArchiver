@@ -66,11 +66,9 @@ def validate_task_config(task, task_mode):
         )
         return False
 
-    if task_mode in ["whitelist_copy", "whitelist_move"]:
-        whitelist_rules = task.get("whitelist_rules", {})
-        if not whitelist_rules:
-            ctx.logger.error("白名单模式下必须配置 whitelist_rules，跳过该任务。")
-            return False
+    if task_mode in ("rotate", "sync") and task.get("include_rules"):
+        ctx.logger.error(f"{task_mode} 模式下不支持配置 include_rules，跳过该任务。")
+        return False
 
     return True
 
@@ -241,18 +239,12 @@ class BaseTaskHandler(ABC):
         self.task_mode = task.get("mode", "").lower()
         self.remove_empty_dirs = task.get("remove_empty_dirs", False)
 
-        task_delete_rules = task.get("delete_rules", {})
-        task_keep_rules = task.get("keep_rules", {})
-        preferred_rule = task.get("preferred_rule", "keep")
-        whitelist_rules = task.get("whitelist_rules", {})
-        is_whitelist_mode = self.task_mode in ["whitelist_copy", "whitelist_move"]
-
         merged_config = {
-            "delete_rules": task_delete_rules,
-            "keep_rules": task_keep_rules,
-            "preferred_rule": preferred_rule,
-            "whitelist_rules": whitelist_rules,
-            "is_whitelist_mode": is_whitelist_mode,
+            "include_rules": task.get("include_rules", {})
+            if self.task_mode in ("move", "copy")
+            else {},
+            "exclude_rules": task.get("exclude_rules", {}),
+            "delete_rules": task.get("delete_rules", {}),
         }
         self.policy = FileFilterPolicy(merged_config)
         self.checker = FileChecker(task, now)

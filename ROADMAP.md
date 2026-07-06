@@ -18,6 +18,8 @@
 
 - 配置文件热重载
 - 在所有模式下都允许 `dest` 置空（`sync` 模式除外）
+- 使用 `first_run_delay` 配置项替代 `run_immediately`，更精细地控制初次运行时机
+- 合并 whitelist 系列模式和 move / copy 模式
 
 ## 🚧 正在做
 
