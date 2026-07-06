@@ -64,7 +64,7 @@ def print_task_summary(stats, duration, total_bytes):
     if stats.locked_skipped > 0:
         tail_msg.append(f"因文件锁而跳过 {stats.locked_skipped} 项")
     if stats.kept > 0:
-        tail_msg.append(f"根据规则保留 {stats.kept} 项")
+        tail_msg.append(f"根据规则跳过 {stats.kept} 项")
     if stats.deleted > 0:
         tail_msg.append(f"根据规则删除 {stats.deleted} 项")
     ctx.logger.info("，".join(tail_msg) + "。")

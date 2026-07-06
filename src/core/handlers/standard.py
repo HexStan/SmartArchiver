@@ -91,7 +91,7 @@ class StandardHandler(BaseTaskHandler):
                     if dir_size_cache
                     else ""
                 )
-                ctx.logger.debug(f"保留目录 (匹配规则): {rel_dir_path}{size_str}")
+                ctx.logger.debug(f"跳过目录 (匹配规则): {rel_dir_path}{size_str}")
                 self.stats.record_kept()
                 dirs_to_remove.append(d)
 

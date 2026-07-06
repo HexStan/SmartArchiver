@@ -308,16 +308,16 @@ ge."videos/" = -1                # videos 目录及其所有子项 → 纳入处
 
 [tasks.exclude_rules]
 # 文件规则：
-lt."*.log" = "10MB"              # 小于 10MB 的 .log 文件 → 保留（跳过）
-ge."backup.iso" = -1             # 所有 backup.iso 文件 → 保留
+lt."*.log" = "10MB"              # 小于 10MB 的 .log 文件 → 跳过
+ge."backup.iso" = -1             # 所有 backup.iso 文件 → 跳过
 
 # 目录规则：
-lt."cache/" = "500MB"            # 小于 500MB 的 cache 目录 → 保留（跳过，不遍历）
+lt."cache/" = "500MB"            # 小于 500MB 的 cache 目录 → 跳过
 ge."backups/" = "1GB"            # 大于等于 1GB 的 backups 目录 → 进入 delete 判断
 
 [tasks.delete_rules]
 lt."*.tmp" = "1KB"               # 小于 1KB 的 .tmp 文件 → 删除
-ge."*" = -1                      # 所有文件 → 删除（通常配合 include_rules 使用）
+ge."*" = -1                      # 所有文件 → 删除
 ```
 
 #### 多级路径匹配
@@ -342,7 +342,7 @@ ge."alpha/beta/charlie.txt" = -1  # 精确路径匹配
 
     > 注：目录始终通过 include 检查，以确保能遍历到匹配的子项。若 `include_rules` 未配置，所有文件均视为"已纳入"。
 
-2. **检查 exclude_rules**：命中 → 保留在原处，不处理
+2. **检查 exclude_rules**：命中 → 跳过
 3. **检查 delete_rules**：命中 → 删除
 4. **默认** → 正常传输
 
@@ -479,7 +479,7 @@ max_log_files = 30                        # 保留的日志文件数量，0 表�
 
 5. **轮转的"最旧优先"不等于"全删旧文件"**：轮转处理到所有分组不超限就停止，不是把所有旧文件都处理掉。
 
-6. **include 与 exclude 是顺序流水线**：exclude 在 delete 之前检查。若一个文件同时匹配 exclude 和 delete，会被保留跳过。
+6. **include 与 exclude 是顺序流水线**：exclude 在 delete 之前检查。若一个文件同时匹配 exclude 和 delete 会被跳过。
 
 ---
 

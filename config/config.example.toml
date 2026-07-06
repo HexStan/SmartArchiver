@@ -138,9 +138,9 @@ remove_empty_dirs = true
 # 匹配规则说明：
 #
 # 决策流水线（按顺序判断，命中即停止）：
-#   1. include_rules 匹配？→ 不匹配则跳过（不处理），匹配则继续
+#   1. include_rules 匹配？→ 不匹配则跳过，匹配则继续
 #      注意：目录始终通过 include 检查，以确保能遍历到匹配的子项
-#   2. exclude_rules 匹配？→ 匹配则跳过（保留在原处），不匹配则继续
+#   2. exclude_rules 匹配？→ 匹配则跳过，不匹配则继续
 #   3. delete_rules 匹配？→ 匹配则删除，不匹配则正常传输（移动/复制）
 #
 # 若 include_rules 未配置，则所有文件均视为"已纳入"，直接从第 2 步开始。
@@ -172,12 +172,12 @@ remove_empty_dirs = true
 # lt."kilo/*.pdf" = "100MB"          # 匹配 kilo 目录下 .pdf 后缀且小于 100MB 的文件
 # lt."lima/*/mike*" = "50MB"         # 匹配 lima 下一级子目录中 mike 开头且小于 50MB 的文件
 
-# 【选填】排除规则：命中的文件/目录将保留在原处，不处理
+# 【选填】排除规则：命中的文件/目录将被跳过
 [tasks.exclude_rules]
 # 示例：
-# lt."*.log" = "10MB"               # 保留小于 10MB 的 .log 文件
-# ge."important.tmp" = -1            # 保留所有 important.tmp 文件
-# ge."backup/" = -1                 # 保留所有 backup 目录（不遍历）
+# lt."*.log" = "10MB"               # 跳过小于 10MB 的 .log 文件
+# ge."important.tmp" = -1            # 跳过所有 important.tmp 文件
+# ge."backup/" = -1                 # 跳过所有 backup 目录（不遍历）
 
 # 【选填】删除规则：命中的文件/目录将被直接删除，不移动到目标目录
 [tasks.delete_rules]

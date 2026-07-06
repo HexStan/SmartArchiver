@@ -155,7 +155,7 @@ class ActionExecutor:
 
         elif action == FileAction.SKIP:
             stats.record_kept()
-            ctx.logger.debug(f"保留文件 (匹配规则): {rel_path}  ({_fmt_size(size)})")
+            ctx.logger.debug(f"跳过文件 (匹配规则): {rel_path}  ({_fmt_size(size)})")
             return True
 
         return True
