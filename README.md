@@ -28,8 +28,8 @@ SmartArchiver 解决的核心问题是：**"磁盘上有一堆文件，我想根
 
 ```bash
 # 1. 克隆项目
-git clone https://github.com/hexstan/smart-archiver.git
-cd smart-archiver
+git clone https://github.com/hexstan/smartarchiver.git
+cd smartarchiver
 
 # 2. 安装依赖
 pip install -r requirements.txt
@@ -68,7 +68,7 @@ python main.py --server
 
 #### 客户端 / HTTP 服务器镜像
 
-应用镜像基于 `python:3.14-slim-trixie`，已内置 `rsync`。GitHub Actions 自动构建 `linux/amd64` 和 `linux/arm64` 多架构镜像，发布到 `ghcr.io/hexstan/smart-archiver`。
+应用镜像基于 `python:3.14-slim-trixie`，已内置 `rsync`。GitHub Actions 自动构建 `linux/amd64` 和 `linux/arm64` 多架构镜像，发布到 `ghcr.io/hexstan/smartarchiver`。
 
 ```bash
 # 1. 创建并编辑配置文件
