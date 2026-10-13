@@ -1,4 +1,4 @@
-name: Version Release
+name: Docker Image Publish
 
 on:
   push:

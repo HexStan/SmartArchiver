@@ -81,11 +81,11 @@ dev 分支不打 tag、不创建 Release，直接进入第 5 步。
 
 ### 第 5 步：触发 Docker 构建（两个分支）
 
-Docker 镜像的构建与推送由 CI（`.github/workflows/version-release.yml`）完成，Agent 只需保证提交已推送：
+Docker 镜像的构建与推送由 CI（`.github/workflows/docker-publish.yml`）完成，Agent 只需保证提交已推送：
 
 - dev：`git push`（master 已在第 4 步连同 tag 推送）。
-- CI 触发条件：推送到 master/dev 且 `VERSION` 有变更。若本次推送未变更 `VERSION`（补发场景），手动触发：`gh workflow run version-release.yml --ref <分支名>`。
-- 确认构建成功：`gh run list --workflow=version-release.yml --limit 1`（或 `gh run watch`）；失败时报告维护者。
+- CI 触发条件：推送到 master/dev 且 `VERSION` 有变更。若本次推送未变更 `VERSION`（补发场景），手动触发：`gh workflow run docker-publish.yml --ref <分支名>`。
+- 确认构建成功：`gh run list --workflow=docker-publish.yml --limit 1`（或 `gh run watch`）；失败时报告维护者。
 
 构建以仓库根为 context（`docker build -f docker/app/Dockerfile .`），产物推送至 GHCR（镜像名 = 仓库名全小写）：
 
