@@ -6,7 +6,7 @@
 
 ---
 
-## [0.29.2] - 2026-10-15
+## [0.29.3] - 2026-10-15
 
 ### 新增
 
@@ -275,7 +275,7 @@
 
 ---
 
-[0.29.2]: https://github.com/HexStan/SmartArchiver/releases/tag/v0.29.2
+[0.29.3]: https://github.com/HexStan/SmartArchiver/releases/tag/v0.29.3
 [0.28.2]: https://github.com/HexStan/SmartArchiver/releases/tag/v0.28.2
 [0.24.2]: https://github.com/HexStan/SmartArchiver/releases/tag/v0.24.2
 [0.24.0]: https://github.com/HexStan/SmartArchiver/releases/tag/v0.24.0
