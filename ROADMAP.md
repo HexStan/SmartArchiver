@@ -13,13 +13,12 @@
     - HTTP 服务器端支持并发处理请求
 
 - 增加 `ssh_remotes` 配置，专门用于 sync 模式连接远程目标
-
-## 🧪 测试中
-
 - 配置文件热重载
 - 在所有模式下都允许 `dest` 置空（`sync` 模式除外）
 - 使用 `first_run_delay` 配置项替代 `run_immediately`，更精细地控制初次运行时机
 - 合并 whitelist 系列模式和 move / copy 模式
+
+## 🧪 测试中
 
 ## 🚧 正在做
 
