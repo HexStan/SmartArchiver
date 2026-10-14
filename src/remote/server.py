@@ -1,15 +1,16 @@
 import os
 import urllib.parse
-from flask import Flask, request, jsonify
+
+from flask import Flask, jsonify, request
 
 from src import fs_ops
-from src.remote.protocol import RemoteAction, UPLOAD_PATH
 from src.remote.concurrency import (
+    ClientDisconnectedError,
     ConcurrencyGate,
     QueueFullError,
     QueueTimeoutError,
-    ClientDisconnectedError,
 )
+from src.remote.protocol import UPLOAD_PATH, RemoteAction
 
 
 def _parse_queue_timeout():

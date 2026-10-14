@@ -4,8 +4,8 @@
 队列满则立即拒绝；等待超时或客户端断连则静默移除。
 """
 
-import time
 import threading
+import time
 from collections import deque
 from contextlib import contextmanager
 

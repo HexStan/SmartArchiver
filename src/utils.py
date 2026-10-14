@@ -1,8 +1,8 @@
+import fnmatch
 import os
 import sys
-import fnmatch
 
-from humanfriendly import parse_size, InvalidSize
+from humanfriendly import InvalidSize, parse_size
 
 try:
     import fcntl

@@ -6,7 +6,7 @@ import urllib.parse
 import requests
 import urllib3.exceptions
 
-from src.remote.protocol import RemoteAction, API_PATH, UPLOAD_PATH
+from src.remote.protocol import API_PATH, UPLOAD_PATH, RemoteAction
 
 # 退避重试：2s + 4s + 8s + 16s = 30s 总等待时间
 _RETRY_BACKOFFS = (2, 4, 8, 16)
