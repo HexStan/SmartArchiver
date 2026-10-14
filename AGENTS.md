@@ -26,6 +26,7 @@ python -m pytest                                        # 全部测试（pytest.
 python -m pytest tests/test_greybox_rotate.py -v        # 单个测试文件
 python main.py                                          # 客户端模式，读取 config/config.toml，缺失即退出
 python main.py --server                                 # 服务器模式，读取 config/config.server.toml
+python scripts/build_executable.py                      # 构建当前平台的可执行文件（PyInstaller onedir + 内置 rclone）
 ```
 
 - 运行前需 `cp config/config.example.toml config/config.toml`；`config.toml` 已 gitignore，只提交 `config/*.example.toml`。

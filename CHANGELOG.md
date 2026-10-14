@@ -11,6 +11,12 @@
 - 删去 `preferred_rule` 配置项。规则引擎现采用顺序流水线：`include_rules` → `exclude_rules` → `delete_rules` → TRANSFER，命中即停止，不再有并行检查和冲突消解。
 - `include_rules` 为选填：未配置时所有文件均视为"已纳入"（等价于旧 `move`/`copy` 的默认行为）；配置后仅匹配的文件被处理（等价于旧 whitelist 模式）。
 
+### 新增
+
+- 新增打包版可执行文件（PyInstaller onedir），覆盖 Windows/macOS × AMD64/ARM64，内置 rclone，sync 模式开箱即用；发布 Release 时自动附加至 Assets，开发版（`-dev` 版本号）构建输出至工作流 Artifacts。
+- sync 模式 `tool = "auto"` 时优先使用打包版内置的 rclone，内置不可用时回退系统工具：Windows 使用 PATH 中的 rclone，macOS/Linux 使用 PATH 中的 rsync。
+- 打包版可执行文件支持服务器模式（`--server`），配置文件与日志均位于可执行文件同级目录。
+
 ### 修复
 
 - `keep_rules` 和 `delete_rules` 在 rotate 模式下对目录不生效的问题，以及同源的逻辑缺陷。

@@ -83,7 +83,9 @@ gh release create vX.Y.Z --title "vX.Y.Z" --notes-file release_notes.md
 - 注记可先写入仓库根的临时文件 `release_notes.md`（勿提交，用后删除），提取命令见附录 B。
 - 创建 Release 依赖第 4 步已推送的 tag：若跳过第 4 步直接执行，`gh` 会在默认分支（dev）的最新提交上另建同名 tag。
 
-### 第 6 步：触发 Docker 构建
+### 第 6 步：触发构建
+
+#### Docker 镜像
 
 Docker 镜像的构建与推送由 CI（`.github/workflows/docker-publish.yml`）完成，Agent 只需保证提交已推送：
 
@@ -97,6 +99,14 @@ Docker 镜像的构建与推送由 CI（`.github/workflows/docker-publish.yml`�
 | --- | --- |
 | `x.y.z-dev` | `x.y.z-dev`、`dev` |
 | `x.y.z`（正式版） | `x.y.z`、`latest` |
+
+#### 可执行文件
+
+打包版可执行文件由 CI 自动构建，Agent 只需保证第 4–5 步完成：
+
+- 正式版：Release 创建（第 5 步）后，`.github/workflows/executable-release.yml` 自动构建 Windows/macOS × AMD64/ARM64 四个平台的 zip（内置 rclone）并附加至该 Release 的 Assets。
+- 开发版：任意分支推送带 `-dev` 后缀的 `VERSION` 变更时，`.github/workflows/executable-dev.yml` 自动构建，产物仅输出至工作流 Artifacts（不发布）。
+- 确认构建成功：`gh run list --workflow=executable-release.yml --limit 1`（或 `executable-dev.yml`）；失败时报告维护者。
 
 ## 附录 A：CHANGELOG.md 格式
 
