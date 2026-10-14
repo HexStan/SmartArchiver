@@ -150,13 +150,13 @@ Docker 镜像的构建与推送由 CI（`.github/workflows/docker-publish.yml`�
 
 ```bash
 VERSION=x.y.z
-python - "$VERSION" <<'PY' > release_notes.md
+python - "$VERSION" <<'PY'
 import re, sys
 version = sys.argv[1]
 content = open('CHANGELOG.md', encoding='utf-8').read()
 m = re.search(rf'## \[{re.escape(version)}\].*?(?=\n---|\n## \[|\n\[\d|\Z)', content, re.DOTALL)
 notes = m.group(0).strip().split('\n', 1)[1] if m and '\n' in m.group(0) else ''
-print(notes.strip())
+open('release_notes.md', 'w', encoding='utf-8').write(notes.strip())
 PY
 ```
 
