@@ -20,7 +20,7 @@ def validate_task_config(task, task_mode):
     ctx = AppContext.get()
 
     if task_mode == "sync":
-        required_fields = ["mode", "source"]
+        required_fields = ["mode", "source", "dest"]
         tool = task.get("tool", "auto").lower()
         if tool not in ("auto", "rsync", "rclone"):
             ctx.logger.error(
@@ -56,7 +56,6 @@ def validate_task_config(task, task_mode):
             "mode",
             "source",
             "mtime_threshold_minutes",
-            "conflict_policy",
             "remove_empty_dirs",
         ]
 
@@ -67,11 +66,9 @@ def validate_task_config(task, task_mode):
         )
         return False
 
-    if task_mode in ["whitelist_copy", "whitelist_move"]:
-        whitelist_rules = task.get("whitelist_rules", {})
-        if not whitelist_rules:
-            ctx.logger.error("白名单模式下必须配置 whitelist_rules，跳过该任务。")
-            return False
+    if task_mode in ("rotate", "sync") and task.get("include_rules"):
+        ctx.logger.error(f"{task_mode} 模式下不支持配置 include_rules，跳过该任务。")
+        return False
 
     return True
 
@@ -125,7 +122,7 @@ class ActionExecutor:
         self.source_root = task.get("source")
         self.dest_root = task.get("dest")
         self.dest_backend = dest_backend
-        self.conflict_policy = task.get("conflict_policy", "").lower()
+        self.conflict_policy = task.get("conflict_policy", "skip").lower()
         self._dest_checked = False
         self._dest_valid = False
 
@@ -135,8 +132,8 @@ class ActionExecutor:
 
         if action == FileAction.TRANSFER:
             if not self.dest_root:
-                ctx.logger.warning(f"跳过文件 (目标目录非法): {rel_path}")
-                return False
+                ctx.logger.warning(f"跳过文件 (未配置目标目录): {rel_path}")
+                return True
 
             if not self._dest_checked:
                 self._dest_checked = True
@@ -158,7 +155,7 @@ class ActionExecutor:
 
         elif action == FileAction.SKIP:
             stats.record_kept()
-            ctx.logger.debug(f"保留文件 (匹配规则): {rel_path}  ({_fmt_size(size)})")
+            ctx.logger.debug(f"跳过文件 (匹配规则): {rel_path}  ({_fmt_size(size)})")
             return True
 
         return True
@@ -242,18 +239,12 @@ class BaseTaskHandler(ABC):
         self.task_mode = task.get("mode", "").lower()
         self.remove_empty_dirs = task.get("remove_empty_dirs", False)
 
-        task_delete_rules = task.get("delete_rules", {})
-        task_keep_rules = task.get("keep_rules", {})
-        preferred_rule = task.get("preferred_rule", "keep")
-        whitelist_rules = task.get("whitelist_rules", {})
-        is_whitelist_mode = self.task_mode in ["whitelist_copy", "whitelist_move"]
-
         merged_config = {
-            "delete_rules": task_delete_rules,
-            "keep_rules": task_keep_rules,
-            "preferred_rule": preferred_rule,
-            "whitelist_rules": whitelist_rules,
-            "is_whitelist_mode": is_whitelist_mode,
+            "include_rules": task.get("include_rules", {})
+            if self.task_mode in ("move", "copy")
+            else {},
+            "exclude_rules": task.get("exclude_rules", {}),
+            "delete_rules": task.get("delete_rules", {}),
         }
         self.policy = FileFilterPolicy(merged_config)
         self.checker = FileChecker(task, now)

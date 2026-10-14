@@ -25,8 +25,6 @@ def print_task_header(task):
     mode_labels = {
         "move": "移动",
         "copy": "复制",
-        "whitelist_move": "移动 (白名单)",
-        "whitelist_copy": "复制 (白名单)",
         "rotate": "轮转",
         "sync": "同步",
     }
@@ -34,7 +32,7 @@ def print_task_header(task):
     ctx.logger.info(f" - 任务模式: {mode_str}")
     ctx.logger.info(f" - 源目录: {source_root}")
 
-    if not dest_root and task_mode == "rotate":
+    if not dest_root and task_mode != "sync":
         ctx.logger.info(" - 目标目录: 无")
     else:
         ctx.logger.info(f" - 目标目录: {dest_root}")
@@ -66,7 +64,7 @@ def print_task_summary(stats, duration, total_bytes):
     if stats.locked_skipped > 0:
         tail_msg.append(f"因文件锁而跳过 {stats.locked_skipped} 项")
     if stats.kept > 0:
-        tail_msg.append(f"根据规则保留 {stats.kept} 项")
+        tail_msg.append(f"根据规则跳过 {stats.kept} 项")
     if stats.deleted > 0:
         tail_msg.append(f"根据规则删除 {stats.deleted} 项")
     ctx.logger.info("，".join(tail_msg) + "。")

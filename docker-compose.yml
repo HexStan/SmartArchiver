@@ -1,6 +1,6 @@
 services:
   client:
-    image: ghcr.io/hexstan/smart-archiver:latest
+    image: ghcr.io/hexstan/smartarchiver:latest
     container_name: smart-archiver
     restart: unless-stopped
     environment:
@@ -13,7 +13,7 @@ services:
       - ./ssh:/root/.ssh
 
 #  server:
-#    image: ghcr.io/hexstan/smart-archiver:latest
+#    image: ghcr.io/hexstan/smartarchiver:latest
 #    container_name: sa-server
 #    restart: unless-stopped
 #    command: ["--server"]
