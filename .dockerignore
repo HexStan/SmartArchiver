@@ -1,12 +1,42 @@
-.git
-.github
+# 版本控制与 CI/CD
+.git/
+.github/
 .gitignore
 .dockerignore
-.pytest_cache
-__pycache__
 
+# Python 缓存与测试(** 匹配任意层级,避免子目录缓存被打进镜像)
+**/__pycache__/
+**/*.pyc
+.pytest_cache/
+pytest.ini
 tests/
+
+# 本地开发环境与废弃目录
+.venv/
+.idea/
+.trae/
+deprecated/
+
+# PyInstaller 打包产物与构建脚本(镜像只运行源码,不需要打包物)
+build/
+dist/
+SmartArchiver.spec
+requirements-build.txt
+scripts/
+
+# 运行时生成的文件 / 本地配置(运行时通过挂载提供,勿打入镜像)
 logs/
+failure_history.json
 config.toml
+config.server.toml
+
+# Docker 相关文件自身
+docker/
+docker-compose.yml
+
+# 仓库文档(保留 LICENSE 以符合许可证要求)
 AGENTS.md
 ROADMAP.md
+RELEASE-GUIDE.md
+README.md
+CHANGELOG.md
