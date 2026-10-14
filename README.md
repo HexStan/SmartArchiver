@@ -63,7 +63,7 @@ python main.py
 2. 解压后得到 `SmartArchiver` 目录，入口为：
    - **Windows**：`SmartArchiver.exe`
    - **macOS**：`SmartArchiver`（无后缀裸二进制）
-3. 在 `SmartArchiver/config/` 下创建 `config.toml`（复制 `config.example.toml` 后编辑），运行入口程序即可。
+3. 压缩包内的 `SmartArchiver/config/` 已附带示例配置：将 `config.example.toml` 复制（或重命名）为 `config.toml` 并编辑即可运行；服务器模式同理使用 `config.server.example.toml`。
 
 > macOS 提示：首次运行若提示"无法验证开发者"，先执行 `xattr -dr com.apple.quarantine SmartArchiver` 清除隔离属性。
 
