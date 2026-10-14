@@ -49,7 +49,7 @@ python main.py --server                                 # 服务器模式，读�
 
 ## 平台与版本约束
 
-- Python 3.11+（依赖内置 `tomllib`）。CI 矩阵为 ubuntu + windows × Python 3.11–3.14，不要使用 3.12+ 独有语法。
+- Python 3.14+（依赖内置 `tomllib`）。CI 矩阵为 ubuntu + windows × Python 3.14–3.15。
 - sync 模式调用外部进程：Linux 用 rsync，Windows 用 rclone（需在 PATH）。同步语义本身不测，测试只断言传给工具的命令行参数。
 - `lock_file` 仅在 Linux 生效（`fcntl.flock`），Windows 无实例锁。
 
