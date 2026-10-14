@@ -58,7 +58,3 @@ python main.py --server                                 # 服务器模式，读�
 - 仅当维护者主动要求时执行对应流程，不得自行提交、推送或发布：
   - 要求提交变更 → 执行 RELEASE-GUIDE.md 的提交流程（前置：仓库存在未提交的变更）。
   - 要求发布版本 → 执行 RELEASE-GUIDE.md 的发布流程（前置：`VERSION` 文件存在未提交的变更）。
-
-## 分支
-
-- `dev` 是默认集成分支（origin/HEAD → dev），master 与 dev 均触发 CI；功能分支按 `support-*` / `fix-*` / `optimize-*` 命名。

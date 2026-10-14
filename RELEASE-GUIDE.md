@@ -31,9 +31,10 @@
 
 前置条件：`VERSION` 文件存在未提交的变更。若无，先与维护者确认目标版本号（例如将当前开发版号去掉 `-dev` 后缀），修改 `VERSION` 后继续（该修改即成为未提交变更）。
 
-- 当前分支为 `dev` → 开发版路径：第 1–4、6 步（不创建 Release）。
-- 当前分支为 `master` → 正式版路径：第 1–6 步。
-- 其他分支：发布流程仅为 master/dev 定义，向维护者确认后再继续。
+发布路径由 `VERSION` 是否带 `-dev` 后缀决定：
+
+- `VERSION` 带 `-dev` 后缀 → 开发版路径：第 1–4、6 步。
+- `VERSION` 不带 `-dev` 后缀 → 正式版路径：第 1–6 步。
 
 ### 第 1 步：提交变更
 
@@ -43,37 +44,35 @@
 
 只收录**用户可感知的变更**（影响行为、配置、日志输出、使用方式等）；纯重构、测试调整、CI 改动等不改变程序行为的变更不写入。分类子标题顺序固定：`### 破坏性变更` → `### 新增` → `### 修复` → `### 变更`，仅保留有内容的分类。
 
-#### dev 分支（开发版）
+#### 开发版（`VERSION` 带 `-dev` 后缀）
 
-1. 确认 `VERSION` 带 `-dev` 后缀；否则向维护者确认意图。
-2. 界定增量范围：
+1. 界定增量范围：
    - 用 `git log -p -- VERSION` 找到当前**已提交**的 `-dev` 版本号（即上个 DEV 版；工作区未提交的新值不算），以及将其写入 `VERSION` 的提交（diff 中出现 `+<上个DEV版>` 的提交），记为分界提交。
    - 分析范围 = `分界提交^..HEAD`（含分界提交自身——本仓库版本号递增常与功能变更在同一提交）。
    - 不存在更早的 `-dev` 版本时，以上个正式版 tag 为分界（`git describe --abbrev=0 --match='v*' --exclude='*-dev'`），范围 = `<tag>..HEAD`。
-3. 分析 `git log --oneline <范围>` 及相关提交内容，将结果**合并**进 `## 未发布` 段落：与现有条目去重；发现此前遗漏的用户可感知变更一并补充。最终以「`未发布` 段落完整覆盖自上个正式版以来的全部用户可感知变更、且无重复条目」为准。
+2. 分析 `git log --oneline <范围>` 及相关提交内容，将结果**合并**进 `## 未发布` 段落：与现有条目去重；发现此前遗漏的用户可感知变更一并补充。最终以「`未发布` 段落完整覆盖自上个正式版以来的全部用户可感知变更、且无重复条目」为准。
 
-#### master 分支（正式版）
+#### 正式版（`VERSION` 不带 `-dev` 后缀）
 
-1. 确认 `VERSION` 不带 `-dev` 后缀；否则向维护者确认意图。
-2. 确定上个正式版 tag（`git describe --abbrev=0 --match='v*' --exclude='*-dev'`），分析 `git log --oneline <tag>..HEAD`，以 `## 未发布` 段落为底稿核对、补全。
-3. 将发布内容写入新段落 `## [x.y.z] - YYYY-MM-DD`（日期为发布当日），置于 `## 未发布` 之后、上一个正式版段落之前；仅包含用户可感知的变更。
-4. 清空 `## 未发布` 段落的条目（保留标题），供下个开发周期累积。
-5. 在文件底部链接区最上方追加一行：`[x.y.z]: https://github.com/HexStan/SmartArchiver/releases/tag/vx.y.z`。
+1. 确定上个正式版 tag（`git describe --abbrev=0 --match='v*' --exclude='*-dev'`），分析 `git log --oneline <tag>..HEAD`，以 `## 未发布` 段落为底稿核对、补全。
+2. 将发布内容写入新段落 `## [x.y.z] - YYYY-MM-DD`（日期为发布当日），置于 `## 未发布` 之后、上一个正式版段落之前；仅包含用户可感知的变更。
+3. 清空 `## 未发布` 段落的条目（保留标题），供下个开发周期累积。
+4. 在文件底部链接区最上方追加一行：`[x.y.z]: https://github.com/HexStan/SmartArchiver/releases/tag/vx.y.z`。
 
 ### 第 3 步：合并提交 VERSION 与 CHANGELOG.md
 
 两个文件合并为**一次**提交，信息沿用既有风格：`docs: 提升版本号，更新日志`。
 
-### 第 4 步：打 tag 并推送（两个分支）
+### 第 4 步：打 tag 并推送
 
 1. 打附注 tag，指向第 3 步的提交；tag 名为 `v` + `VERSION` 内容。tag 已存在时停止并报告维护者：
 
-   - dev（VERSION 为 `x.y.z-dev`）：`git tag -a vX.Y.Z-dev -m "Release vX.Y.Z-dev"`。
-   - master（VERSION 为 `x.y.z`）：`git tag -a vX.Y.Z -m "Release vX.Y.Z"`。
+   - 开发版（`VERSION` 为 `x.y.z-dev`）：`git tag -a vX.Y.Z-dev -m "Release vX.Y.Z-dev"`。
+   - 正式版（`VERSION` 为 `x.y.z`）：`git tag -a vX.Y.Z -m "Release vX.Y.Z"`。
 
 2. `git push origin <分支名> <tag>`（分支与 tag 一起推送）。
 
-### 第 5 步（仅 master）：创建 Release
+### 第 5 步（仅正式版）：创建 Release
 
 标题为 `vX.Y.Z`，注记为 CHANGELOG 对应小节去掉 `## [x.y.z] - 日期` 标题行后的正文（与已发布的 v0.24.0 / v0.24.2 格式一致）。
 
@@ -84,12 +83,12 @@ gh release create vX.Y.Z --title "vX.Y.Z" --notes-file release_notes.md
 - 注记可先写入仓库根的临时文件 `release_notes.md`（勿提交，用后删除），提取命令见附录 B。
 - 创建 Release 依赖第 4 步已推送的 tag：若跳过第 4 步直接执行，`gh` 会在默认分支（dev）的最新提交上另建同名 tag。
 
-### 第 6 步：触发 Docker 构建（两个分支）
+### 第 6 步：触发 Docker 构建
 
 Docker 镜像的构建与推送由 CI（`.github/workflows/docker-publish.yml`）完成，Agent 只需保证提交已推送：
 
 - 分支与版本 tag 均已在第 4 步一并推送，本步无需再推送。
-- CI 触发条件：推送到 master/dev 且 `VERSION` 有变更。若本次推送未变更 `VERSION`（补发场景），手动触发：`gh workflow run docker-publish.yml --ref <分支名>`。
+- CI 触发条件：推送且 `VERSION` 有变更（任意分支均触发）。若本次推送未变更 `VERSION`（补发场景），手动触发：`gh workflow run docker-publish.yml --ref <分支名>`。
 - 确认构建成功：`gh run list --workflow=docker-publish.yml --limit 1`（或 `gh run watch`）；失败时报告维护者。
 
 构建以仓库根为 context（`docker build -f docker/app/Dockerfile .`），产物推送至 GHCR（镜像名 = 仓库名全小写）：
@@ -157,6 +156,4 @@ PY
 - `python -m pytest` 未通过；
 - 待提交内容混有疑似不应入库的文件；
 - 目标 tag 已存在；
-- `VERSION` 与分支不匹配（dev 上无 `-dev` 后缀，或 master 上带 `-dev` 后缀）；
-- 当前分支既非 master 也非 dev；
 - `gh` 认证或网络异常导致 Release 创建失败（此时提交与 tag 已推送可保留，修复后仅重跑第 5 步）。
