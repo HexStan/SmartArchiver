@@ -4,16 +4,22 @@
 
 ## 未发布
 
+---
+
+## [0.28.2] - 2026-10-15
+
 ### 破坏性变更
 
 - 合并 `move` 和 `whitelist_move` 为 `move` 模式，合并 `copy` 和 `whitelist_copy` 为 `copy` 模式。`whitelist_move`/`whitelist_copy` 不再支持，工作方式现统一为原 whitelist 系列的行为。
 - 配置项 `keep_rules` 重命名为 `exclude_rules`，`whitelist_rules` 重命名为 `include_rules`。
 - 删去 `preferred_rule` 配置项。规则引擎现采用顺序流水线：`include_rules` → `exclude_rules` → `delete_rules` → TRANSFER，命中即停止，不再有并行检查和冲突消解。
 - `include_rules` 为选填：未配置时所有文件均视为"已纳入"（等价于旧 `move`/`copy` 的默认行为）；配置后仅匹配的文件被处理（等价于旧 whitelist 模式）。
+- 配置项 `run_immediately` 被 `first_run_delay` 取代：`-1` 表示等待至下个调度点（默认），`0` 表示立即执行，正数表示延迟指定秒数后执行首次任务。
 
 ### 修复
 
 - `keep_rules` 和 `delete_rules` 在 rotate 模式下对目录不生效的问题，以及同源的逻辑缺陷。
+- 修正 README 与 docker-compose.yml 中错误的镜像地址与克隆地址，统一为 `smartarchiver`。
 
 ### 变更
 
@@ -21,6 +27,7 @@
 - 非 `sync` 模式下允许省略 `dest`（目标目录），未配置时文件传输操作自动跳过。
 - `sync` 模式现强制要求 `dest` 字段必填。
 - 统一各处 SKIP 行为文案为“跳过”。
+- 运行环境要求由 Python 3.11+ 提升至 Python 3.14+。
 
 ---
 
@@ -254,6 +261,7 @@
 
 ---
 
+[0.28.2]: https://github.com/HexStan/SmartArchiver/releases/tag/v0.28.2
 [0.24.2]: https://github.com/HexStan/SmartArchiver/releases/tag/v0.24.2
 [0.24.0]: https://github.com/HexStan/SmartArchiver/releases/tag/v0.24.0
 [0.23.0]: https://github.com/HexStan/SmartArchiver/releases/tag/v0.23.0
