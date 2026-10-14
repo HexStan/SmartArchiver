@@ -22,6 +22,7 @@ SmartArchiver 的本质是一个"目录树 + 配置 → 新目录树"的变换�
 | 白盒·轮转分组 | `test_rotate_groups.py` | RotateGroupManager | 直接调用分组统计接口 |
 | 白盒·纯函数 | `test_size_and_pattern.py` | parse_size_string / match_pattern | 直接调用 |
 | 白盒·路径与分派 | `test_dest_backend.py` | DestBackend 路径拼接、create_dest_backend | 直接调用（get_unique_dest 用真实文件） |
+| 端到端·打包产物 | `test_e2e_packaged.py` | PyInstaller 产物（main 入口） | 子进程驱动；`SMARTARCHIVER_BIN` 未设置时整体跳过 |
 
 ## 编写原则
 
@@ -63,6 +64,31 @@ SmartArchiver 的本质是一个"目录树 + 配置 → 新目录树"的变换�
 - `NOW / OLD / RECENT`：确定性时间常量（`OLD` 距 `NOW` 30 天，`RECENT` 距 60 秒）。
 - `make_tree(root, files, default_mtime=OLD)`：按 `{相对路径: bytes}` 声明式建树；值也可以是 `(bytes, mtime)` 元组单独指定时间。
 - `snapshot(root)`：`{相对路径: 大小}` 快照，目录树断言的基准。
+
+## 端到端：打包产物（条件启用）
+
+`test_e2e_packaged.py` 以黑盒方式驱动 PyInstaller 打包产物，覆盖灰盒够不到的两段链路：
+
+1. **TOML 配置形状 → 任务字典**：灰盒直接传入 Python 字典，绕过了 ConfigManager；
+   端到端走真实的 config.toml 加载路径，钉死规则块在 TOML 中的写法；
+2. **打包布局与入口启动**：冻结形态下应用根目录 = 可执行文件所在目录
+   （`src/app_paths.py`），打包缺失模块、入口崩溃等只有真实产物能暴露。
+
+约定：
+
+- **启用条件**：环境变量 `SMARTARCHIVER_BIN` 指向打包程序目录（如 `dist/SmartArchiver`）；
+  未设置时整个模块跳过，日常源码开发不受影响。CI 中由 executable-build.yml 在构建后设置。
+- **驱动方式**：把程序目录复制到 pytest 临时位置（不污染构建产物），写入测试 config.toml
+  后以子进程运行二进制，断言退出码与目录树快照——驱动子进程即进程边界，符合原则三。
+- **时钟说明**：二进制无法注入 now，仅依赖「真实当前时刻远超 `make_tree` 固定的过去
+  时间戳 `OLD`」这一单调不变量；行为判定全部来自显式设定的 mtime，不 sleep。
+
+本地运行：
+
+```bash
+python scripts/build_executable.py
+SMARTARCHIVER_BIN=dist/SmartArchiver python -m pytest tests/test_e2e_packaged.py -v
+```
 
 ## 运行
 
