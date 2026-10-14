@@ -46,11 +46,8 @@
 
 #### 开发版（`VERSION` 带 `-dev` 后缀）
 
-1. 界定增量范围：
-   - 用 `git log -p -- VERSION` 找到当前**已提交**的 `-dev` 版本号（即上个 DEV 版；工作区未提交的新值不算），以及将其写入 `VERSION` 的提交（diff 中出现 `+<上个DEV版>` 的提交），记为分界提交。
-   - 分析范围 = `分界提交^..HEAD`（含分界提交自身——本仓库版本号递增常与功能变更在同一提交）。
-   - 不存在更早的 `-dev` 版本时，以上个正式版 tag 为分界（`git describe --abbrev=0 --match='v*' --exclude='*-dev'`），范围 = `<tag>..HEAD`。
-2. 分析 `git log --oneline <范围>` 及相关提交内容，将结果**合并**进 `## 未发布` 段落：与现有条目去重；发现此前遗漏的用户可感知变更一并补充。最终以「`未发布` 段落完整覆盖自上个正式版以来的全部用户可感知变更、且无重复条目」为准。
+1. 确定上个 tag（`git describe --abbrev=0 --match='v*'`，不排除 `-dev` tag——上个 tag 是开发版或正式版均可作为分界），分析 `git log --oneline <tag>..HEAD` 及相关提交内容。
+2. 将结果**合并**进 `## 未发布` 段落：与现有条目去重；发现此前遗漏的用户可感知变更一并补充。最终以「`未发布` 段落完整覆盖自上个正式版以来的全部用户可感知变更、且无重复条目」为准。
 
 #### 正式版（`VERSION` 不带 `-dev` 后缀）
 
@@ -83,7 +80,9 @@ gh release create vX.Y.Z --title "vX.Y.Z" --notes-file release_notes.md
 - 注记可先写入仓库根的临时文件 `release_notes.md`（勿提交，用后删除），提取命令见附录 B。
 - 创建 Release 依赖第 4 步已推送的 tag：若跳过第 4 步直接执行，`gh` 会在默认分支（dev）的最新提交上另建同名 tag。
 
-### 第 6 步：触发 Docker 构建
+### 第 6 步：触发构建
+
+#### Docker 镜像
 
 Docker 镜像的构建与推送由 CI（`.github/workflows/docker-publish.yml`）完成，Agent 只需保证提交已推送：
 
@@ -97,6 +96,14 @@ Docker 镜像的构建与推送由 CI（`.github/workflows/docker-publish.yml`�
 | --- | --- |
 | `x.y.z-dev` | `x.y.z-dev`、`dev` |
 | `x.y.z`（正式版） | `x.y.z`、`latest` |
+
+#### 可执行文件
+
+打包版可执行文件由 CI 自动构建，Agent 只需保证第 4–5 步完成：
+
+- 正式版：Release 创建（第 5 步）后，`.github/workflows/executable-release.yml` 自动构建 Windows/macOS × AMD64/ARM64 四个平台的 zip（内置 rclone）并附加至该 Release 的 Assets。
+- 开发版：任意分支推送带 `-dev` 后缀的 `VERSION` 变更时，`.github/workflows/executable-dev.yml` 自动构建，产物仅输出至工作流 Artifacts（不发布）。
+- 确认构建成功：`gh run list --workflow=executable-release.yml --limit 1`（或 `executable-dev.yml`）；失败时报告维护者。
 
 ## 附录 A：CHANGELOG.md 格式
 

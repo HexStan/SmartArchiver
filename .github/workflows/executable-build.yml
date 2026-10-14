@@ -1,0 +1,53 @@
+name: Executable Build
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: windows-amd64
+          - os: windows-11-arm
+            target: windows-arm64
+          - os: macos-15-intel
+            target: macos-amd64
+          - os: macos-15
+            target: macos-arm64
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up Python 3.14
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt -r requirements-build.txt
+
+      - name: Build executable
+        run: python scripts/build_executable.py --target ${{ matrix.target }}
+
+      - name: Smoke test package
+        run: python scripts/smoke_test.py "dist/SmartArchiver-*.zip"
+
+      - name: Run packaged E2E tests
+        run: |
+          pip install pytest
+          python -m pytest tests/test_e2e_packaged.py -v
+        env:
+          SMARTARCHIVER_BIN: dist/SmartArchiver
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SmartArchiver-${{ matrix.target }}
+          path: dist/*.zip
+          if-no-files-found: error

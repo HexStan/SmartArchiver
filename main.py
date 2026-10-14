@@ -6,13 +6,15 @@ import sys
 import time
 
 from croniter import croniter
-from src.presentation import fmt_timespan
+
 from src.app_context import AppContext
+from src.app_paths import app_base_dir
+from src.config_manager import ConfigManager
 from src.core import process_task
 from src.history import HistoryManager
 from src.logger import setup_logger
+from src.presentation import fmt_timespan
 from src.utils import SingleInstance
-from src.config_manager import ConfigManager
 
 
 def _reload_config_if_changed(manager):
@@ -93,8 +95,7 @@ def _load_and_init(config_path, logger_prefix="smartarchiver"):
 
 
 def run_client():
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    config_path = os.path.join(base_dir, "config/config.toml")
+    config_path = os.path.join(app_base_dir(), "config/config.toml")
     manager = _load_and_init(config_path)
 
     ctx = AppContext.get()
@@ -178,8 +179,7 @@ def run_client():
 
 
 def run_server():
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    config_path = os.path.join(base_dir, "config/config.server.toml")
+    config_path = os.path.join(app_base_dir(), "config/config.server.toml")
     _ = _load_and_init(config_path, logger_prefix="smartarchiver-server")
 
     ctx = AppContext.get()
@@ -190,7 +190,22 @@ def run_server():
     start_server(ctx.config, ctx.logger)
 
 
+def _ensure_utf8_stdio():
+    """管道/重定向场景下 stdout/stderr 默认跟随系统 ANSI 代码页，中文会直接
+    UnicodeEncodeError（如 Windows 的 cp1252）；交互控制台走 WindowsConsoleIO，
+    编码本就是 UTF-8，不受影响。此处将非 UTF-8 的流统一强制为 UTF-8，
+    与日志文件编码保持一致。冻结产物会忽略 PYTHONUTF8/PYTHONIOENCODING
+    环境变量，因此只能在入口代码处理。"""
+    for stream in (sys.stdout, sys.stderr):
+        if stream is None or not hasattr(stream, "reconfigure"):
+            continue
+        if (stream.encoding or "").lower().replace("-", "") != "utf8":
+            stream.reconfigure(encoding="utf-8")
+
+
 def main():
+    _ensure_utf8_stdio()
+
     parser = argparse.ArgumentParser(description="SmartArchiver - 智能文件归档工具")
     parser.add_argument(
         "--server",

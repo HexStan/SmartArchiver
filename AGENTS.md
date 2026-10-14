@@ -26,6 +26,8 @@ python -m pytest                                        # 全部测试（pytest.
 python -m pytest tests/test_greybox_rotate.py -v        # 单个测试文件
 python main.py                                          # 客户端模式，读取 config/config.toml，缺失即退出
 python main.py --server                                 # 服务器模式，读取 config/config.server.toml
+python scripts/build_executable.py                      # 构建当前平台的可执行文件（PyInstaller onedir + 内置 rclone）
+python scripts/smoke_test.py "dist/SmartArchiver-*.zip" # 对发行 zip 做冒烟检查（包结构 + 入口可运行）
 ```
 
 - 运行前需 `cp config/config.example.toml config/config.toml`；`config.toml` 已 gitignore，只提交 `config/*.example.toml`。
@@ -42,10 +44,7 @@ python main.py --server                                 # 服务器模式，读�
 
 ## 测试约定（权威文档：tests/README.md）
 
-- 灰盒优先：新行为尽量通过 conftest 的 `run_task()` fixture + `make_tree()` 临时目录树驱动，主断言落在 `snapshot()`（`{相对路径: 大小}`）上。
-- 白盒单测仅限外部不可观察的契约（惰性求值、include 继承的遍历顺序、多分组扣减联动）。
-- 只允许在进程/网络边界打桩（`subprocess.Popen`、`shutil.which`），业务函数之间禁止互相 mock；范式见 `test_greybox_sync.py` 的 `stub_procs`。
-- 禁止依赖真实时钟：`now` 经 `run_task(task, now=...)` 显式注入，文件 mtime 用 `make_tree()` 显式设定，不 sleep。
+详见 `tests/README.md`。
 
 ## 平台与版本约束
 

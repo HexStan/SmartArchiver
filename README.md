@@ -47,6 +47,32 @@ python main.py
 - **Windows**：需安装 [`rclone`](https://rclone.org/downloads/) 并将其加入 PATH
 - 可通过 `tool` 配置项强制指定工具（`"rsync"` 或 `"rclone"`）
 
+### 打包版可执行文件（Windows / macOS）
+
+不想配置 Python 环境可以直接使用打包版：**内置 rclone，sync 模式开箱即用**。
+
+1. 从 [Releases](https://github.com/HexStan/SmartArchiver/releases) 下载对应平台的压缩包并解压：
+
+   | 平台 | 文件 |
+   | --- | --- |
+   | Windows (AMD64) | `SmartArchiver-<版本>-windows-amd64.zip` |
+   | Windows (ARM64) | `SmartArchiver-<版本>-windows-arm64.zip` |
+   | macOS (Intel) | `SmartArchiver-<版本>-macos-amd64.zip` |
+   | macOS (Apple Silicon) | `SmartArchiver-<版本>-macos-arm64.zip` |
+
+2. 解压后得到 `SmartArchiver` 目录，入口为：
+   - **Windows**：`SmartArchiver.exe`
+   - **macOS**：`SmartArchiver`（无后缀裸二进制）
+3. 压缩包内的 `SmartArchiver/config/` 已附带示例配置：将 `config.example.toml` 复制（或重命名）为 `config.toml` 并编辑即可运行；服务器模式同理使用 `config.server.example.toml`。
+
+> macOS 提示：首次运行若提示"无法验证开发者"，先执行 `xattr -dr com.apple.quarantine SmartArchiver` 清除隔离属性。
+
+说明：
+- 配置文件、日志等均位于可执行文件同级目录（`config/`、`logs/`），不写入系统目录。
+- 打包版运行 `--server` 参数同样支持服务器模式（需配置 `config/config.server.toml`）。
+- 开发版（`VERSION` 带 `-dev` 后缀）的构建产物不发布到 Release，可在 GitHub Actions 对应 run 的 **Artifacts** 中下载。
+- 自行构建：`pip install -r requirements.txt -r requirements-build.txt && python scripts/build_executable.py`。
+
 ### 服务器模式（HTTP Server）
 
 SmartArchiver 可作为 HTTP 服务器运行，接受来自其他客户端实例的远程文件操作请求。
@@ -176,7 +202,7 @@ SmartArchiver 的核心能力是**对源目录中的文件执行某种操作**�
 |------|---------|------|
 | `size_limit` | rotate | 全局目录总体积上限，如 `"1GB"`，`0` 表示不限制 |
 | `count_limit` | rotate | 全局目录文件总数量上限，`0` 表示不限制 |
-| `tool` | sync | 同步工具：`"auto"`（自动）、`"rsync"`、`"rclone"` |
+| `tool` | sync | 同步工具：`"auto"`（自动，优先内置 rclone）、`"rsync"`、`"rclone"` |
 | `exclude` | sync | 排除模式列表，由底层工具处理 |
 | `create_backups` | sync | 替换/删除前是否备份，默认 `false` |
 | `max_backups` | sync | 最多保留备份份数，`0` 表示不限制 |
@@ -211,9 +237,11 @@ SmartArchiver 的核心能力是**对源目录中的文件执行某种操作**�
 
 **sync 模式的 `tool` 选择**：
 
-- `"auto"`（默认）：Windows 上自动使用 rclone，Linux/macOS 上自动使用 rsync
+- `"auto"`（默认）：优先使用打包版内置的 rclone；内置不可用时回退系统工具 — Windows 使用 PATH 中的 rclone，macOS/Linux 使用 PATH 中的 rsync（macOS 的系统 rsync 即 openrsync 实现）
 - `"rsync"`：强制使用 rsync（需预装，Linux/macOS 通常自带）
-- `"rclone"`：强制使用 rclone（需预装，[下载地址](https://rclone.org/downloads/)）
+- `"rclone"`：强制使用 rclone（优先使用打包版内置的，其次 PATH；[下载地址](https://rclone.org/downloads/)）
+
+> macOS 注意：系统 rsync 为 openrsync 实现，不支持 `--backup`/`--backup-dir`，`create_backups` 配置在该工具下会被忽略（日志中会给出警告）。
 
 ---
 

@@ -10,6 +10,7 @@
 import os
 import shutil
 import subprocess
+import sys
 from types import SimpleNamespace
 
 import pytest
@@ -77,6 +78,11 @@ class TestLocalSyncCommands:
     ):
         src, dest = prepared_dirs
         monkeypatch.setattr(os, "name", "posix")
+        # rclone 不可用时，POSIX 的 auto 回退到系统 rsync
+        monkeypatch.setattr(
+            shutil, "which",
+            lambda name: None if name == "rclone" else f"/fake/bin/{name}",
+        )
 
         run_task(sync_task(tmp_path))  # tool 默认 auto
 
@@ -153,6 +159,109 @@ class TestLocalBackupDir:
         assert "20230101-000000" not in remaining
         assert "20230202-000000" not in remaining
         assert "20230303-000000" in remaining
+
+
+class TestBundledRcloneResolution:
+    """内置 rclone 与 auto 回退：打包版优先用内置二进制，
+    内置不可用时按平台回退系统工具（打桩只涉及 sys.frozen/_MEIPASS
+    打包环境边界与 shutil.which 进程边界）。"""
+
+    @pytest.fixture
+    def frozen_env(self, monkeypatch, tmp_path):
+        """模拟 PyInstaller onedir 环境：sys.frozen + _MEIPASS 指向临时内部目录。"""
+        internal = tmp_path / "_internal"
+        (internal / "rclone").mkdir(parents=True)
+        monkeypatch.setattr(sys, "frozen", True, raising=False)
+        monkeypatch.setattr(sys, "_MEIPASS", str(internal), raising=False)
+        return internal
+
+    @staticmethod
+    def bundle_rclone(internal):
+        name = "rclone.exe" if os.name == "nt" else "rclone"
+        path = internal / "rclone" / name
+        path.write_bytes(b"fake rclone binary")
+        return str(path)
+
+    def test_auto_prefers_bundled_rclone(
+        self, run_task, tmp_path, stub_procs, prepared_dirs, frozen_env
+    ):
+        bundled = self.bundle_rclone(frozen_env)
+        src, dest = prepared_dirs
+
+        run_task(sync_task(tmp_path))  # tool 默认 auto
+
+        assert stub_procs.calls[0].cmd[:2] == [bundled, "sync"]
+
+    def test_forced_rclone_uses_bundled_first(
+        self, run_task, tmp_path, stub_procs, prepared_dirs, frozen_env
+    ):
+        bundled = self.bundle_rclone(frozen_env)
+        src, dest = prepared_dirs
+
+        run_task(sync_task(tmp_path, tool="rclone"))
+
+        assert stub_procs.calls[0].cmd[:2] == [bundled, "sync"]
+
+    def test_auto_falls_back_to_system_rclone_when_bundled_missing(
+        self, run_task, tmp_path, stub_procs, prepared_dirs, frozen_env, monkeypatch
+    ):
+        """打包环境但内置 rclone 缺失（分发损坏等）：Windows 回退系统 rclone。"""
+        monkeypatch.setattr(os, "name", "nt")
+        src, dest = prepared_dirs
+
+        run_task(sync_task(tmp_path))
+
+        assert stub_procs.calls[0].cmd[0] == "rclone"
+
+    def test_auto_falls_back_to_system_rsync_on_posix(
+        self, run_task, tmp_path, stub_procs, prepared_dirs, frozen_env, monkeypatch
+    ):
+        monkeypatch.setattr(os, "name", "posix")
+        monkeypatch.setattr(sys, "platform", "linux")
+        monkeypatch.setattr(
+            shutil, "which",
+            lambda name: None if name == "rclone" else f"/fake/bin/{name}",
+        )
+        src, dest = prepared_dirs
+
+        run_task(sync_task(tmp_path))
+
+        assert stub_procs.calls[0].cmd[0] == "rsync"
+
+    def test_macos_rsync_is_openrsync_and_ignores_backups(
+        self, run_task, tmp_path, stub_procs, prepared_dirs, frozen_env,
+        monkeypatch, capture_log,
+    ):
+        """macOS 的系统 rsync 即 openrsync：不支持备份目录，警告后继续同步。"""
+        monkeypatch.setattr(os, "name", "posix")
+        monkeypatch.setattr(sys, "platform", "darwin")
+        monkeypatch.setattr(
+            shutil, "which",
+            lambda name: None if name == "rclone" else f"/fake/bin/{name}",
+        )
+        src, dest = prepared_dirs
+
+        run_task(sync_task(tmp_path, create_backups=True))
+
+        cmd = stub_procs.calls[0].cmd
+        assert cmd[0] == "rsync"
+        assert "--backup" not in cmd
+        assert not any(a.startswith("--backup-dir") for a in cmd)
+        assert capture_log.has("warning", "openrsync")
+
+    def test_explicit_rsync_on_macos_ignores_backups(
+        self, run_task, tmp_path, stub_procs, prepared_dirs, monkeypatch, capture_log
+    ):
+        monkeypatch.setattr(os, "name", "posix")
+        monkeypatch.setattr(sys, "platform", "darwin")
+        src, dest = prepared_dirs
+
+        run_task(sync_task(tmp_path, tool="rsync", create_backups=True))
+
+        cmd = stub_procs.calls[0].cmd
+        assert "--backup" not in cmd
+        assert not any(a.startswith("--backup-dir") for a in cmd)
+        assert capture_log.has("warning", "openrsync")
 
 
 class TestSyncRejections:

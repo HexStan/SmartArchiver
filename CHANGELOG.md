@@ -4,6 +4,16 @@
 
 ## 未发布
 
+### 新增
+
+- 新增打包版可执行文件（PyInstaller onedir），覆盖 Windows/macOS × AMD64/ARM64，内置 rclone、附带示例配置，sync 模式开箱即用；发布 Release 时自动附加至 Assets，开发版（`-dev` 版本号）构建输出至工作流 Artifacts。
+- sync 模式 `tool = "auto"` 时优先使用打包版内置的 rclone，内置不可用时回退系统工具：Windows 使用 PATH 中的 rclone，macOS/Linux 使用 PATH 中的 rsync。
+- 打包版可执行文件支持服务器模式（`--server`），配置文件与日志均位于可执行文件同级目录。
+
+### 修复
+
+- Windows 下通过管道或重定向输出中文（如 `--help`）因系统 ANSI 代码页无法编码而崩溃的问题，非控制台输出现统一使用 UTF-8。
+
 ---
 
 ## [0.28.2] - 2026-10-15
