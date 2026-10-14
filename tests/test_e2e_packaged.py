@@ -42,7 +42,8 @@ def _entry_name():
 
 def _run_binary(program_dir, timeout=120):
     env = os.environ.copy()
-    # 产物会输出中文日志，管道场景下固定 UTF-8，避免控制台编码差异干扰断言
+    # 非冻结运行时固定 UTF-8；冻结产物会忽略 PYTHON* 环境变量，
+    # 由入口的 _ensure_utf8_stdio 保证输出编码
     env["PYTHONIOENCODING"] = "utf-8"
     env["PYTHONUTF8"] = "1"
     return subprocess.run(

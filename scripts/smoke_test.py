@@ -106,7 +106,8 @@ def run_entry_help(program_dir):
     """运行入口 --help，断言正常退出且输出非空。"""
     entry = os.path.join(program_dir, entry_name())
     env = os.environ.copy()
-    # 产物会输出中文，管道场景下固定 UTF-8，避免控制台编码差异造成误报
+    # 非冻结运行时固定 UTF-8；冻结产物会忽略 PYTHON* 环境变量，
+    # 由入口的 _ensure_utf8_stdio 保证输出编码，避免控制台差异造成误报
     env["PYTHONIOENCODING"] = "utf-8"
     env["PYTHONUTF8"] = "1"
 
