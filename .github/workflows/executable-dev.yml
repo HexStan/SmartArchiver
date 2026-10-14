@@ -1,0 +1,36 @@
+name: Executable Build (Dev)
+
+on:
+  push:
+    branches:
+      - '**'
+    paths:
+      - 'VERSION'
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      is_dev: ${{ steps.version.outputs.is_dev }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Check VERSION suffix
+        id: version
+        run: |
+          VERSION=$(head -1 VERSION | tr -d '[:space:]')
+          echo "VERSION=${VERSION}"
+          if [[ "$VERSION" == *-dev ]]; then
+            echo "is_dev=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "is_dev=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  build:
+    needs: check
+    if: needs.check.outputs.is_dev == 'true'
+    uses: ./.github/workflows/executable-build.yml
+    permissions:
+      contents: read

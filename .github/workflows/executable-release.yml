@@ -1,0 +1,31 @@
+name: Executable Release
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  build:
+    uses: ./.github/workflows/executable-build.yml
+    permissions:
+      contents: read
+
+  upload:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: SmartArchiver-*
+          merge-multiple: true
+          path: dist
+
+      - name: Upload release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >
+          gh release upload "${{ github.event.release.tag_name }}" dist/*.zip
+          --clobber --repo "${{ github.repository }}"
