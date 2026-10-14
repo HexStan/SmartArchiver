@@ -4,6 +4,10 @@
 
 ## 未发布
 
+---
+
+## [0.29.2] - 2026-10-15
+
 ### 新增
 
 - 新增打包版可执行文件（PyInstaller onedir），覆盖 Windows/macOS × AMD64/ARM64，内置 rclone、附带示例配置，sync 模式开箱即用；发布 Release 时自动附加至 Assets，开发版（`-dev` 版本号）构建输出至工作流 Artifacts。
@@ -271,6 +275,7 @@
 
 ---
 
+[0.29.2]: https://github.com/HexStan/SmartArchiver/releases/tag/v0.29.2
 [0.28.2]: https://github.com/HexStan/SmartArchiver/releases/tag/v0.28.2
 [0.24.2]: https://github.com/HexStan/SmartArchiver/releases/tag/v0.24.2
 [0.24.0]: https://github.com/HexStan/SmartArchiver/releases/tag/v0.24.0
