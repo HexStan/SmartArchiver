@@ -10,10 +10,12 @@
 - 配置项 `keep_rules` 重命名为 `exclude_rules`，`whitelist_rules` 重命名为 `include_rules`。
 - 删去 `preferred_rule` 配置项。规则引擎现采用顺序流水线：`include_rules` → `exclude_rules` → `delete_rules` → TRANSFER，命中即停止，不再有并行检查和冲突消解。
 - `include_rules` 为选填：未配置时所有文件均视为"已纳入"（等价于旧 `move`/`copy` 的默认行为）；配置后仅匹配的文件被处理（等价于旧 whitelist 模式）。
+- 移除配置项 `run_immediately`，由 `first_run_delay` 替代。
 
 ### 新增
 
-- 新增打包版可执行文件（PyInstaller onedir），覆盖 Windows/macOS × AMD64/ARM64，内置 rclone，sync 模式开箱即用；发布 Release 时自动附加至 Assets，开发版（`-dev` 版本号）构建输出至工作流 Artifacts。
+- 定时运行模式新增 `first_run_delay` 配置项，支持等待至下个调度点、立即执行或延迟指定秒数后执行首次任务。
+- 新增打包版可执行文件（PyInstaller onedir），覆盖 Windows/macOS × AMD64/ARM64，内置 rclone、附带示例配置，sync 模式开箱即用；发布 Release 时自动附加至 Assets，开发版（`-dev` 版本号）构建输出至工作流 Artifacts。
 - sync 模式 `tool = "auto"` 时优先使用打包版内置的 rclone，内置不可用时回退系统工具：Windows 使用 PATH 中的 rclone，macOS/Linux 使用 PATH 中的 rsync。
 - 打包版可执行文件支持服务器模式（`--server`），配置文件与日志均位于可执行文件同级目录。
 
