@@ -1,43 +1,107 @@
 import os
 import posixpath
 import shutil
-import time
 import subprocess
+import sys
+import time
+from collections import namedtuple
 from datetime import datetime
 
-from src.app_context import AppContext
-from src.presentation import fmt_timespan, print_task_header
-from src.core.registry import register_handler
-from src.core.handlers.base import BaseTaskHandler
-from src.core.backend import RemoteDestBackend, SshDestBackend
 from src import fs_ops
-
+from src.app_context import AppContext
+from src.app_paths import bundled_rclone_path
+from src.core.backend import RemoteDestBackend, SshDestBackend
+from src.core.handlers.base import BaseTaskHandler
+from src.core.registry import register_handler
+from src.presentation import fmt_timespan, print_task_header
 
 # ============================================================
 # 同步工具注册与解析
 # ============================================================
 
 
+# 同步工具解析结果：
+#   name —— 工具族名（"rclone" 或 "rsync"），决定命令构造方式；
+#   exec_path —— 实际调用的可执行文件（内置 rclone 为绝对路径，系统工具为命令名）；
+#   supports_backup_dir —— 是否支持 --backup/--backup-dir
+#       （macOS 的系统 rsync 自 Sequoia 起为 openrsync 实现，不支持这两个选项）。
+SyncTool = namedtuple("SyncTool", ["name", "exec_path", "supports_backup_dir"])
+
+
+def _resolve_rclone():
+    """解析 rclone 可执行文件：打包版内置优先，其次系统 PATH。
+
+    Returns:
+        SyncTool | None: 解析失败时已记录错误日志，返回 None。
+    """
+    bundled = bundled_rclone_path()
+    if bundled:
+        return SyncTool("rclone", bundled, True)
+
+    ctx = AppContext.get()
+    if shutil.which("rclone"):
+        return SyncTool("rclone", "rclone", True)
+
+    ctx.logger.error("未找到 rclone，无法执行 sync 模式，跳过该任务。")
+    return None
+
+
+def _resolve_rsync():
+    """解析系统 PATH 中的 rsync。
+
+    macOS 的系统 rsync 即 openrsync 实现，不支持 --backup/--backup-dir，
+    以 supports_backup_dir=False 标记，由调用方忽略 create_backups 配置。
+
+    Returns:
+        SyncTool | None: 解析失败时已记录错误日志，返回 None。
+    """
+    ctx = AppContext.get()
+    if shutil.which("rsync"):
+        return SyncTool("rsync", "rsync", sys.platform != "darwin")
+
+    ctx.logger.error("未找到 rsync，无法执行 sync 模式，跳过该任务。")
+    return None
+
+
 def _resolve_sync_tool(task):
     """根据配置和平台解析要使用的同步工具。
 
+    解析优先级：
+    1. tool = "auto"（默认）或 "rclone"：打包版内置的 rclone → 系统 PATH 中的 rclone；
+    2. tool = "auto" 且 rclone 不可用：POSIX 平台回退系统 rsync（Windows 不回退）；
+    3. tool = "rsync"：系统 PATH 中的 rsync。
+
     Returns:
-        str | None: 解析后的工具名（"rsync" 或 "rclone"），解析失败返回 None。
+        SyncTool | None: 解析结果；解析失败时已记录错误日志，返回 None。
     """
     tool = task.get("tool", "auto").lower()
 
-    if tool == "auto":
-        return "rclone" if os.name == "nt" else "rsync"
+    if tool not in ("auto", "rsync", "rclone"):
+        ctx = AppContext.get()
+        ctx.logger.error(
+            f"sync 模式的 tool 配置值无效: '{tool}'，"
+            f"可选值: auto、rsync、rclone，跳过该任务。"
+        )
+        return None
 
-    if tool in ("rsync", "rclone"):
-        return tool
+    if tool in ("auto", "rclone"):
+        resolved = _resolve_rclone()
+        if resolved is not None:
+            return resolved
+        if tool == "rclone" or os.name == "nt":
+            # _resolve_rclone 已记录错误；Windows 的 auto 不回退 rsync
+            return None
 
+    return _resolve_rsync()
+
+
+def _warn_backup_unsupported():
+    """提示当前 rsync 为 openrsync 实现，create_backups 已被忽略。"""
     ctx = AppContext.get()
-    ctx.logger.error(
-        f"sync 模式的 tool 配置值无效: '{tool}'，"
-        f"可选值: auto、rsync、rclone，跳过该任务。"
+    ctx.logger.warning(
+        "当前系统的 rsync 为 openrsync 实现，不支持 --backup/--backup-dir，"
+        "已忽略 create_backups 配置。"
     )
-    return None
 
 
 def _run_sync_command(cmd, tool_name, prepend_timestamp=False):
@@ -71,13 +135,8 @@ def _run_sync_command(cmd, tool_name, prepend_timestamp=False):
         ctx.logger.error(f"执行 {tool_name} 时发生错误: {e}")
 
 
-def _run_rclone_sync(source_root, dest_root, exclude_list, backup_dir):
-    ctx = AppContext.get()
-    if not shutil.which("rclone"):
-        ctx.logger.error("未找到 rclone，无法执行 sync 模式，跳过该任务。")
-        return
-
-    cmd = ["rclone", "sync", source_root, dest_root]
+def _run_rclone_sync(source_root, dest_root, exclude_list, backup_dir, rclone_cmd):
+    cmd = [rclone_cmd, "sync", source_root, dest_root]
     for ex in exclude_list:
         cmd.extend(["--exclude", ex])
     if backup_dir:
@@ -86,14 +145,9 @@ def _run_rclone_sync(source_root, dest_root, exclude_list, backup_dir):
     _run_sync_command(cmd, "rclone")
 
 
-def _run_rsync_sync(source_root, dest_root, exclude_list, backup_dir):
-    ctx = AppContext.get()
-    if not shutil.which("rsync"):
-        ctx.logger.error("未找到 rsync，无法执行 sync 模式，跳过该任务。")
-        return
-
+def _run_rsync_sync(source_root, dest_root, exclude_list, backup_dir, rsync_cmd):
     src = source_root if source_root.endswith("/") else source_root + "/"
-    cmd = ["rsync", "-av", "--delete", src, dest_root]
+    cmd = [rsync_cmd, "-av", "--delete", src, dest_root]
     for ex in exclude_list:
         cmd.extend(["--exclude", ex])
     if backup_dir:
@@ -143,16 +197,20 @@ class SyncHandler(BaseTaskHandler):
         else:
             backup_dir = None
             if backup_enabled:
-                backup_dir = self._setup_backup_dir(
-                    self.dest_root, max_backups, exclude_list
-                )
+                if tool.supports_backup_dir:
+                    backup_dir = self._setup_backup_dir(
+                        self.dest_root, max_backups, exclude_list
+                    )
+                else:
+                    _warn_backup_unsupported()
 
             _sync_runners = {
-                "rsync": _run_rsync_sync,
                 "rclone": _run_rclone_sync,
+                "rsync": _run_rsync_sync,
             }
-            _sync_runners[tool](
-                self.source_root, self.dest_root, exclude_list, backup_dir
+            _sync_runners[tool.name](
+                self.source_root, self.dest_root, exclude_list, backup_dir,
+                tool.exec_path,
             )
 
     # ============================================================
@@ -165,12 +223,15 @@ class SyncHandler(BaseTaskHandler):
 
         backup_dir = None
         if backup_enabled:
-            backup_dir = self._setup_ssh_backup_dir(max_backups, exclude_list)
+            if tool.supports_backup_dir:
+                backup_dir = self._setup_ssh_backup_dir(max_backups, exclude_list)
+            else:
+                _warn_backup_unsupported()
 
-        if tool == "rsync":
-            self._run_ssh_rsync(remote, exclude_list, backup_dir)
+        if tool.name == "rsync":
+            self._run_ssh_rsync(tool, remote, exclude_list, backup_dir)
         else:
-            self._run_ssh_rclone(remote, exclude_list, backup_dir)
+            self._run_ssh_rclone(tool, remote, exclude_list, backup_dir)
 
     def _build_rsync_ssh_rsh(self, remote):
         """构建 rsync 的 -e 参数值（SSH 远程 shell 命令字符串）。"""
@@ -194,18 +255,13 @@ class SyncHandler(BaseTaskHandler):
 
         return rsh
 
-    def _run_ssh_rsync(self, remote, exclude_list, backup_dir):
+    def _run_ssh_rsync(self, tool, remote, exclude_list, backup_dir):
         """通过 rsync + SSH 同步到远端主机。"""
-        ctx = AppContext.get()
-        if not shutil.which("rsync"):
-            ctx.logger.error("未找到 rsync，无法执行 sync 模式，跳过该任务。")
-            return
-
         src = self.source_root
         src = src if src.endswith("/") else src + "/"
         dest = f"{remote.user}@{remote.host}:{self.dest_backend.root_path}"
 
-        cmd = ["rsync", "-av", "--delete"]
+        cmd = [tool.exec_path, "-av", "--delete"]
         rsh = self._build_rsync_ssh_rsh(remote)
         cmd.extend(["-e", rsh])
 
@@ -220,18 +276,15 @@ class SyncHandler(BaseTaskHandler):
         cmd.extend([src, dest])
         _run_sync_command(cmd, "rsync", prepend_timestamp=True)
 
-    def _run_ssh_rclone(self, remote, exclude_list, backup_dir):
+    def _run_ssh_rclone(self, tool, remote, exclude_list, backup_dir):
         """通过 rclone SFTP 同步到远端主机。"""
         ctx = AppContext.get()
-        if not shutil.which("rclone"):
-            ctx.logger.error("未找到 rclone，无法执行 sync 模式，跳过该任务。")
-            return
 
         # 使用 :sftp: 后端，通过命令行参数指定连接信息，无需预配置
         dest = f":sftp:{self.dest_backend.root_path}"
 
         cmd = [
-            "rclone",
+            tool.exec_path,
             "sync",
             self.source_root,
             dest,

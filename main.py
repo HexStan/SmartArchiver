@@ -6,13 +6,15 @@ import sys
 import time
 
 from croniter import croniter
-from src.presentation import fmt_timespan
+
 from src.app_context import AppContext
+from src.app_paths import app_base_dir
+from src.config_manager import ConfigManager
 from src.core import process_task
 from src.history import HistoryManager
 from src.logger import setup_logger
+from src.presentation import fmt_timespan
 from src.utils import SingleInstance
-from src.config_manager import ConfigManager
 
 
 def _reload_config_if_changed(manager):
@@ -93,8 +95,7 @@ def _load_and_init(config_path, logger_prefix="smartarchiver"):
 
 
 def run_client():
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    config_path = os.path.join(base_dir, "config/config.toml")
+    config_path = os.path.join(app_base_dir(), "config/config.toml")
     manager = _load_and_init(config_path)
 
     ctx = AppContext.get()
@@ -178,8 +179,7 @@ def run_client():
 
 
 def run_server():
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    config_path = os.path.join(base_dir, "config/config.server.toml")
+    config_path = os.path.join(app_base_dir(), "config/config.server.toml")
     _ = _load_and_init(config_path, logger_prefix="smartarchiver-server")
 
     ctx = AppContext.get()

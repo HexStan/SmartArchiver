@@ -4,5 +4,7 @@
 deprecated/
 __pycache__/
 logs/
+build/
+dist/
 config.toml
 failure_history.json
