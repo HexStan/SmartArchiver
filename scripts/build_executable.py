@@ -7,11 +7,11 @@
 
 流程: 下载对应平台的 rclone 官方压缩包 → 解包暂存到 build/ 目录
       → 以 SmartArchiver.spec 执行 PyInstaller onedir 打包
-      → 将程序目录压缩为发行 zip。
+      → 将示例配置复制进程序目录 → 压缩为发行 zip。
 
 产物:
     dist/SmartArchiver/                          解包即用的程序目录
-    dist/SmartArchiver-<版本>-<目标平台>.zip      发行压缩包
+    dist/SmartArchiver-<版本>-<目标平台>.zip      发行压缩包（config/ 下附带示例配置）
 """
 
 import argparse
@@ -121,6 +121,25 @@ def verify_rclone(rclone_bin):
     print(f"内置 rclone 校验通过: {first_line}")
 
 
+def clean_dist():
+    """清空上一次构建产物，避免手动运行残留（config.toml、logs 等）混入发行包。"""
+    dist_dir = os.path.join(REPO_ROOT, "dist", "SmartArchiver")
+    if os.path.isdir(dist_dir):
+        shutil.rmtree(dist_dir)
+
+
+def stage_example_configs():
+    """将仓库 config/ 下的示例配置复制进程序目录，供用户改名后使用。"""
+    config_src = os.path.join(REPO_ROOT, "config")
+    config_dst = os.path.join(REPO_ROOT, "dist", "SmartArchiver", "config")
+    os.makedirs(config_dst, exist_ok=True)
+    for name in os.listdir(config_src):
+        if name.endswith(".example.toml"):
+            shutil.copy2(
+                os.path.join(config_src, name), os.path.join(config_dst, name)
+            )
+
+
 def run_pyinstaller(rclone_bin):
     env = os.environ.copy()
     env["RCLONE_STAGE"] = rclone_bin
@@ -171,7 +190,9 @@ def main():
 
     rclone_bin = stage_rclone(target)
     verify_rclone(rclone_bin)
+    clean_dist()
     run_pyinstaller(rclone_bin)
+    stage_example_configs()
     zip_path = make_zip(target, version)
 
     print(f"构建完成:\n  程序目录: dist{os.sep}SmartArchiver\n  发行包: {os.path.relpath(zip_path, REPO_ROOT)}")
