@@ -50,7 +50,6 @@ python scripts/smoke_test.py "dist/SmartArchiver-*.zip" # 对发行 zip 做冒�
 
 - Python 3.14+（依赖内置 `tomllib`）。CI 矩阵为 ubuntu + windows × Python 3.14–3.15。
 - sync 模式调用外部进程：Linux 用 rsync，Windows 用 rclone（需在 PATH）。同步语义本身不测，测试只断言传给工具的命令行参数。
-- `lock_file` 仅在 Linux 生效（`fcntl.flock`），Windows 无实例锁。
 
 ## 提交与发布（权威文档：RELEASE-GUIDE.md）
 

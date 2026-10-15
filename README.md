@@ -484,14 +484,14 @@ interval_seconds = 3600      # interval 模式：每次执行完等待的秒数
 ### 第六步：全局设置
 
 ```toml
-lock_file = "/tmp/smartarchiver.lock"    # 锁文件路径，Linux 上防止多实例同时运行
+lock_file = "smartarchiver.lock"          # 锁文件名，防止多实例同时运行
 max_retries = 3                           # 单文件失败最大重试次数
 log_dir = "./logs"                        # 日志目录
 log_level = "INFO"                        # 日志级别：DEBUG / INFO / WARNING / ERROR
 max_log_files = 30                        # 保留的日志文件数量，0 表示不清理
 ```
 
-**关于锁文件**：`lock_file` 仅在 Linux 上通过 `fcntl.flock` 生效，Windows 上不使用文件锁。Docker 容器不受实例锁限制且环境互相隔离。
+**关于锁文件**：`lock_file` 只填文件名，锁文件统一存放在系统临时目录（Linux 的 `/tmp`、macOS 的用户临时目录、Windows 的 `%TEMP%`），具体位置由程序按平台决定，未填或非法时使用默认文件名。实例锁全平台生效：Linux / macOS 通过 `fcntl.flock`，Windows 通过 `msvcrt.locking`（server 模式同样持有实例锁）；锁由操作系统在进程退出时自动释放，不会残留死锁。需要同时运行多个实例时，为每份程序配置不同的 `lock_file` 文件名即可；Docker 容器各自拥有独立的临时目录，互不影响。
 
 ---
 
