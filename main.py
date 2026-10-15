@@ -14,7 +14,7 @@ from src.core import process_task
 from src.history import HistoryManager
 from src.logger import setup_logger
 from src.presentation import fmt_timespan
-from src.utils import SingleInstance
+from src.utils import DEFAULT_SERVER_LOCK_NAME, SingleInstance
 
 
 def _reload_config_if_changed(manager):
@@ -186,8 +186,13 @@ def run_server():
 
     from src.remote.server import run_server as start_server
 
-    ctx.logger.info("以服务器模式启动，请从客户端连接。")
-    start_server(ctx.config, ctx.logger)
+    with SingleInstance(
+        ctx.config.get("lock_file"),
+        ctx.logger,
+        default_name=DEFAULT_SERVER_LOCK_NAME,
+    ):
+        ctx.logger.info("以服务器模式启动，请从客户端连接。")
+        start_server(ctx.config, ctx.logger)
 
 
 def _ensure_utf8_stdio():

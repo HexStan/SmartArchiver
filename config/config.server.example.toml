@@ -3,7 +3,9 @@
 # 启动方式: python main.py --server
 # ==================================================
 
-lock_file = "/tmp/smartarchiver-server.lock"
+# 锁文件名，防止多个 server 实例同时运行
+# 存放位置由程序决定（系统临时目录）；未填或非法时使用默认文件名 smartarchiver-server.lock
+lock_file = "smartarchiver-server.lock"
 
 log_dir = "./logs"
 log_level = "INFO"
