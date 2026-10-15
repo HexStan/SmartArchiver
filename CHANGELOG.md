@@ -4,6 +4,34 @@
 
 ## 未发布
 
+### 破坏性变更
+
+- `lock_file` 配置项改为仅接受文件名，锁文件统一由程序存放在系统临时目录，不再支持自定义路径；路径写法将回退默认文件名 `smartarchiver.lock` 并输出警告。
+- 实例锁现默认启用：未配置 `lock_file` 时也会使用默认锁文件名（此前未配置则不启用实例锁）。
+
+### 新增
+
+- 实例锁支持 Windows（通过 `msvcrt.locking`），覆盖 Linux / macOS / Windows 全平台。
+- server 模式启动时同样持有实例锁，防止多个服务实例同时运行。
+
+### 迁移指南
+
+#### 1. `lock_file` 改填文件名
+
+旧配置：
+
+```toml
+lock_file = "/tmp/smartarchiver.lock"
+```
+
+改为：
+
+```toml
+lock_file = "smartarchiver.lock"
+```
+
+未修改时程序自动回退默认文件名并输出警告，不影响正常使用；需要同时运行多个实例时，为每份程序配置不同的 `lock_file` 文件名。
+
 ---
 
 ## [0.29.3] - 2026-10-15
