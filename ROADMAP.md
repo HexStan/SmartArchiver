@@ -17,6 +17,7 @@
 - 在所有模式下都允许 `dest` 置空（`sync` 模式除外）
 - 使用 `first_run_delay` 配置项替代 `run_immediately`，更精细地控制初次运行时机
 - 合并 whitelist 系列模式和 move / copy 模式
+- 发版时自动构建 Windows 和 macOS 版本的可执行文件
 
 ## 🧪 测试中
 
