@@ -15,9 +15,9 @@ jobs:
             target: windows-amd64
           - os: windows-11-arm
             target: windows-arm64
-          - os: macos-15-intel
+          - os: macos-26-intel
             target: macos-amd64
-          - os: macos-15
+          - os: macos-latest
             target: macos-arm64
 
     steps:
