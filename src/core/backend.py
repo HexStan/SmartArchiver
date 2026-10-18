@@ -192,6 +192,7 @@ class SshDestBackend(DestBackend):
         try:
             result = subprocess.run(
                 full_cmd,
+                check=False,
                 capture_output=True,
                 text=True,
                 timeout=30,
@@ -208,6 +209,7 @@ class SshDestBackend(DestBackend):
         try:
             result = subprocess.run(
                 full_cmd,
+                check=False,
                 capture_output=True,
                 text=True,
                 timeout=30,
@@ -232,6 +234,7 @@ class SshDestBackend(DestBackend):
         try:
             result = subprocess.run(
                 full_cmd,
+                check=False,
                 capture_output=True,
                 text=True,
                 timeout=60,

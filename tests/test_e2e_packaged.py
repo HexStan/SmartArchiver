@@ -48,6 +48,7 @@ def _run_binary(program_dir, timeout=120):
     env["PYTHONUTF8"] = "1"
     return subprocess.run(
         [os.path.join(program_dir, _entry_name())],
+        check=False,
         cwd=program_dir,
         capture_output=True,
         encoding="utf-8",

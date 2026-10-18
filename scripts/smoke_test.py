@@ -116,6 +116,7 @@ def run_entry_help(program_dir):
     try:
         result = subprocess.run(
             cmd,
+            check=False,
             cwd=program_dir,
             capture_output=True,
             encoding="utf-8",

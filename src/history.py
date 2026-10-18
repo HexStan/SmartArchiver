@@ -16,7 +16,7 @@ class HistoryManager:
                     self.file_path, "r", encoding="utf-8", errors="surrogateescape"
                 ) as f:
                     self.history = json.load(f)
-            except (json.JSONDecodeError, IOError):
+            except (OSError, json.JSONDecodeError):
                 self.history = {}
         else:
             self.history = {}
@@ -28,7 +28,7 @@ class HistoryManager:
             with open(temp_file, "w", encoding="utf-8", errors="surrogateescape") as f:
                 json.dump(self.history, f, indent=2, ensure_ascii=False)
             os.replace(temp_file, self.file_path)
-        except IOError:
+        except OSError:
             pass
 
     def record_failure(self, path):

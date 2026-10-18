@@ -52,6 +52,7 @@ def _unique_lock_name():
 def _acquire_in_child(lock_name):
     return subprocess.run(
         [sys.executable, "-c", CHILD_CODE, lock_name],
+        check=False,
         cwd=PROJECT_ROOT,
         capture_output=True,
         text=True,

@@ -7,7 +7,7 @@
 
 import os
 
-from tests.helpers import NOW, OLD, RECENT, make_tree, snapshot
+from tests.helpers import NOW, RECENT, make_tree, snapshot
 
 MB = 1024 * 1024
 

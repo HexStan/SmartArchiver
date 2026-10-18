@@ -72,7 +72,7 @@ def download(url, dest, retries=3):
                 f.write(resp.read())
             os.replace(part, dest)
             return
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             if attempt == retries:
                 raise SystemExit(f"下载失败: {url}\n{e}")
             print(f"下载失败，将重试: {e}")

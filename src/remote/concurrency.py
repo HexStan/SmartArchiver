@@ -135,7 +135,7 @@ class _Gate:
                             )
                     except ClientDisconnectedError:
                         raise
-                    except Exception:
+                    except Exception:  # noqa: BLE001, S110
                         # check_disconnect 自身异常视为未断连
                         pass
 

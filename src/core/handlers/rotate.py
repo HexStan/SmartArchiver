@@ -36,10 +36,10 @@ class RotateGroupManager:
 
     def _get_rotate_groups(self, rel_path):
         groups = []
-        for pattern, limit in self.rotate_size_rules.items():
+        for pattern in self.rotate_size_rules:
             if match_pattern(rel_path, pattern):
                 groups.append(("size", "pattern", pattern))
-        for pattern, limit in self.rotate_count_rules.items():
+        for pattern in self.rotate_count_rules:
             if match_pattern(rel_path, pattern):
                 groups.append(("count", "pattern", pattern))
         return groups
@@ -53,7 +53,7 @@ class RotateGroupManager:
         for g_id in matched_groups:
             groups.append(g_id)
             if g_id not in self.group_stats:
-                g_type, g_subtype, g_key = g_id
+                g_type, _g_subtype, g_key = g_id
                 limit = (
                     self.rotate_size_rules.get(g_key)
                     if g_type == "size"
@@ -67,11 +67,9 @@ class RotateGroupManager:
 
     def _is_group_exceeded(self, g_id, stats):
         if g_id == ("global", "global"):
-            if stats["size_limit"] > 0 and stats["size"] > stats["size_limit"]:
-                return True
-            if stats["count_limit"] > 0 and stats["count"] > stats["count_limit"]:
-                return True
-            return False
+            size_exceeded = stats["size_limit"] > 0 and stats["size"] > stats["size_limit"]
+            count_exceeded = stats["count_limit"] > 0 and stats["count"] > stats["count_limit"]
+            return size_exceeded or count_exceeded
 
         g_type = g_id[0]
         if g_type == "size":
@@ -119,7 +117,7 @@ class RotateGroupManager:
             if g_id == ("global", "global"):
                 continue
             if self._is_group_exceeded(g_id, stats):
-                g_type, g_subtype, g_key = g_id
+                g_type, _g_subtype, g_key = g_id
                 limit_str = (
                     fmt_size(stats["limit"], binary=True)
                     if g_type == "size"

@@ -12,7 +12,6 @@ from src.ssh import parse_ssh_remote_config
 class ConfigError(Exception):
     """配置致命错误。"""
 
-    pass
 
 
 @dataclass

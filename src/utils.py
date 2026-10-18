@@ -90,7 +90,7 @@ class SingleInstance:
 
         try:
             self.fp = open(self.lock_file_path, "w")
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             self.logger.error(f"无法创建锁文件 {self.lock_file_path}: {e}")
             sys.exit(1)
 
@@ -99,7 +99,7 @@ class SingleInstance:
         except OSError:
             self.logger.info("另一个实例被启动了，现已自动退出。")
             sys.exit(1)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             self.logger.error(f"无法获取实例锁: {e}")
             sys.exit(1)
 
@@ -110,12 +110,12 @@ class SingleInstance:
             return
         try:
             _release_lock(self.fp)
-        except Exception:
+        except Exception:  # noqa: BLE001, S110
             pass
         finally:
             try:
                 self.fp.close()
-            except Exception:
+            except Exception:  # noqa: BLE001, S110
                 pass
             self.fp = None
 

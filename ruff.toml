@@ -1,0 +1,19 @@
+# Ruff 配置
+#
+# 规则集跟随 Ruff 0.17 起的扩展默认集（约 800 条，覆盖 F/E/W/B/SIM/PERF/PL/RUF 等
+# 规则族，但不含 E501、ANN、COM 等风格类规则）。不在配置中逐条罗列全部规则，
+# 只在此声明项目约定与例外；升级 Ruff 后若默认集变化，可用
+# `ruff check --isolated --show-settings` 复核差异。
+
+target-version = "py314"
+
+# E501 未在默认集中启用，此值主要供未来引入 ruff format 时对齐现状
+line-length = 100
+
+[lint]
+
+[lint.per-file-ignores]
+# _process_directories 为每个目录定义 get_size 闭包，闭包引用了循环变量
+# dir_path / dir_size_cache / dir_mtime_cache，但仅在同一次迭代内被
+# policy.decide() 同步调用（规则引擎命中即停），不存在晚绑定问题，属误报。
+"src/core/handlers/standard.py" = ["B023"]

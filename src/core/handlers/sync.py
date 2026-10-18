@@ -131,7 +131,7 @@ def _run_sync_command(cmd, tool_name, prepend_timestamp=False):
             ctx.logger.success(
                 f"{tool_name} 同步完成，耗时: {fmt_timespan(exec_time)}。"
             )
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         ctx.logger.error(f"执行 {tool_name} 时发生错误: {e}")
 
 
@@ -341,7 +341,7 @@ class SyncHandler(BaseTaskHandler):
                 ctx.logger.success(
                     f"rclone 同步完成，耗时: {fmt_timespan(exec_time)}。"
                 )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             ctx.logger.error(f"执行 rclone 时发生错误: {e}")
 
     def _setup_ssh_backup_dir(self, max_backups, exclude_list):
@@ -369,7 +369,7 @@ class SyncHandler(BaseTaskHandler):
                             ctx.logger.info(f"已删除远端旧备份: {d}")
                         else:
                             ctx.logger.warning(f"删除远端旧备份失败: {d}")
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 ctx.logger.error(f"清理远端旧备份失败: {e}")
 
         return backup_dir
@@ -399,7 +399,7 @@ class SyncHandler(BaseTaskHandler):
                     for b in backups[:num_to_delete]:
                         fs_ops.delete_dir(b)
                         ctx.logger.info(f"已删除旧备份: {b}")
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 ctx.logger.error(f"清理旧备份失败: {e}")
 
         return backup_dir

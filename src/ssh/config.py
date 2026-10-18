@@ -184,6 +184,7 @@ def run_ssh_command(
     try:
         proc = subprocess.run(
             cmd,
+            check=False,
             capture_output=True,
             text=True,
             timeout=timeout,
@@ -193,5 +194,5 @@ def run_ssh_command(
         return -1, "", "SSH command timed out"
     except FileNotFoundError:
         return -1, "", f"SSH command not found: {cmd[0]}"
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         return -1, "", str(e)

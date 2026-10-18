@@ -37,7 +37,7 @@ def _make_disconnect_checker():
             if wsgi_input is not None:
                 wsgi_input.read(0)
             return False
-        except Exception:
+        except Exception:  # noqa: BLE001
             return True
 
     return _check

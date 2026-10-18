@@ -65,7 +65,7 @@ def _execute_tasks(manager):
             ctx.history_mgr.save()
     except SystemExit:
         AppContext.get().logger.warning("获取锁失败，可能有其他实例在运行。")
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         ctx = AppContext.get()
         ctx.logger.error(f"发生未知错误: {e}")
         ctx.history_mgr.save()
@@ -111,7 +111,7 @@ def run_client():
                 run_tasks()
         except SystemExit:
             pass
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             ctx.logger.error(f"发生未知错误: {e}")
             sys.exit(1)
         finally:

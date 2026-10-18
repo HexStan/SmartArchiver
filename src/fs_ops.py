@@ -46,7 +46,7 @@ class PermissionDeniedError(FsOpError):
 class StatResult:
     """os.stat 的结构化返回。"""
 
-    __slots__ = ("size", "mtime", "is_dir", "exists")
+    __slots__ = ("exists", "is_dir", "mtime", "size")
 
     def __init__(self, size=0, mtime=0, is_dir=False, exists=False):
         self.size = size
@@ -58,7 +58,7 @@ class StatResult:
 class DirEntry:
     """目录条目信息。"""
 
-    __slots__ = ("name", "is_dir", "size", "mtime")
+    __slots__ = ("is_dir", "mtime", "name", "size")
 
     def __init__(self, name, is_dir=False, size=0, mtime=0):
         self.name = name
@@ -194,8 +194,7 @@ def get_dir_size_and_mtime(dir_path):
                 try:
                     st = os.stat(fp)
                     total_size += st.st_size
-                    if st.st_mtime > latest_mtime:
-                        latest_mtime = st.st_mtime
+                    latest_mtime = max(latest_mtime, st.st_mtime)
                 except OSError:
                     pass
     except OSError:
@@ -308,18 +307,14 @@ def is_file_locked(filepath):
     if fcntl is None:
         return False
 
-    locked = False
-    f = None
     try:
-        f = open(filepath, "r")
-        fcntl.flock(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-        fcntl.flock(f.fileno(), fcntl.LOCK_UN)
-    except (IOError, OSError):
-        locked = True
-    finally:
-        if f:
+        with open(filepath, "r") as f:
             try:
-                f.close()
-            except Exception:
-                pass
-    return locked
+                fcntl.flock(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+            except OSError:
+                return True
+    except OSError:
+        # 打开失败（文件不存在、无权限等）时保守地视为已锁定
+        return True
+    return False

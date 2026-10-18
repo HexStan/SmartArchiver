@@ -76,7 +76,7 @@ class TestLocalSyncCommands:
     def test_auto_resolves_rsync_on_posix(
         self, run_task, tmp_path, stub_procs, prepared_dirs, monkeypatch
     ):
-        src, dest = prepared_dirs
+        _src, _dest = prepared_dirs
         monkeypatch.setattr(os, "name", "posix")
         # rclone 不可用时，POSIX 的 auto 回退到系统 rsync
         monkeypatch.setattr(
@@ -91,7 +91,7 @@ class TestLocalSyncCommands:
     def test_auto_resolves_rclone_on_windows(
         self, run_task, tmp_path, stub_procs, prepared_dirs, monkeypatch
     ):
-        src, dest = prepared_dirs
+        _src, _dest = prepared_dirs
         monkeypatch.setattr(os, "name", "nt")
 
         run_task(sync_task(tmp_path))
@@ -128,7 +128,7 @@ class TestLocalSyncCommands:
 
 class TestLocalBackupDir:
     def test_rsync_backup_flags_added(self, run_task, tmp_path, stub_procs, prepared_dirs):
-        src, dest = prepared_dirs
+        _src, _dest = prepared_dirs
         run_task(sync_task(tmp_path, tool="rsync", create_backups=True))
 
         cmd = stub_procs.calls[0].cmd
@@ -139,7 +139,7 @@ class TestLocalBackupDir:
         assert cmd[cmd.index("--exclude") + 1] == ".smart-archiver.backups/"
 
     def test_rclone_backup_dir_added(self, run_task, tmp_path, stub_procs, prepared_dirs):
-        src, dest = prepared_dirs
+        _src, _dest = prepared_dirs
         run_task(sync_task(tmp_path, tool="rclone", create_backups=True))
 
         cmd = stub_procs.calls[0].cmd
@@ -186,7 +186,7 @@ class TestBundledRcloneResolution:
         self, run_task, tmp_path, stub_procs, prepared_dirs, frozen_env
     ):
         bundled = self.bundle_rclone(frozen_env)
-        src, dest = prepared_dirs
+        _src, _dest = prepared_dirs
 
         run_task(sync_task(tmp_path))  # tool 默认 auto
 
@@ -196,7 +196,7 @@ class TestBundledRcloneResolution:
         self, run_task, tmp_path, stub_procs, prepared_dirs, frozen_env
     ):
         bundled = self.bundle_rclone(frozen_env)
-        src, dest = prepared_dirs
+        _src, _dest = prepared_dirs
 
         run_task(sync_task(tmp_path, tool="rclone"))
 
@@ -207,7 +207,7 @@ class TestBundledRcloneResolution:
     ):
         """打包环境但内置 rclone 缺失（分发损坏等）：Windows 回退系统 rclone。"""
         monkeypatch.setattr(os, "name", "nt")
-        src, dest = prepared_dirs
+        _src, _dest = prepared_dirs
 
         run_task(sync_task(tmp_path))
 
@@ -222,7 +222,7 @@ class TestBundledRcloneResolution:
             shutil, "which",
             lambda name: None if name == "rclone" else f"/fake/bin/{name}",
         )
-        src, dest = prepared_dirs
+        _src, _dest = prepared_dirs
 
         run_task(sync_task(tmp_path))
 
@@ -239,7 +239,7 @@ class TestBundledRcloneResolution:
             shutil, "which",
             lambda name: None if name == "rclone" else f"/fake/bin/{name}",
         )
-        src, dest = prepared_dirs
+        _src, _dest = prepared_dirs
 
         run_task(sync_task(tmp_path, create_backups=True))
 
@@ -254,7 +254,7 @@ class TestBundledRcloneResolution:
     ):
         monkeypatch.setattr(os, "name", "posix")
         monkeypatch.setattr(sys, "platform", "darwin")
-        src, dest = prepared_dirs
+        _src, _dest = prepared_dirs
 
         run_task(sync_task(tmp_path, tool="rsync", create_backups=True))
 
@@ -329,8 +329,8 @@ class TestSshSyncCommands:
         assert cmd[:3] == ["rsync", "-av", "--delete"]
         assert cmd[3:5] == [
             "-e",
-            "ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "
-            "-o LogLevel=ERROR -p 2222 -i /k",
+            ("ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "
+            "-o LogLevel=ERROR -p 2222 -i /k"),
         ]
         assert cmd[-2:] == [src + "/", "root@192.168.1.100:/remote/data"]
 

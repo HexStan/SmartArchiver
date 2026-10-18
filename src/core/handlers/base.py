@@ -88,7 +88,7 @@ class FileChecker:
 
     def should_skip(self, src_path, rel_path, mtime, mtime_threshold_seconds, stats):
         ctx = AppContext.get()
-        should_skip, fail_count = ctx.history_mgr.should_skip(
+        should_skip, _fail_count = ctx.history_mgr.should_skip(
             src_path, self.max_retries
         )
         if should_skip:
@@ -202,7 +202,7 @@ class ActionExecutor:
             else:
                 ctx.logger.success(f"{action_name}文件: {rel_path} ({size_str})")
 
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             count = ctx.history_mgr.record_failure(src_path)
             ctx.logger.error(f"{action_name}文件失败 ({count} 次): {rel_path}\n{e}")
             stats.record_error()
