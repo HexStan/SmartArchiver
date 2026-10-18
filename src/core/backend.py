@@ -24,14 +24,6 @@ class DestBackend(ABC):
         pass
 
     @abstractmethod
-    def remove_file(self, path):
-        pass
-
-    @abstractmethod
-    def remove_dir(self, path):
-        pass
-
-    @abstractmethod
     def makedirs(self, path):
         pass
 
@@ -80,12 +72,6 @@ class LocalDestBackend(DestBackend):
     def is_dir(self, path):
         return fs_ops.is_dir(path)
 
-    def remove_file(self, path):
-        fs_ops.delete_file(path)
-
-    def remove_dir(self, path):
-        fs_ops.delete_dir(path)
-
     def makedirs(self, path):
         fs_ops.ensure_dir(path)
 
@@ -121,12 +107,6 @@ class RemoteDestBackend(DestBackend):
 
     def is_dir(self, path):
         return self._client.is_dir(path)
-
-    def remove_file(self, path):
-        self._client.delete_file(path)
-
-    def remove_dir(self, path):
-        self._client.delete_dir(path)
 
     def makedirs(self, path):
         self._client.mkdir(path)
@@ -246,12 +226,6 @@ class SshDestBackend(DestBackend):
     # ---- 非 sync 模式不支持的方法 ----
 
     def exists(self, path):
-        raise NotImplementedError
-
-    def remove_file(self, path):
-        raise NotImplementedError
-
-    def remove_dir(self, path):
         raise NotImplementedError
 
     def makedirs(self, path):

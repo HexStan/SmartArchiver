@@ -126,7 +126,9 @@ class RemoteClient:
 
     def upload(self, local_path, remote_path):
         """上传文件到远程实例。若网络中断则从头重传。"""
-        file_size = os.path.getsize(local_path)
+        file_stat = os.stat(local_path)
+        file_size = file_stat.st_size
+        mtime = file_stat.st_mtime
         encoded_path = urllib.parse.quote(remote_path, safe="/")
 
         def _do():
@@ -138,6 +140,7 @@ class RemoteClient:
                     headers={
                         "X-Api-Key": self.api_key,
                         "X-Path": encoded_path,
+                        "X-Mtime": str(mtime),
                         "X-Queue-Timeout": str(self.queue_time),
                         "Content-Type": "application/octet-stream",
                         "Content-Length": str(file_size),

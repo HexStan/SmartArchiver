@@ -43,6 +43,52 @@ def _make_disconnect_checker():
     return _check
 
 
+class _UploadSizeMismatch(ValueError):
+    """接收到的字节数与 Content-Length 不一致。"""
+
+
+def _parse_mtime():
+    """解析可选的 X-Mtime 头（源文件 mtime，Unix 秒）。
+
+    头缺失时返回 None；格式非法时抛 ValueError，由调用方返回 400。
+    """
+    raw = request.headers.get("X-Mtime")
+    if not raw:
+        return None
+    return float(raw)
+
+
+def _receive_upload(path, mtime):
+    """把请求体原子写入 path：临时文件 + 字节数校验 + fsync + os.replace。
+
+    任何失败（中断、字节数不符）都不会触碰最终路径，临时文件被清理。
+    """
+    expected_size = request.content_length
+
+    def _finalize(temp_path):
+        if mtime is not None:
+            os.utime(temp_path, (mtime, mtime))
+        if os.name == "posix":
+            # mkstemp 回退路径默认 0600，还原 open(path, "wb") 的常规权限
+            os.chmod(temp_path, 0o644)
+
+    with fs_ops.atomic_writer(path, _finalize) as f:
+        received = 0
+        chunk_size = 65536  # 64KB
+        while True:
+            chunk = request.stream.read(chunk_size)
+            if not chunk:
+                break
+            received += len(chunk)
+            f.write(chunk)
+
+        if expected_size is not None and received != expected_size:
+            raise _UploadSizeMismatch(
+                f"接收字节数与 Content-Length 不一致: "
+                f"期望 {expected_size}，实际 {received}"
+            )
+
+
 def create_app(api_key, logger, gate):
     """创建 Flask 应用并注册路由。
 
@@ -188,6 +234,11 @@ def create_app(api_key, logger, gate):
         if not path:
             return jsonify({"error": "missing X-Path header"}), 400
 
+        try:
+            mtime = _parse_mtime()
+        except ValueError:
+            return jsonify({"error": "invalid X-Mtime header"}), 400
+
         path = os.path.normpath(urllib.parse.unquote(path))
         queue_timeout = _parse_queue_timeout()
         disconnect_checker = _make_disconnect_checker()
@@ -198,21 +249,14 @@ def create_app(api_key, logger, gate):
                 logger.info(f"来自 {client_ip} 的上传: {path}")
 
                 try:
-                    dest_dir = os.path.dirname(path)
-                    if dest_dir:
-                        fs_ops.ensure_dir(dest_dir)
-
-                    chunk_size = 65536  # 64KB
-                    with open(path, "wb") as f:
-                        while True:
-                            chunk = request.stream.read(chunk_size)
-                            if not chunk:
-                                break
-                            f.write(chunk)
+                    _receive_upload(path, mtime)
 
                     logger.success(f"接收文件: {path}")
                     return jsonify({"success": True})
 
+                except _UploadSizeMismatch as e:
+                    logger.error(f"上传失败: {path} - {e}")
+                    return jsonify({"error": str(e)}), 400
                 except fs_ops.PermissionDeniedError as e:
                     logger.error(f"权限不足: {path} - {e}")
                     return jsonify({"error": "permission denied"}), 403

@@ -180,7 +180,9 @@ class ActionExecutor:
                     new_dest_path = self.dest_backend.get_unique_dest(dest_path)
 
                 elif self.conflict_policy == "overwrite":
-                    self.dest_backend.remove_file(dest_path)
+                    # 目标由后端原子替换（os.replace / 服务端 rename），
+                    # 预删除会留下"目标短暂缺失"的窗口
+                    pass
 
                 else:
                     return

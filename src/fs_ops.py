@@ -9,9 +9,12 @@
 - 每个函数只做一件事，不混合业务逻辑
 """
 
+import contextlib
+import errno
 import logging
 import os
 import shutil
+import tempfile
 
 try:
     import fcntl
@@ -204,20 +207,120 @@ def get_dir_size_and_mtime(dir_path):
 
 
 # ============================================================
+# 原子写入
+# ============================================================
+
+# 临时文件后缀。采用确定性命名（目标同目录 + 固定后缀），
+# 是「再次写入同名文件时清理上次崩溃残留」的前提。
+_PARTIAL_SUFFIX = ".smartarchiver-partial"
+_COPY_CHUNK_SIZE = 1024 * 1024  # 1MB
+
+
+def _partial_temp_path(dest_path):
+    """生成与目标同目录的确定性临时文件路径。
+
+    与目标同目录保证二者位于同一文件系统，最后的 os.replace 才是原子操作。
+    """
+    dest_dir = os.path.dirname(dest_path) or "."
+    filename = os.path.basename(dest_path)
+    return os.path.join(dest_dir, f".{filename}{_PARTIAL_SUFFIX}")
+
+
+def _discard_partial(temp_path):
+    """尽力删除临时文件（本次写入失败或上次崩溃的残留）。"""
+    try:
+        os.remove(temp_path)
+    except FileNotFoundError:
+        pass
+    except OSError as e:
+        logger.debug(f"清理临时文件失败: {temp_path} — {e}")
+
+
+def _create_temp_file(dest_path):
+    """清理同名残留后独占创建临时文件，返回临时文件路径。
+
+    优先使用确定性名字，残留清理依赖该名字（单实例锁保证同名残留
+    只能来自上次崩溃的写入）；名字被占用时回退随机名。
+    """
+    dest_dir = os.path.dirname(dest_path) or "."
+    ensure_dir(dest_dir)
+
+    temp_path = _partial_temp_path(dest_path)
+    _discard_partial(temp_path)
+
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0)
+    try:
+        fd = os.open(temp_path, flags, 0o644)
+        os.close(fd)
+        return temp_path
+    except OSError as e:
+        logger.debug(f"按确定性名字创建临时文件失败，回退随机名: {temp_path} — {e}")
+
+    fd, fallback_path = tempfile.mkstemp(
+        dir=dest_dir,
+        prefix=f".{os.path.basename(dest_path)}.",
+        suffix=_PARTIAL_SUFFIX,
+    )
+    os.close(fd)
+    return fallback_path
+
+
+@contextlib.contextmanager
+def atomic_writer(dest_path, finalize=None):
+    """以原子方式写入 dest_path。
+
+    用法::
+
+        with atomic_writer(dest, finalize=fn) as f:
+            f.write(data)
+
+    临时文件创建于目标同目录，正常退出时按
+    「flush → finalize（可选）→ fsync → os.replace」收尾，
+    任何时刻观察者看到的都是完整的旧文件或完整的新文件；
+    异常退出时关闭并删除临时文件，最终路径不受影响。
+
+    注意 finalize 必须在 flush 之后：数据落盘会刷新 mtime，
+    copystat/utime 等元数据回写只有在其后执行才能生效。
+
+    Args:
+        dest_path: 最终目标路径。
+        finalize: 可选回调 finalize(temp_path)，在 fsync 之前执行，
+            用于写入元数据（copystat、utime、chmod 等）。
+    """
+    temp_path = _create_temp_file(dest_path)
+    finished = False
+    try:
+        with open(temp_path, "wb") as f:
+            yield f
+            f.flush()
+            if finalize is not None:
+                finalize(temp_path)
+            os.fsync(f.fileno())
+        os.replace(temp_path, dest_path)
+        finished = True
+    finally:
+        if not finished:
+            _discard_partial(temp_path)
+
+
+# ============================================================
 # 文件操作
 # ============================================================
 
 
 def copy_file(src_path, dest_path):
-    """复制文件，自动创建目标目录。
+    """原子复制文件，自动创建目标目录，保留元数据（含 mtime）。
 
-    使用 shutil.copy2 保留元数据。
+    写入目标同目录的临时文件，fsync 后经 os.replace 原子改名。
+    mtime 必须保留：归档阈值逻辑依赖它。
     """
-    dest_dir = os.path.dirname(dest_path)
-    if not os.path.exists(dest_dir):
-        ensure_dir(dest_dir)
+
+    def _finalize(temp_path):
+        shutil.copystat(src_path, temp_path)
+
     try:
-        shutil.copy2(src_path, dest_path)
+        with open(src_path, "rb") as src, atomic_writer(dest_path, _finalize) as out:
+            shutil.copyfileobj(src, out, _COPY_CHUNK_SIZE)
     except PermissionError:
         raise PermissionDeniedError(f"权限不足，无法复制: {src_path} -> {dest_path}")
     except OSError as e:
@@ -225,15 +328,32 @@ def copy_file(src_path, dest_path):
 
 
 def move_file(src_path, dest_path):
-    """移动文件，自动创建目标目录。"""
-    dest_dir = os.path.dirname(dest_path)
-    if not os.path.exists(dest_dir):
-        ensure_dir(dest_dir)
+    """原子移动文件，自动创建目标目录。
+
+    优先 os.replace：同文件系统时为单次系统调用，瞬时且原子；
+    跨文件系统（跨设备，errno.EXDEV）时回退为
+    「原子复制到目标 + 复制成功后删除源」，源文件在复制期间始终完好。
+    """
+    dest_dir = os.path.dirname(dest_path) or "."
+    ensure_dir(dest_dir)
+
     try:
-        shutil.move(src_path, dest_path)
-    except PermissionError:
-        raise PermissionDeniedError(f"权限不足，无法移动: {src_path} -> {dest_path}")
+        os.replace(src_path, dest_path)
+        return
     except OSError as e:
+        if e.errno != errno.EXDEV:
+            if isinstance(e, PermissionError):
+                raise PermissionDeniedError(
+                    f"权限不足，无法移动: {src_path} -> {dest_path}"
+                )
+            raise FsOpError(f"移动文件失败: {src_path} -> {dest_path} — {e}")
+
+    try:
+        copy_file(src_path, dest_path)
+        delete_file(src_path)
+    except PermissionDeniedError:
+        raise
+    except FsOpError as e:
         raise FsOpError(f"移动文件失败: {src_path} -> {dest_path} — {e}")
 
 
