@@ -90,9 +90,16 @@ def _spawn_detached(is_server):
 
 
 def _follow_logs(is_server, lines=100):
-    """滚动显示运行日志；Ctrl+C 结束跟随（不影响实例运行）。"""
+    """滚动显示运行日志，底部状态栏显示实例存活状态。
+
+    Ctrl+C 结束跟随（不影响实例运行）。
+    """
     instance_name, log_dir = _load_control_context(is_server)
-    follower = LogFollower(log_dir, instance_name)
+
+    def _probe_status():
+        return instance.is_running(instance_name), instance.read_pid(instance_name)
+
+    follower = LogFollower(log_dir, instance_name, status_provider=_probe_status)
     try:
         follower.follow(lines)
     except KeyboardInterrupt:
@@ -111,7 +118,7 @@ def cmd_start(is_server):
     pid = _spawn_detached(is_server)
     print(f"实例已启动 (PID {pid})，已脱离终端，本窗口可随时关闭。")
     print(f"停止运行: {_command_hint(is_server)} stop")
-    print("正在滚动显示运行日志（Ctrl+C 退出跟随，不影响实例运行）……\n")
+    print("正在滚动显示运行日志（底部状态栏显示实例状态，Ctrl+C 退出跟随，不影响实例运行）……\n")
     _follow_logs(is_server)
 
 

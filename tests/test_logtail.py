@@ -1,7 +1,8 @@
 """日志跟随器测试：尾部回读、增量跟随、跨天轮转切换与文件异常恢复。
 
 跟随器的对外契约是"输出到输出流的内容序列"，以真实日志文件为环境、
-直接步进 _step()（不打桩、不依赖真实时钟，见 tests/README.md 原则四）。
+直接步进 _tick()/_step()（不打桩、不依赖真实时钟，见 tests/README.md
+原则四）；状态栏本身的转义序列渲染在 test_statusbar.py 单测。
 """
 
 import io
@@ -9,9 +10,25 @@ import io
 from src.logtail import LogFollower, newest_log_file, tail_lines
 
 
-def make_follower(log_dir, prefix):
+def make_follower(log_dir, prefix, **kwargs):
     out = io.StringIO()
-    return LogFollower(str(log_dir), prefix, poll_interval=0, out=out), out
+    return LogFollower(str(log_dir), prefix, poll_interval=0, out=out, **kwargs), out
+
+
+class _RecordingBar:
+    """记录调用时序的状态栏替身（捕获型，见 tests/README.md 原则七）。"""
+
+    def __init__(self):
+        self.events = []
+
+    def start(self):
+        self.events.append("start")
+
+    def refresh(self):
+        self.events.append("refresh")
+
+    def close(self):
+        self.events.append("close")
 
 
 # ============================================================
@@ -150,3 +167,39 @@ def test_follow_resets_when_file_shrinks(tmp_path):
     follower._step()
 
     assert out.getvalue() == "first content line\nnew\n"
+
+
+# ============================================================
+# 单轮跟随与状态栏协作
+# ============================================================
+
+
+def test_tick_refreshes_status_bar_before_reading_log(tmp_path):
+    """单轮跟随 = 先刷新状态栏，再读取日志增量。"""
+    log = tmp_path / "sa.2026-01-01.log"
+    log.write_text("l1\n", encoding="utf-8")
+    follower, out = make_follower(tmp_path, "sa", status_provider=lambda: (True, 7))
+    bar = _RecordingBar()
+    follower._bar = bar
+    follower._print_tail(100)
+
+    with open(log, "a", encoding="utf-8") as f:
+        f.write("l2\n")
+    follower._tick()
+
+    assert bar.events == ["refresh"]
+    assert out.getvalue() == "l1\nl2\n"
+
+
+def test_tick_without_bar_keeps_plain_log_output(tmp_path):
+    """非终端场景（未创建状态栏）下，单轮跟随行为与纯日志输出完全一致。"""
+    log = tmp_path / "sa.2026-01-01.log"
+    log.write_text("l1\n", encoding="utf-8")
+    follower, out = make_follower(tmp_path, "sa", status_provider=lambda: (True, 7))
+
+    follower._print_tail(100)
+    with open(log, "a", encoding="utf-8") as f:
+        f.write("l2\n")
+    follower._tick()
+
+    assert out.getvalue() == "l1\nl2\n"  # 输出中没有任何转义序列痕迹

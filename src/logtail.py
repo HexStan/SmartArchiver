@@ -3,14 +3,19 @@
 语义对齐 ``tail -f``：
 - 先输出日志文件末尾 N 行，随后持续轮询并输出新增内容；
 - 日志按天轮转（``<前缀>.YYYY-MM-DD.log``），出现更新的文件名时自动切换；
-- 完全不感知运行状态：没有实例、实例中途退出都不结束跟随，
-  仅 Ctrl+C 可中断。
+- 仅 Ctrl+C 可中断，实例中途退出也不结束跟随。
+
+注入 ``status_provider`` 且输出流为真实终端时，跟随器同时维护一行
+钉在终端最后一行的反色状态栏，显示实例存活状态（见 src.statusbar）；
+环境不支持时自动降级为纯日志输出。
 """
 
 import glob
 import os
 import sys
 import time
+
+from src.statusbar import StatusBar
 
 # 回读末尾 N 行时按块向前扫描的块大小
 _TAIL_BLOCK_SIZE = 8192
@@ -53,22 +58,39 @@ class LogFollower:
         prefix: 日志文件前缀（实例标识）。
         poll_interval: 轮询间隔秒数（测试可注入）。
         out: 输出流，默认标准输出。
+        status_provider: 实例状态源，每次调用返回 ``(运行中, PID)``；
+            注入后且输出流为真实终端时启用底部状态栏，None 则关闭。
     """
 
-    def __init__(self, log_dir, prefix, poll_interval=0.5, out=None):
+    def __init__(self, log_dir, prefix, poll_interval=0.5, out=None, status_provider=None):
         self.log_dir = log_dir
         self.prefix = prefix
         self.poll_interval = poll_interval
         self.out = out or sys.stdout
+        self.status_provider = status_provider
+        self._bar = None
         self._current = None
         self._offset = 0
 
     def follow(self, lines=100):
-        """阻塞跟随日志；KeyboardInterrupt 由调用方处理。"""
-        self._print_tail(lines)
-        while True:
-            self._step()
-            time.sleep(self.poll_interval)
+        """阻塞跟随日志；KeyboardInterrupt 由调用方处理，退出时恢复终端。"""
+        self._bar = StatusBar.create(self.out, self.status_provider)
+        try:
+            if self._bar is not None:
+                self._bar.start()
+            self._print_tail(lines)
+            while True:
+                self._tick()
+                time.sleep(self.poll_interval)
+        finally:
+            if self._bar is not None:
+                self._bar.close()
+
+    def _tick(self):
+        """单轮跟随：刷新状态栏，随后读取日志增量。"""
+        if self._bar is not None:
+            self._bar.refresh()
+        self._step()
 
     # ---- 内部实现 ----------------------------------------------------
 
