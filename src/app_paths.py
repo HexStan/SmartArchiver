@@ -25,6 +25,20 @@ def app_base_dir():
     return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
+def config_path(is_server):
+    """配置文件路径：客户端为 config/config.toml，服务器为 config/config.server.toml。"""
+    name = "config/config.server.toml" if is_server else "config/config.toml"
+    return os.path.join(app_base_dir(), name)
+
+
+def resolve_log_dir(raw_config):
+    """解析日志目录：相对路径以应用根目录为基准，与启动时的工作目录无关。"""
+    log_dir = raw_config.get("log_dir", "./logs")
+    if log_dir and not os.path.isabs(log_dir):
+        return os.path.normpath(os.path.join(app_base_dir(), log_dir))
+    return log_dir
+
+
 def bundled_rclone_path():
     """打包版内置 rclone 的绝对路径；未打包或内置缺失时返回 None。"""
     if not is_frozen():

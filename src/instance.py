@@ -41,6 +41,9 @@ _STOP_MODES = (STOP_GRACEFUL, STOP_SLOW, STOP_FAST)
 # 控制文件指令格式（JSON）：{"cmd": "stop", "mode": ..., "ts": ...}
 _CMD_STOP = "stop"
 
+# start 子命令标记分离式子进程的环境变量：子进程据此关闭控制台输出
+DETACHED_ENV = "SMARTARCHIVER_DETACHED"
+
 
 def resolve_identity(raw_config, is_server=False):
     """从原始配置解析实例标识，返回 (标识, 是否非法回退默认)。"""

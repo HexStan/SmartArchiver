@@ -44,7 +44,7 @@ class ConfigManager:
         若调用方已预先读取过配置文件，可传入 *config* 字典以避免重复读取。
         """
         if config is None:
-            config = self._load_toml(self._config_path)
+            config = self.load_toml(self._config_path)
         return self._process(config, save_backup=True)
 
     def reload(self):
@@ -57,7 +57,7 @@ class ConfigManager:
             return None
 
         try:
-            config = self._load_toml(self._config_path)
+            config = self.load_toml(self._config_path)
             return self._process(config, save_backup=True)
         except ConfigError as e:
             self._logger.warning(f"新配置文件验证失败: {e}，尝试加载备份配置……")
@@ -71,7 +71,7 @@ class ConfigManager:
     # -- static helpers ------------------------------------------------------
 
     @staticmethod
-    def _load_toml(path):
+    def load_toml(path):
         """从路径读取 TOML 文件，返回字典。"""
         with open(path, "rb") as f:
             return tomllib.load(f)
@@ -108,7 +108,7 @@ class ConfigManager:
     def _load_backup(self):
         """加载备份配置（致命失败会向上抛出）。"""
         try:
-            config = self._load_toml(self._backup_path)
+            config = self.load_toml(self._backup_path)
         except Exception as e:
             self._logger.error(f"备份配置文件加载失败: {e}")
             raise
