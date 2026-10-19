@@ -47,6 +47,25 @@ python main.py
 - **Windows**：需安装 [`rclone`](https://rclone.org/downloads/) 并将其加入 PATH
 - 可通过 `tool` 配置项强制指定工具（`"rsync"` 或 `"rclone"`）
 
+### 运行子命令（后台运行 / 日志 / 停止）
+
+除直接前台运行外，还提供三个子命令；均可与 `--server` 组合（如 `python main.py --server stop`），打包版同理（`SmartArchiver.exe start`）。
+
+```bash
+python main.py start          # 脱离终端运行，随后在本窗口滚动显示日志（窗口可随时关闭）
+python main.py log [-n 100]   # 滚动显示运行日志（-n 自定义初始行数，默认 100）
+python main.py stop           # 停止运行中的实例
+```
+
+- **start**：以后台实例方式启动并自动跟随日志。没有配置 `[schedule]`（一次性运行）同样可用；关闭终端或 Ctrl+C 退出日志跟随都不影响实例本身。若已有实例在运行则拒绝重复启动。
+- **log**：滚动显示运行日志，自动跟随跨天轮转产生的新日志文件。不感知运行状态——没有实例在运行、实例中途退出都会持续跟随，只有 Ctrl+C 能结束。
+- **stop** 的三种模式：
+  - `stop`：当前文件传输完成后停止；
+  - `stop --slow`：本轮任务全部结束后停止；
+  - `stop --fast`：立即中止当前文件传输并退出，已写入的临时文件会被清理；8 秒内未退出则强制结束。sync 模式下会连同外部工具（rsync / rclone）及其子进程一并终止，不留孤儿进程。
+
+  server 模式的 `stop` 不接受参数，行为固定为中止传输并尽快停止。实例空闲（等待下次调度）时收到任何 stop 都会立即退出。
+
 ### 打包版可执行文件（Windows / macOS）
 
 不想配置 Python 环境可以直接使用打包版：**内置 rclone，sync 模式开箱即用**。
@@ -83,7 +102,9 @@ cp config/config.server.example.toml config/config.server.toml
 # 编辑 api_key（API 认证密钥）、port（监听端口）等参数
 
 # 2. 启动服务器
-python main.py --server
+python main.py --server        # 前台运行
+python main.py --server start  # 脱离终端运行并跟随日志
+python main.py --server stop   # 停止（中止进行中的传输并尽快退出）
 ```
 
 服务器提供两个 API 端点：`POST /api/remote`（元数据操作）和 `POST /api/remote/upload`（文件上传），支持并发控制和排队机制。详细配置见 `config/config.server.example.toml`。
@@ -484,14 +505,16 @@ interval_seconds = 3600      # interval 模式：每次执行完等待的秒数
 ### 第六步：全局设置
 
 ```toml
-lock_file = "smartarchiver.lock"          # 锁文件名，防止多实例同时运行
+instance_name = "smartarchiver"           # 实例标识名：锁文件/控制文件/日志文件共用此名
 max_retries = 3                           # 单文件失败最大重试次数
 log_dir = "./logs"                        # 日志目录
 log_level = "INFO"                        # 日志级别：DEBUG / INFO / WARNING / ERROR
 max_log_files = 30                        # 保留的日志文件数量，0 表示不清理
 ```
 
-**关于锁文件**：`lock_file` 只填文件名，锁文件统一存放在系统临时目录（Linux 的 `/tmp`、macOS 的用户临时目录、Windows 的 `%TEMP%`），具体位置由程序按平台决定，未填或非法时使用默认文件名。实例锁全平台生效：Linux / macOS 通过 `fcntl.flock`，Windows 通过 `msvcrt.locking`（server 模式同样持有实例锁）；锁由操作系统在进程退出时自动释放，不会残留死锁。需要同时运行多个实例时，为每份程序配置不同的 `lock_file` 文件名即可；Docker 容器各自拥有独立的临时目录，互不影响。
+**关于实例标识**：`instance_name` 只填名称（不带任何后缀），锁文件（`<标识>.lock`）、控制文件（`<标识>.ctl`）、PID 文件（`<标识>.pid`）统一存放在系统临时目录（Linux 的 `/tmp`、macOS 的用户临时目录、Windows 的 `%TEMP%`），具体位置由程序按平台决定；日志文件名亦以该标识为前缀（`<标识>.YYYY-MM-DD.log`）。未填或非法时使用默认标识。实例锁全平台生效：Linux / macOS 通过 `fcntl.flock`，Windows 通过 `msvcrt.locking`（server 模式同样持有实例锁）；锁由操作系统在进程退出时自动释放，不会残留死锁。需要同时运行多个实例时，为每份程序配置不同的 `instance_name` 即可，锁、控制通道与日志随之完全隔离；Docker 容器各自拥有独立的临时目录，互不影响。
+
+> 配置项 `lock_file` 已更名为 `instance_name`（去掉 `.lock` 后缀），旧键不再生效。
 
 ---
 

@@ -25,6 +25,7 @@ pip install -r requirements.txt && pip install pytest   # pytest 不在 requirem
 python -m pytest                                        # 全部测试（pytest.ini 已设 pythonpath=. 和 testpaths=tests）
 python -m pytest tests/test_greybox_rotate.py -v        # 单个测试文件
 ruff check .                                            # Ruff 静态检查
+ruff format .                                           # Ruff 格式化
 python main.py                                          # 客户端模式，读取 config/config.toml，缺失即退出
 python main.py --server                                 # 服务器模式，读取 config/config.server.toml
 python scripts/build_executable.py                      # 构建当前平台的可执行文件（PyInstaller onedir + 内置 rclone）
@@ -32,7 +33,7 @@ python scripts/smoke_test.py "dist/SmartArchiver-*.zip" # 对发行 zip 做冒�
 ```
 
 - 运行前需 `cp config/config.example.toml config/config.toml`；`config.toml` 已 gitignore，只提交 `config/*.example.toml`。
-- 仓库没有 formatter / typecheck 配置，验证手段就是 pytest。
+- 仓库没有 typecheck 配置，验证手段就是 pytest；formatter 用 Ruff Format（`ruff.toml` 的 `[format]`）。
 
 ## 架构速览
 

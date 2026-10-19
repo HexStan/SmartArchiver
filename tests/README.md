@@ -17,7 +17,12 @@ SmartArchiver 的本质是一个"目录树 + 配置 → 新目录树"的变换�
 | 灰盒·模式处理器 | `test_greybox_move_copy.py` | StandardHandler（move/copy） | `run_task()` 入口 + 临时目录树 |
 | 灰盒·模式处理器 | `test_greybox_rotate.py` | RotateHandler | 同上 |
 | 灰盒·模式处理器 | `test_greybox_sync.py` | SyncHandler | 入口驱动，进程边界打桩 |
+| 灰盒·停止语义 | `test_greybox_stop.py` | 停止指令下的处理器边界行为 | `run_task()` 入口 + 注入 ShutdownCoordinator / fs_ops 中止钩子 |
 | 灰盒·持久化 | `test_history_persistence.py` | HistoryManager | 真实文件读写 |
+| 白盒·实例控制 | `test_instance_control.py` | 锁探测、控制文件协议、进程树终止 | 真实锁原语 + 子进程边界 |
+| 白盒·实例锁 | `test_instance_lock.py` | SingleInstance 跨进程互斥、instance_name 解析 | 子进程边界 + 纯函数 |
+| 白盒·日志跟随 | `test_logtail.py` | LogFollower（尾部回读/增量/切换） | 真实日志文件 + 手动步进 |
+| 白盒·传输中止 | `test_fs_ops_abort.py` | chunk 边界取消与临时文件清理 | 注入中止检查钩子 |
 | 白盒·规则引擎 | `test_rule_engine.py` | FileFilterPolicy | 直接调用 `decide()` |
 | 白盒·轮转分组 | `test_rotate_groups.py` | RotateGroupManager | 直接调用分组统计接口 |
 | 白盒·纯函数 | `test_size_and_pattern.py` | parse_size_string / match_pattern | 直接调用 |
