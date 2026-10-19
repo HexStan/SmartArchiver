@@ -111,27 +111,6 @@ def delete_dir(path):
         raise FsOpError(f"删除目录失败: {path} — {e}")
 
 
-def get_unique_path(dest_path):
-    """如果目标路径已存在，生成带编号的新路径。
-
-    例如: /path/file.txt -> /path/file-1.txt
-    """
-    if not os.path.exists(dest_path):
-        return dest_path
-
-    directory = os.path.dirname(dest_path)
-    filename = os.path.basename(dest_path)
-    name, ext = os.path.splitext(filename)
-
-    counter = 1
-    while True:
-        new_filename = f"{name}-{counter}{ext}"
-        new_path = os.path.join(directory, new_filename)
-        if not os.path.exists(new_path):
-            return new_path
-        counter += 1
-
-
 # ============================================================
 # 文件锁
 # ============================================================
