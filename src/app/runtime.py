@@ -19,8 +19,8 @@ from src.app.context import AppContext
 from src.app.shutdown import install_abort_check
 from src.core import process_task
 from src.history import HistoryManager
-from src.logger import setup_logger
-from src.presentation import fmt_timespan
+from src.output.logger import setup_logger
+from src.output.presentation import fmt_timespan
 from src.utils import SingleInstance
 
 

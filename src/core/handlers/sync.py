@@ -13,7 +13,7 @@ from src.app.paths import bundled_rclone_path
 from src.core.backend import RemoteDestBackend, SshDestBackend
 from src.core.handlers.base import BaseTaskHandler
 from src.core.registry import register_handler
-from src.presentation import fmt_timespan, print_task_header
+from src.output.presentation import fmt_timespan, print_task_header
 
 # ============================================================
 # 同步工具注册与解析

@@ -11,7 +11,7 @@ import sys
 
 from src.app import instance, paths
 from src.app.config import ConfigManager
-from src.logtail import LogFollower
+from src.output.logtail import LogFollower
 
 # stop --fast 发出指令后等待实例自行退出的时限，超时则强杀
 _FAST_STOP_TIMEOUT = 8.0

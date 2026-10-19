@@ -5,7 +5,7 @@ from src.app.context import AppContext
 from src.core.handlers.base import BaseTaskHandler
 from src.core.registry import register_handler
 from src.fs_ops import clean_empty_dirs
-from src.presentation import fmt_size, print_task_header, print_task_summary
+from src.output.presentation import fmt_size, print_task_header, print_task_summary
 from src.utils import match_pattern, parse_size_string
 
 

@@ -6,7 +6,7 @@
 - 仅 Ctrl+C 可中断，实例中途退出也不结束跟随。
 
 注入 ``status_provider`` 且输出流为真实终端时，跟随器同时维护一行
-钉在终端最后一行的反色状态栏，显示实例存活状态（见 src.statusbar）；
+钉在终端最后一行的反色状态栏，显示实例存活状态（见 src.output.statusbar）；
 环境不支持时自动降级为纯日志输出。
 """
 
@@ -15,7 +15,7 @@ import os
 import sys
 import time
 
-from src.statusbar import StatusBar
+from src.output.statusbar import StatusBar
 
 # 回读末尾 N 行时按块向前扫描的块大小
 _TAIL_BLOCK_SIZE = 8192

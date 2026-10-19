@@ -7,7 +7,7 @@
 
 import io
 
-from src.logtail import LogFollower, newest_log_file, tail_lines
+from src.output.logtail import LogFollower, newest_log_file, tail_lines
 
 
 def make_follower(log_dir, prefix, **kwargs):

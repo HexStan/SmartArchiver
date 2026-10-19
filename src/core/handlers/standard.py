@@ -7,7 +7,7 @@ from src.core.handlers.base import BaseTaskHandler
 from src.core.registry import register_handler
 from src.core.types import FileAction
 from src.fs_ops import clean_empty_dirs, get_dir_size_and_mtime
-from src.presentation import fmt_size, print_task_header, print_task_summary
+from src.output.presentation import fmt_size, print_task_header, print_task_summary
 
 
 @register_handler("move", "copy")

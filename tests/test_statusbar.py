@@ -8,7 +8,7 @@
 import io
 import os
 
-from src.statusbar import StatusBar
+from src.output.statusbar import StatusBar
 
 RUNNING = (True, 1234)
 STOPPED = (False, None)
