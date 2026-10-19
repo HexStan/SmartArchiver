@@ -133,9 +133,9 @@ class RotateHandler(BaseTaskHandler):
         if not self.validate():
             return
 
-        print_task_header(self.task)
-
         ctx = AppContext.get()
+
+        print_task_header(self.task, ctx.logger)
 
         if not os.path.exists(self.source_root):
             ctx.logger.error(f"源目录不存在: {self.source_root}")
@@ -196,6 +196,7 @@ class RotateHandler(BaseTaskHandler):
                 self.stats,
                 end_time - start_time,
                 self.stats.total_bytes,
+                ctx.logger,
             )
             return
 
@@ -240,4 +241,5 @@ class RotateHandler(BaseTaskHandler):
             self.stats,
             end_time - start_time,
             self.stats.total_bytes,
+            ctx.logger,
         )

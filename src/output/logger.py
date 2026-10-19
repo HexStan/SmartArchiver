@@ -100,13 +100,23 @@ class DailyRotatingFileHandler(logging.FileHandler):
         super().emit(record)
 
 
-def setup_logger(log_dir, max_log_files=0, log_level="INFO", prefix="smartarchiver", console=True):
+def setup_logger(
+    log_dir,
+    max_log_files=0,
+    log_level="INFO",
+    prefix="smartarchiver",
+    console=True,
+    bridge_loggers=(),
+):
     """
     配置日志记录器，格式：2025-01-01 08:00:00 [INFO] 消息内容
 
     Args:
         console: 是否同时输出到控制台。脱离终端运行（start 子命令拉起的
             实例）没有可用的控制台，应传 False 仅写文件。
+        bridge_loggers: 需要桥接到同一 handler 的业务模块 logger 名序列
+            （如 ``src.fs``、``src.app.instance``），由组合根注入，
+            本模块不感知业务模块的存在。
     """
     if not os.path.exists(log_dir):
         os.makedirs(log_dir)
@@ -146,7 +156,7 @@ def setup_logger(log_dir, max_log_files=0, log_level="INFO", prefix="smartarchiv
         logger.addHandler(console_handler)
 
     # 桥接业务模块日志：让统一文件操作与实例控制模块的日志输出到相同的 handler
-    for name in ("src.fs", "src.app.instance"):
+    for name in bridge_loggers:
         bridged = logging.getLogger(name)
         bridged.setLevel(numeric_level)
         bridged.propagate = False

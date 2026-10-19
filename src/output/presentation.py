@@ -2,8 +2,6 @@
 
 from humanfriendly import format_size, format_timespan
 
-from src.app.context import AppContext
-
 
 def fmt_size(size_bytes, binary=True):
     return format_size(size_bytes, binary=binary)
@@ -13,15 +11,14 @@ def fmt_timespan(seconds):
     return format_timespan(seconds)
 
 
-def print_task_header(task):
-    ctx = AppContext.get()
+def print_task_header(task, logger):
     source_root = task.get("source")
     dest_root = task.get("dest")
     task_mode = task.get("mode", "").lower()
     task_name = task.get("name")
 
     if task_name:
-        ctx.logger.info(f" - 名称：{task_name}")
+        logger.info(f" - 名称：{task_name}")
 
     mode_labels = {
         "move": "移动",
@@ -30,17 +27,17 @@ def print_task_header(task):
         "sync": "同步",
     }
     mode_str = mode_labels.get(task_mode, task_mode)
-    ctx.logger.info(f" - 任务模式: {mode_str}")
-    ctx.logger.info(f" - 源目录: {source_root}")
+    logger.info(f" - 任务模式: {mode_str}")
+    logger.info(f" - 源目录: {source_root}")
 
     if not dest_root and task_mode != "sync":
-        ctx.logger.info(" - 目标目录: 无")
+        logger.info(" - 目标目录: 无")
     else:
-        ctx.logger.info(f" - 目标目录: {dest_root}")
+        logger.info(f" - 目标目录: {dest_root}")
 
     if task_mode not in ["rotate", "sync"]:
         mtime_threshold_seconds = task.get("mtime_threshold_minutes", 0) * 60
-        ctx.logger.info(f" - 时间阈值: {fmt_timespan(mtime_threshold_seconds)}")
+        logger.info(f" - 时间阈值: {fmt_timespan(mtime_threshold_seconds)}")
 
     if task_mode == "rotate":
         from src.core.patterns import parse_size_string
@@ -48,13 +45,12 @@ def print_task_header(task):
         size_limit = task.get("size_limit")
         count_limit = task.get("count_limit")
         if size_limit and parse_size_string(size_limit) > 0:
-            ctx.logger.info(f" - 大小限制: {size_limit}")
+            logger.info(f" - 大小限制: {size_limit}")
         if count_limit and int(count_limit) > 0:
-            ctx.logger.info(f" - 数量限制: {count_limit}")
+            logger.info(f" - 数量限制: {count_limit}")
 
 
-def print_task_summary(stats, duration, total_bytes):
-    ctx = AppContext.get()
+def print_task_summary(stats, duration, total_bytes, logger):
     duration_str = fmt_timespan(duration)
     total_size_str = fmt_size(total_bytes, binary=True)
     speed_str = fmt_size(total_bytes / max(duration, 0.001), binary=True) + "/s"
@@ -68,7 +64,7 @@ def print_task_summary(stats, duration, total_bytes):
         tail_msg.append(f"根据规则跳过 {stats.kept} 项")
     if stats.deleted > 0:
         tail_msg.append(f"根据规则删除 {stats.deleted} 项")
-    ctx.logger.info("，".join(tail_msg) + "。")
+    logger.info("，".join(tail_msg) + "。")
 
     tail_msg_2 = []
     if stats.error > 0:
@@ -76,7 +72,7 @@ def print_task_summary(stats, duration, total_bytes):
     if stats.dropped > 0:
         tail_msg_2.append(f"因多次失败而跳过 {stats.dropped} 项")
     if tail_msg_2:
-        ctx.logger.info("，".join(tail_msg_2) + "。")
+        logger.info("，".join(tail_msg_2) + "。")
 
     if stats.success > 0:
-        ctx.logger.info(f"在 {duration_str} 内传输了 {total_size_str}，平均速度 {speed_str}。")
+        logger.info(f"在 {duration_str} 内传输了 {total_size_str}，平均速度 {speed_str}。")

@@ -29,7 +29,6 @@ from src.fs.transfer import (
     copy_file,
     delete_dir,
     delete_file,
-    get_unique_path,
     is_file_locked,
     move_file,
 )
@@ -50,7 +49,6 @@ __all__ = [
     "ensure_dir",
     "get_dir_size_and_mtime",
     "get_stat",
-    "get_unique_path",
     "is_dir",
     "is_file_locked",
     "list_dir",

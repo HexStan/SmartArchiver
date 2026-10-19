@@ -19,9 +19,9 @@ class StandardHandler(BaseTaskHandler):
         mtime_threshold_minutes = self.task.get("mtime_threshold_minutes", 0)
         mtime_threshold_seconds = mtime_threshold_minutes * 60
 
-        print_task_header(self.task)
-
         ctx = AppContext.get()
+
+        print_task_header(self.task, ctx.logger)
 
         if not os.path.exists(self.source_root):
             ctx.logger.error(f"源目录不存在: {self.source_root}")
@@ -45,6 +45,7 @@ class StandardHandler(BaseTaskHandler):
             self.stats,
             end_time - start_time,
             self.stats.total_bytes,
+            ctx.logger,
         )
 
     def _process_directories(self, dirs, root, mtime_threshold_seconds):

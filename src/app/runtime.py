@@ -109,7 +109,15 @@ def _load_and_init(config_path, is_server=False, console=None):
     max_log_files = raw_config.get("max_log_files", 0)
     log_level = raw_config.get("log_level", "INFO")
     log_dir = paths.resolve_log_dir(raw_config)
-    logger = setup_logger(log_dir, max_log_files, log_level, prefix=instance_name, console=console)
+    logger = setup_logger(
+        log_dir,
+        max_log_files,
+        log_level,
+        prefix=instance_name,
+        console=console,
+        # 桥接 fs 包与实例控制模块的 logger（组合根注入，output 层不感知业务模块）
+        bridge_loggers=("src.fs", instance.__name__),
+    )
     history_mgr = HistoryManager(log_dir)
 
     manager = ConfigManager(config_path, logger)

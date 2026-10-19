@@ -185,7 +185,7 @@ class SyncHandler(BaseTaskHandler):
             ctx.logger.info("收到停止指令，跳过该任务。")
             return
 
-        print_task_header(self.task)
+        print_task_header(self.task, ctx.logger)
 
         if isinstance(self.dest_backend, RemoteDestBackend):
             ctx.logger.error(
