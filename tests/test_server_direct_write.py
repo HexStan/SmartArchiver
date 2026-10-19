@@ -399,6 +399,8 @@ class TestServerAssembly:
             capture_log,
             ShutdownCoordinator(),
             "smartarchiver-test-assembly",
+            stop_watcher=lambda *args: None,
+            runtime_paths=lambda *args: None,
         )
 
         assert len(boots) == 1

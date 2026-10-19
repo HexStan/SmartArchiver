@@ -283,14 +283,16 @@ def create_app(api_key, logger, gate):
     return app
 
 
-def _start_stop_watcher(logger, coordinator, gate, instance_name):
+def _start_stop_watcher(logger, coordinator, gate, instance_name, stop_watcher, runtime_paths):
     """启动控制指令监视线程：server 模式下任何 stop 都按 fast 处理。
 
     收到指令后中止进行中的传输（各处理线程在 chunk 边界感知中止信号），
     等在途请求收尾后直接退出进程——Flask 内建服务器没有干净的停机接口，
     且"尽快停止"本就允许这种语义。
+
+    ``stop_watcher(instance_name, on_command)`` 与 ``runtime_paths(instance_name)``
+    由组合根注入（app 层），本模块不感知实例控制的实现。
     """
-    from src.app.instance import ControlWatcher, instance_paths
 
     def _on_command(_mode):
         logger.warning("收到停止指令：中止进行中的传输并停止服务器。")
@@ -301,7 +303,7 @@ def _start_stop_watcher(logger, coordinator, gate, instance_name):
         logger.info("服务器已停止。")
         # os._exit 跳过 with 块的收尾，这里手动清理 PID / 控制文件
         # （锁由操作系统随进程退出释放，锁文件本身无需删除）
-        paths = instance_paths(instance_name)
+        paths = runtime_paths(instance_name)
         for path in (paths.pid, paths.ctl):
             try:
                 os.remove(path)
@@ -309,10 +311,18 @@ def _start_stop_watcher(logger, coordinator, gate, instance_name):
                 pass
         os._exit(0)
 
-    ControlWatcher(instance_name, _on_command).start()
+    stop_watcher(instance_name, _on_command)
 
 
-def run_server(config, logger, coordinator, instance_name):
+def run_server(config, logger, coordinator, instance_name, stop_watcher, runtime_paths):
+    """启动 HTTP 远端 API 服务器。
+
+    Args:
+        stop_watcher: 停止监视线程启动器 ``stop_watcher(instance_name, on_command)``，
+            由组合根注入（app 层），避免本模块反向依赖 app 包。
+        runtime_paths: 实例运行时文件路径函数 ``runtime_paths(instance_name)``，
+            供 stop 后清理 PID / 控制文件。
+    """
     api_key = config.get("api_key", "")
     port = int(config.get("port", "13579"))
 
@@ -331,5 +341,5 @@ def run_server(config, logger, coordinator, instance_name):
     logger.info(f"监听端口: {port}")
 
     app = create_app(api_key, logger, gate)
-    _start_stop_watcher(logger, coordinator, gate, instance_name)
+    _start_stop_watcher(logger, coordinator, gate, instance_name, stop_watcher, runtime_paths)
     app.run(host="0.0.0.0", port=port, debug=False, threaded=True)

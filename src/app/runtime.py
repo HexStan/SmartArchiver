@@ -277,6 +277,11 @@ def run_client():
         ctx.history_mgr.save()
 
 
+def _start_stop_watcher(instance_name, on_command):
+    """供 remote.server 注入的停止监视线程启动器(装配收敛在 app 层)。"""
+    instance.ControlWatcher(instance_name, on_command).start()
+
+
 def run_server():
     config_path = paths.config_path(is_server=True)
     _load_and_init(config_path, is_server=True)
@@ -288,4 +293,12 @@ def run_server():
 
     with SingleInstance(ctx.instance_name, ctx.logger):
         ctx.logger.info("以服务器模式启动，请从客户端连接。")
-        start_server(ctx.config, ctx.logger, ctx.shutdown, ctx.instance_name)
+        start_server(
+            ctx.config,
+            ctx.logger,
+            ctx.shutdown,
+            ctx.instance_name,
+            # app 域能力注入:remote 层不感知实例控制的实现
+            stop_watcher=_start_stop_watcher,
+            runtime_paths=instance.instance_paths,
+        )
