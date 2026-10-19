@@ -7,13 +7,13 @@
 - log：滚动显示运行日志（自动跟随跨天轮转），底部状态栏显示实例运行状态；
 - stop：停止运行中的实例（--fast 立即中止传输 / --slow 本轮结束后停止）。
 
-运行路径（装配与调度循环）见 src/runtime.py，控制子命令见 src/control.py。
+运行路径（装配与调度循环）见 src/app/runtime.py，控制子命令见 src/app/control.py。
 """
 
 import argparse
 import sys
 
-from src import control, runtime
+from src.app import control, runtime
 
 
 def _ensure_utf8_stdio():

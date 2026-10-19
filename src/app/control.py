@@ -2,15 +2,15 @@
 
 一次性 CLI：只从配置解析实例标识与日志目录（宽松模式，配置异常时
 回退默认值，保证 log/stop 始终可用），不初始化运行环境。start 以
-分离式子进程拉起运行路径（src.runtime）。
+分离式子进程拉起运行路径（src.app.runtime）。
 """
 
 import os
 import subprocess
 import sys
 
-from src import app_paths, instance
-from src.config_manager import ConfigManager
+from src.app import instance, paths
+from src.app.config import ConfigManager
 from src.logtail import LogFollower
 
 # stop --fast 发出指令后等待实例自行退出的时限，超时则强杀
@@ -24,7 +24,7 @@ def _load_control_context(is_server, strict=False):
     strict=True（start）时配置缺失或解析失败直接退出；宽松模式
     （log/stop）回退默认实例标识与日志目录，保证配置异常时依然可用。
     """
-    path = app_paths.config_path(is_server)
+    path = paths.config_path(is_server)
     raw_config = {}
     if os.path.exists(path):
         try:
@@ -43,7 +43,7 @@ def _load_control_context(is_server, strict=False):
     instance_name, invalid = instance.resolve_identity(raw_config, is_server)
     if invalid:
         print(f"警告: instance_name 配置值非法，按默认实例标识 {instance_name} 处理。")
-    return instance_name, app_paths.resolve_log_dir(raw_config)
+    return instance_name, paths.resolve_log_dir(raw_config)
 
 
 def _command_hint(is_server):
@@ -54,10 +54,10 @@ def _command_hint(is_server):
 
 def _spawn_detached(is_server):
     """以脱离终端的方式拉起自身，返回子进程 PID。"""
-    if app_paths.is_frozen():
+    if paths.is_frozen():
         cmd = [sys.executable]
     else:
-        cmd = [sys.executable, os.path.join(app_paths.app_base_dir(), "main.py")]
+        cmd = [sys.executable, os.path.join(paths.app_base_dir(), "main.py")]
     if is_server:
         cmd.append("--server")
 

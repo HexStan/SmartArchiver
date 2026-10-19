@@ -2,7 +2,7 @@ import os
 import time
 from abc import ABC, abstractmethod
 
-from src.app_context import AppContext
+from src.app.context import AppContext
 from src.core.filters import FileFilterPolicy
 from src.core.types import FileAction, MoverStats
 from src.fs_ops import TransferAbortedError, is_file_locked

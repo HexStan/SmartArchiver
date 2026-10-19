@@ -1,7 +1,7 @@
 import os
 import time
 
-from src.app_context import AppContext
+from src.app.context import AppContext
 from src.core.handlers.base import BaseTaskHandler
 from src.core.registry import register_handler
 from src.fs_ops import clean_empty_dirs

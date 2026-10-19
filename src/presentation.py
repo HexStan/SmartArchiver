@@ -2,7 +2,7 @@
 
 from humanfriendly import format_size, format_timespan
 
-from src.app_context import AppContext
+from src.app.context import AppContext
 
 
 def fmt_size(size_bytes, binary=True):

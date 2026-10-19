@@ -8,7 +8,7 @@ CI 中由 executable-build.yml 在构建后设置该变量执行。
 1. TOML 配置形状 → 任务字典：灰盒直接传入 Python 字典，绕过了 ConfigManager；
    这里走真实的 config.toml 加载路径，钉死规则块在 TOML 中的形状；
 2. 打包布局与入口启动：冻结形态下应用根目录 = 可执行文件所在目录
-   （src/app_paths.py），配置必须写在程序目录的 config/ 下。
+   （src/app/paths.py），配置必须写在程序目录的 config/ 下。
 
 驱动子进程属于进程边界，符合 tests/README.md 原则三。
 

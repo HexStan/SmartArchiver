@@ -436,7 +436,7 @@ class TestStopControl:
         """graceful 在 sync 执行期间到达：外部工具自然退出，不终止进程。"""
         killed = []
         monkeypatch.setattr(
-            "src.shutdown.terminate_process_tree",
+            "src.app.shutdown.terminate_process_tree",
             lambda pid, **kwargs: killed.append(pid),
         )
 
@@ -458,7 +458,7 @@ class TestStopControl:
         """fast 在 sync 执行期间到达：整棵进程树被终止（不留孤儿）。"""
         killed = []
         monkeypatch.setattr(
-            "src.shutdown.terminate_process_tree",
+            "src.app.shutdown.terminate_process_tree",
             lambda pid, **kwargs: killed.append(pid),
         )
 

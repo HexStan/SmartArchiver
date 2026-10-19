@@ -290,7 +290,7 @@ def _start_stop_watcher(logger, coordinator, gate, instance_name):
     等在途请求收尾后直接退出进程——Flask 内建服务器没有干净的停机接口，
     且"尽快停止"本就允许这种语义。
     """
-    from src.instance import ControlWatcher, instance_paths
+    from src.app.instance import ControlWatcher, instance_paths
 
     def _on_command(_mode):
         logger.warning("收到停止指令：中止进行中的传输并停止服务器。")

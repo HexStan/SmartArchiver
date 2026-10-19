@@ -8,7 +8,7 @@
 
 import pytest
 
-from src.app_context import AppContext
+from src.app.context import AppContext
 from src.core.backend import create_dest_backend
 from src.core.registry import get_handler_class
 from src.history import HistoryManager

@@ -40,11 +40,11 @@ from flask import Flask
 from werkzeug.serving import make_server
 
 from src import fs_ops
+from src.app.shutdown import ShutdownCoordinator
 from src.remote.client import RemoteClient
 from src.remote.concurrency import ConcurrencyGate
 from src.remote.protocol import UPLOAD_PATH
 from src.remote.server import create_app, run_server
-from src.shutdown import ShutdownCoordinator
 
 API_KEY = "test-key"
 # 与 src/remote/server.py::_receive_upload 的读取块一致；BODY 恰好横跨两个块

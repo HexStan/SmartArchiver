@@ -2,7 +2,7 @@ import os
 import time
 
 from src import fs_ops
-from src.app_context import AppContext
+from src.app.context import AppContext
 from src.core.handlers.base import BaseTaskHandler
 from src.core.registry import register_handler
 from src.core.types import FileAction

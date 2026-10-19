@@ -7,7 +7,7 @@
 - fast（``stop --fast``）——立即中止文件传输、丢弃当前任务，
   清理已写入的临时文件后退出。
 
-信号由 ``src.instance.ControlWatcher`` 从控制文件读入后注入；业务循环
+信号由 ``src.app.instance.ControlWatcher`` 从控制文件读入后注入；业务循环
 在文件/任务边界查询，``fs_ops`` 的复制循环在 chunk 边界查询 fast 中止。
 sync 模式的外部同步进程在启动时登记，fast 中止时被整树终止，不留孤儿。
 """
@@ -15,7 +15,7 @@ sync 模式的外部同步进程在启动时登记，fast 中止时被整树终�
 import threading
 
 from src import fs_ops
-from src.instance import terminate_process_tree
+from src.app.instance import terminate_process_tree
 
 
 class ShutdownCoordinator:

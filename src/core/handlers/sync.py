@@ -8,8 +8,8 @@ from collections import namedtuple
 from datetime import datetime
 
 from src import fs_ops
-from src.app_context import AppContext
-from src.app_paths import bundled_rclone_path
+from src.app.context import AppContext
+from src.app.paths import bundled_rclone_path
 from src.core.backend import RemoteDestBackend, SshDestBackend
 from src.core.handlers.base import BaseTaskHandler
 from src.core.registry import register_handler

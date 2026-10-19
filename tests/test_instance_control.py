@@ -17,7 +17,7 @@ from pathlib import Path
 import psutil
 import pytest
 
-from src.instance import (
+from src.app.instance import (
     STOP_FAST,
     STOP_GRACEFUL,
     STOP_SLOW,
@@ -269,6 +269,6 @@ def test_force_kill_tree_refuses_foreign_process(monkeypatch):
         def exe(self):
             return "C:/Windows/notepad.exe"
 
-    monkeypatch.setattr("src.instance.psutil.Process", lambda _pid: FakeForeignProcess())
+    monkeypatch.setattr("src.app.instance.psutil.Process", lambda _pid: FakeForeignProcess())
 
     assert force_kill_tree(424242) is False

@@ -19,7 +19,7 @@ def get_handler_class(mode_name):
 
 
 def process_task(task, now=None):
-    ctx = __import__("src.app_context", fromlist=["AppContext"]).AppContext.get()
+    ctx = __import__("src.app.context", fromlist=["AppContext"]).AppContext.get()
     mode = task.get("mode", "").lower()
     handler_cls = _registry.get(mode)
     if handler_cls is None:

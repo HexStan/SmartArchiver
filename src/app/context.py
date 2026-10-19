@@ -1,6 +1,6 @@
 """应用上下文：通过模块级单例解耦 Logger 和 HistoryManager 的传递"""
 
-from src.shutdown import ShutdownCoordinator
+from src.app.shutdown import ShutdownCoordinator
 
 
 class AppContext:

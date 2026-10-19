@@ -11,8 +11,8 @@ import os
 import threading
 import time
 
-from src import runtime
-from src.config_manager import ConfigManager
+from src.app import runtime
+from src.app.config import ConfigManager
 from tests.helpers import make_tree, snapshot
 
 # 首轮任务应在此时间内出现结果；修复后的正常路径在 1 秒内完成，

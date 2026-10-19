@@ -4,7 +4,7 @@ import subprocess
 from abc import ABC, abstractmethod
 
 from src import fs_ops
-from src.app_context import AppContext
+from src.app.context import AppContext
 from src.ssh.config import SshRemote, build_ssh_command, build_ssh_target
 
 

@@ -12,14 +12,15 @@ import time
 
 from croniter import croniter
 
-from src import app_paths, fs_ops, instance
-from src.app_context import AppContext
-from src.config_manager import ConfigManager
+from src import fs_ops
+from src.app import instance, paths
+from src.app.config import ConfigManager
+from src.app.context import AppContext
+from src.app.shutdown import install_abort_check
 from src.core import process_task
 from src.history import HistoryManager
 from src.logger import setup_logger
 from src.presentation import fmt_timespan
-from src.shutdown import install_abort_check
 from src.utils import SingleInstance
 
 
@@ -107,7 +108,7 @@ def _load_and_init(config_path, is_server=False, console=None):
 
     max_log_files = raw_config.get("max_log_files", 0)
     log_level = raw_config.get("log_level", "INFO")
-    log_dir = app_paths.resolve_log_dir(raw_config)
+    log_dir = paths.resolve_log_dir(raw_config)
     logger = setup_logger(log_dir, max_log_files, log_level, prefix=instance_name, console=console)
     history_mgr = HistoryManager(log_dir)
 
@@ -250,7 +251,7 @@ def _start_control_watcher(ctx):
 
 
 def run_client():
-    config_path = app_paths.config_path(is_server=False)
+    config_path = paths.config_path(is_server=False)
     manager = _load_and_init(config_path)
 
     ctx = AppContext.get()
@@ -269,7 +270,7 @@ def run_client():
 
 
 def run_server():
-    config_path = app_paths.config_path(is_server=True)
+    config_path = paths.config_path(is_server=True)
     _load_and_init(config_path, is_server=True)
 
     ctx = AppContext.get()
