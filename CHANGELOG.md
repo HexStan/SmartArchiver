@@ -28,7 +28,7 @@
 旧配置：
 
 ```toml
-lock_file = "smartarchiver.lock"
+lock_file = "/tmp/smartarchiver.lock"
 ```
 
 改为：
