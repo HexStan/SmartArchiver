@@ -54,6 +54,11 @@ class TestRemoteBuildDestPath:
         backend = RemoteDestBackend(client=None, remote_root="/vol/data/")
         assert backend.build_dest_path("a.txt") == "/vol/data/a.txt"
 
+    def test_windows_root_joins_rel_path(self):
+        """Windows 盘符根 + 反斜杠 rel_path：统一为正斜杠的完整拼接链。"""
+        backend = RemoteDestBackend(client=None, remote_root="D:/Backup")
+        assert backend.build_dest_path("sub\\file.txt") == "D:/Backup/sub/file.txt"
+
 
 class TestGetUniqueDest:
     """冲突副本的编号规则：name-1.ext、name-2.ext……（真实文件系统）"""
@@ -109,6 +114,25 @@ class TestCreateDestBackend:
     def test_http_path_normalized_with_leading_slash(self):
         backend = create_dest_backend("{http:nas}?relative/path", {"nas": object()})
         assert backend.root_path == "/relative/path"
+
+    def test_http_windows_drive_path_keeps_drive(self):
+        """Windows 盘符路径已是绝对路径，补前导 / 会被服务端 normpath 损坏成非法路径。"""
+        backend = create_dest_backend("{http:pc}?D:/Backup", {"pc": object()})
+        assert isinstance(backend, RemoteDestBackend)
+        assert backend.root_path == "D:/Backup"
+
+    def test_http_windows_backslash_root_normalized(self):
+        """盘符根中的反斜杠统一为正斜杠，与 build_dest_path 的拼接规则一致。"""
+        backend = create_dest_backend("{http:pc}?D:\\Backup", {"pc": object()})
+        assert isinstance(backend, RemoteDestBackend)
+        assert backend.root_path == "D:/Backup"
+
+    def test_http_windows_bare_drive_root(self):
+        """裸盘符根归一化为 D:，拼接时仍能还原为 D:/x。"""
+        backend = create_dest_backend("{http:pc}?D:/", {"pc": object()})
+        assert isinstance(backend, RemoteDestBackend)
+        assert backend.root_path == "D:"
+        assert backend.build_dest_path("f.txt") == "D:/f.txt"
 
     def test_unknown_http_alias_falls_back_to_local(self, app_context, capture_log):
         backend = create_dest_backend("{http:ghost}?/vol", {})

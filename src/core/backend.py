@@ -250,6 +250,22 @@ class SshDestBackend(DestBackend):
 
 _REMOTE_DEST_PATTERN = re.compile(r"^\{([a-z]+):([a-zA-Z0-9\-_]+)\}\?(.*)")
 
+# Windows 盘符绝对路径：D:/Backup、D:\Backup，或裸盘符根 D:/ 与 D:
+_WIN_REMOTE_PATH_PATTERN = re.compile(r"^[A-Za-z]:([\\/].*)?$")
+
+
+def _normalize_http_remote_path(remote_path):
+    """归一化 HTTP 远端根路径。
+
+    POSIX 路径统一为单一前导 /；Windows 盘符路径（如 D:/Backup）本身
+    已是绝对路径，不能补前导 /——否则 Windows 服务端的 normpath 会把
+    /D:/Backup 变成当前盘根下的非法路径。盘符路径中的反斜杠统一为
+    正斜杠，与 RemoteDestBackend.build_dest_path 的拼接规则保持一致。
+    """
+    if _WIN_REMOTE_PATH_PATTERN.match(remote_path):
+        return remote_path.replace("\\", "/").rstrip("/")
+    return "/" + remote_path.lstrip("/")
+
 
 def create_dest_backend(dest_root, remote_clients, ssh_remotes=None):
     if dest_root and isinstance(dest_root, str):
@@ -257,12 +273,12 @@ def create_dest_backend(dest_root, remote_clients, ssh_remotes=None):
         if m:
             remote_type = m.group(1)
             alias = m.group(2)
-            remote_path = "/" + m.group(3).lstrip("/")
+            remote_path = m.group(3)
 
             if remote_type == "http":
                 client = remote_clients.get(alias)
                 if client is not None:
-                    return RemoteDestBackend(client, remote_path)
+                    return RemoteDestBackend(client, _normalize_http_remote_path(remote_path))
                 ctx = AppContext.get()
                 ctx.logger.error(
                     f"HTTP 远端别名 '{alias}' 未在 http_remotes 中配置，fallback 到本地路径"
@@ -273,7 +289,8 @@ def create_dest_backend(dest_root, remote_clients, ssh_remotes=None):
                 ssh_dict = ssh_remotes or {}
                 ssh_remote = ssh_dict.get(alias)
                 if ssh_remote is not None:
-                    return SshDestBackend(ssh_remote, remote_path)
+                    # SSH 远端为 POSIX 语义（rsync / rclone over SSH），统一补前导 /
+                    return SshDestBackend(ssh_remote, "/" + remote_path.lstrip("/"))
                 ctx = AppContext.get()
                 ctx.logger.error(
                     f"SSH 远端别名 '{alias}' 未在 ssh_remotes 中配置，fallback 到本地路径"
