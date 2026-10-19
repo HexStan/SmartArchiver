@@ -13,7 +13,6 @@ class ConfigError(Exception):
     """配置致命错误。"""
 
 
-
 @dataclass
 class ConfigData:
     """从配置文件加载的完整数据集。"""

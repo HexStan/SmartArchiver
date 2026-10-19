@@ -66,11 +66,7 @@ class FileFilterPolicy:
 
             # 只有在没有命中 ge -1 且命中了其他有大小限制的规则时，才获取并检查大小
             if matching_thresholds_lt or matching_thresholds_ge:
-                size = (
-                    size_or_callable()
-                    if callable(size_or_callable)
-                    else size_or_callable
-                )
+                size = size_or_callable() if callable(size_or_callable) else size_or_callable
                 for threshold in matching_thresholds_lt:
                     if size < threshold:
                         return True
@@ -83,10 +79,7 @@ class FileFilterPolicy:
         @property
         def has_rules(self):
             return bool(
-                self.dir_rules_lt
-                or self.dir_rules_ge
-                or self.file_rules_lt
-                or self.file_rules_ge
+                self.dir_rules_lt or self.dir_rules_ge or self.file_rules_lt or self.file_rules_ge
             )
 
     def __init__(self, config):

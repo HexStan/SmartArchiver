@@ -67,7 +67,7 @@ def parse_ssh_remote_config(config: dict) -> dict[str, SshRemote]:
         if raw_port is not None:
             try:
                 port = int(raw_port)
-            except (TypeError, ValueError):
+            except TypeError, ValueError:
                 port = 22
 
         # 凭据文件：选填

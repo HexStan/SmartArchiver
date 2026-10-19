@@ -249,12 +249,8 @@ class TestParentDirCascade:
     def test_parent_threshold_uses_parent_size(self):
         """级联判断用父目录整体大小，而不是文件自身大小。"""
         policy = build_policy(exclude={"lt": {"backup/": "1KB"}})
-        hit = policy.decide(
-            "backup/file.txt", 500, parent_dir_sizes={"backup": 500}
-        )
-        miss = policy.decide(
-            "backup/file.txt", 500, parent_dir_sizes={"backup": 2000}
-        )
+        hit = policy.decide("backup/file.txt", 500, parent_dir_sizes={"backup": 500})
+        miss = policy.decide("backup/file.txt", 500, parent_dir_sizes={"backup": 2000})
         assert hit == SKIP
         assert miss == TRANSFER
 
@@ -269,10 +265,7 @@ class TestParentDirCascade:
     def test_deeply_nested_parent_cascade(self):
         policy = build_policy(exclude={"ge": {"backup/": "-1"}})
         sizes = {"backup": 10000, "backup/sub": 5000}
-        assert (
-            policy.decide("backup/sub/deep/file.txt", 500, parent_dir_sizes=sizes)
-            == SKIP
-        )
+        assert policy.decide("backup/sub/deep/file.txt", 500, parent_dir_sizes=sizes) == SKIP
 
     def test_no_parent_entry_no_cascade(self):
         policy = build_policy(exclude={"ge": {"other/": "-1"}})
@@ -288,9 +281,7 @@ class TestParentDirCascade:
         """目录自身的决策不受 parent_dir_sizes 影响。"""
         policy = build_policy(exclude={"lt": {"backup/": "1KB"}})
         sizes = {"parent": 0}
-        assert (
-            policy.decide("backup", 500, is_dir=True, parent_dir_sizes=sizes) == SKIP
-        )
+        assert policy.decide("backup", 500, is_dir=True, parent_dir_sizes=sizes) == SKIP
 
 
 class TestGlobSemantics:

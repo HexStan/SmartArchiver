@@ -77,9 +77,7 @@ def run_task(app_context):
 
     def _run(task, now=None, remote_clients=None, ssh_remotes=None):
         handler_cls = get_handler_class(task["mode"].lower())
-        backend = create_dest_backend(
-            task.get("dest", ""), remote_clients or {}, ssh_remotes or {}
-        )
+        backend = create_dest_backend(task.get("dest", ""), remote_clients or {}, ssh_remotes or {})
         handler = handler_cls(task, backend, now)
         handler.execute()
         return handler

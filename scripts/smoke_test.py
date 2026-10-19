@@ -44,9 +44,7 @@ def locate_zip(pattern):
     if not matches:
         raise SystemExit(f"未找到发行包: {pattern}")
     if len(matches) > 1:
-        raise SystemExit(
-            "匹配到多个发行包，请传入具体路径:\n  " + "\n  ".join(matches)
-        )
+        raise SystemExit("匹配到多个发行包，请传入具体路径:\n  " + "\n  ".join(matches))
     return matches[0]
 
 

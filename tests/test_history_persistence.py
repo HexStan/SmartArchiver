@@ -70,7 +70,5 @@ class TestPersistence:
 
         assert not (tmp_path / "h" / "failure_history.json.tmp").exists()
         # 保存的是合法 JSON
-        data = json.loads(
-            (tmp_path / "h" / "failure_history.json").read_text(encoding="utf-8")
-        )
+        data = json.loads((tmp_path / "h" / "failure_history.json").read_text(encoding="utf-8"))
         assert data == {"/f.txt": 1}

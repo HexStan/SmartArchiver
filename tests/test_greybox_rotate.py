@@ -31,7 +31,7 @@ class TestGlobalLimits:
         make_tree(
             task["source"],
             {
-                "a.bin": (b"a" * 3000, OLD),        # 最旧
+                "a.bin": (b"a" * 3000, OLD),  # 最旧
                 "b.bin": (b"b" * 2000, OLD + 100),
                 "c.bin": (b"c" * 1000, OLD + 200),
             },
@@ -102,9 +102,7 @@ class TestGlobalLimits:
 class TestRotationWithoutDest:
     def test_delete_rules_delete_in_place_of_transfer(self, run_task, tmp_path):
         """无 dest 时轮转产生的动作走 delete_rules 直接删除。"""
-        task = rotate_task(
-            tmp_path, count_limit=2, delete_rules={"ge": {"*": "-1"}}
-        )
+        task = rotate_task(tmp_path, count_limit=2, delete_rules={"ge": {"*": "-1"}})
         make_tree(
             task["source"],
             {f"f{i}.txt": (b"x", OLD + i) for i in range(4)},
@@ -114,9 +112,7 @@ class TestRotationWithoutDest:
 
         assert snapshot(task["source"]) == {"f2.txt": 1, "f3.txt": 1}
 
-    def test_no_dest_and_no_delete_rules_changes_nothing(
-        self, run_task, tmp_path, capture_log
-    ):
+    def test_no_dest_and_no_delete_rules_changes_nothing(self, run_task, tmp_path, capture_log):
         """无可处理动作（无 dest、无 delete_rules）时文件原地不动，
         分组仍超限 → 输出警告日志。"""
         task = rotate_task(tmp_path, count_limit=1)

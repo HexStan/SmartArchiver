@@ -12,11 +12,9 @@ class HistoryManager:
         """加载历史记录"""
         if os.path.exists(self.file_path):
             try:
-                with open(
-                    self.file_path, "r", encoding="utf-8", errors="surrogateescape"
-                ) as f:
+                with open(self.file_path, "r", encoding="utf-8", errors="surrogateescape") as f:
                     self.history = json.load(f)
-            except (OSError, json.JSONDecodeError):
+            except OSError, json.JSONDecodeError:
                 self.history = {}
         else:
             self.history = {}

@@ -111,9 +111,7 @@ class TestMtimeThreshold:
     def test_delete_rule_also_gated_by_mtime(self, run_task, tmp_path, capture_log):
         """README 明示的设计意图：delete_rules 同受 mtime 阈值约束，
         保护正在写入的文件。"""
-        task = move_task(
-            tmp_path, delete_rules={"ge": {"*.tmp": "-1"}}
-        )
+        task = move_task(tmp_path, delete_rules={"ge": {"*.tmp": "-1"}})
         make_tree(task["source"], {"old.tmp": b"x", "new.tmp": (b"y", RECENT)})
 
         run_task(task, now=NOW)
@@ -292,12 +290,8 @@ class TestErrorPaths:
         assert snapshot(task["source"]) == {"b.txt": 1}
         assert capture_log.has("warning", "未配置目标目录")
 
-    def test_missing_dest_dir_aborts_before_any_transfer(
-        self, run_task, tmp_path, capture_log
-    ):
-        task = move_task(
-            tmp_path, create_dest=False, dest=str(tmp_path / "nonexistent")
-        )
+    def test_missing_dest_dir_aborts_before_any_transfer(self, run_task, tmp_path, capture_log):
+        task = move_task(tmp_path, create_dest=False, dest=str(tmp_path / "nonexistent"))
         make_tree(task["source"], {"a.txt": b"x", "sub/b.txt": b"y"})
 
         run_task(task, now=NOW)
@@ -313,9 +307,7 @@ class TestErrorPaths:
 
         assert capture_log.has("error", "源目录不存在")
 
-    def test_invalid_task_config_skips_everything(
-        self, run_task, tmp_path, capture_log
-    ):
+    def test_invalid_task_config_skips_everything(self, run_task, tmp_path, capture_log):
         """缺少必填项的任务被整体跳过：错误日志 + 目录树零变化。"""
         task = move_task(tmp_path)
         del task["mtime_threshold_minutes"]

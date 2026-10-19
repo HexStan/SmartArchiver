@@ -77,9 +77,7 @@ class TestGetUniqueDest:
     def test_no_extension(self, tmp_path):
         (tmp_path / "README").write_bytes(b"x")
         backend = LocalDestBackend(str(tmp_path))
-        assert backend.get_unique_dest(str(tmp_path / "README")) == str(
-            tmp_path / "README-1"
-        )
+        assert backend.get_unique_dest(str(tmp_path / "README")) == str(tmp_path / "README-1")
 
     def test_only_last_extension_is_numbered(self, tmp_path):
         """archive.tar.gz → archive.tar-1.gz：扩展名取最后一段。"""
@@ -119,9 +117,7 @@ class TestCreateDestBackend:
         assert capture_log.has("error", "ghost")
 
     def test_ssh_alias_dispatches_to_ssh_backend(self):
-        backend = create_dest_backend(
-            "{ssh:vps}?/var/data", {}, {"vps": object()}
-        )
+        backend = create_dest_backend("{ssh:vps}?/var/data", {}, {"vps": object()})
         assert isinstance(backend, SshDestBackend)
         assert backend.root_path == "/var/data"
 

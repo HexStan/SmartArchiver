@@ -79,6 +79,4 @@ def print_task_summary(stats, duration, total_bytes):
         ctx.logger.info("，".join(tail_msg_2) + "。")
 
     if stats.success > 0:
-        ctx.logger.info(
-            f"在 {duration_str} 内传输了 {total_size_str}，平均速度 {speed_str}。"
-        )
+        ctx.logger.info(f"在 {duration_str} 内传输了 {total_size_str}，平均速度 {speed_str}。")

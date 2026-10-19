@@ -63,7 +63,7 @@ class _ShortReadStream:
         if size is None or size < 0:
             size = self._remaining
         n = min(size, self._remaining)
-        chunk = self._data[self._pos:self._pos + n]
+        chunk = self._data[self._pos : self._pos + n]
         self._pos += len(chunk)
         self._remaining -= len(chunk)
         return chunk

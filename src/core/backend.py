@@ -178,7 +178,7 @@ class SshDestBackend(DestBackend):
                 timeout=30,
             )
             return result.returncode == 0
-        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        except subprocess.TimeoutExpired, FileNotFoundError, OSError:
             return False
 
     def remote_list_dir(self, path):
@@ -202,7 +202,7 @@ class SshDestBackend(DestBackend):
                         entries.append(os.path.basename(line.rstrip("/")))
                 entries.sort()
                 return entries
-        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        except subprocess.TimeoutExpired, FileNotFoundError, OSError:
             pass
         return []
 
@@ -220,7 +220,7 @@ class SshDestBackend(DestBackend):
                 timeout=60,
             )
             return result.returncode == 0
-        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        except subprocess.TimeoutExpired, FileNotFoundError, OSError:
             return False
 
     # ---- 非 sync 模式不支持的方法 ----
@@ -265,8 +265,7 @@ def create_dest_backend(dest_root, remote_clients, ssh_remotes=None):
                     return RemoteDestBackend(client, remote_path)
                 ctx = AppContext.get()
                 ctx.logger.error(
-                    f"HTTP 远端别名 '{alias}' 未在 http_remotes 中配置，"
-                    f"fallback 到本地路径"
+                    f"HTTP 远端别名 '{alias}' 未在 http_remotes 中配置，fallback 到本地路径"
                 )
                 return LocalDestBackend(dest_root)
 
@@ -277,8 +276,7 @@ def create_dest_backend(dest_root, remote_clients, ssh_remotes=None):
                     return SshDestBackend(ssh_remote, remote_path)
                 ctx = AppContext.get()
                 ctx.logger.error(
-                    f"SSH 远端别名 '{alias}' 未在 ssh_remotes 中配置，"
-                    f"fallback 到本地路径"
+                    f"SSH 远端别名 '{alias}' 未在 ssh_remotes 中配置，fallback 到本地路径"
                 )
                 return LocalDestBackend(dest_root)
 

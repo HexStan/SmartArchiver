@@ -35,13 +35,13 @@ def parse_remote_config(config):
         if timeout is not None:
             try:
                 timeout = float(timeout)
-            except (TypeError, ValueError):
+            except TypeError, ValueError:
                 timeout = None
 
         if queue_time is not None:
             try:
                 queue_time = float(queue_time)
-            except (TypeError, ValueError):
+            except TypeError, ValueError:
                 queue_time = 0.0
 
         remotes[alias] = RemoteClient(

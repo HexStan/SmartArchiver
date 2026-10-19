@@ -65,9 +65,7 @@ def download(url, dest, retries=3):
         try:
             print(f"下载 rclone（第 {attempt}/{retries} 次）: {url}")
             part = dest + ".part"
-            request = urllib.request.Request(
-                url, headers={"User-Agent": "SmartArchiver-build"}
-            )
+            request = urllib.request.Request(url, headers={"User-Agent": "SmartArchiver-build"})
             with urllib.request.urlopen(request) as resp, open(part, "wb") as f:
                 f.write(resp.read())
             os.replace(part, dest)
@@ -94,9 +92,7 @@ def stage_rclone(target):
 
     with zipfile.ZipFile(zip_path) as zf:
         # 压缩包内为 rclone-vX.Y.Z-平台/rclone[.exe] 的嵌套结构
-        member = next(
-            n for n in zf.namelist() if os.path.basename(n) == exe_name
-        )
+        member = next(n for n in zf.namelist() if os.path.basename(n) == exe_name)
         zf.extract(member, stage_dir)
     shutil.move(os.path.join(stage_dir, member), staged)
     os.remove(zip_path)
@@ -111,9 +107,7 @@ def stage_rclone(target):
 def verify_rclone(rclone_bin):
     """执行 rclone version 验证二进制可用。"""
     try:
-        result = subprocess.run(
-            [rclone_bin, "version"], capture_output=True, text=True, check=True
-        )
+        result = subprocess.run([rclone_bin, "version"], capture_output=True, text=True, check=True)
     except (OSError, subprocess.CalledProcessError) as e:
         raise SystemExit(f"内置 rclone 无法运行: {e}")
 
@@ -135,9 +129,7 @@ def stage_example_configs():
     os.makedirs(config_dst, exist_ok=True)
     for name in os.listdir(config_src):
         if name.endswith(".example.toml"):
-            shutil.copy2(
-                os.path.join(config_src, name), os.path.join(config_dst, name)
-            )
+            shutil.copy2(os.path.join(config_src, name), os.path.join(config_dst, name))
 
 
 def run_pyinstaller(rclone_bin):
@@ -145,8 +137,12 @@ def run_pyinstaller(rclone_bin):
     env["RCLONE_STAGE"] = rclone_bin
 
     cmd = [
-        sys.executable, "-m", "PyInstaller",
-        SPEC_FILE, "--noconfirm", "--clean",
+        sys.executable,
+        "-m",
+        "PyInstaller",
+        SPEC_FILE,
+        "--noconfirm",
+        "--clean",
     ]
     print("+ " + " ".join(cmd))
     subprocess.run(cmd, cwd=REPO_ROOT, env=env, check=True)
@@ -179,7 +175,8 @@ def main():
 
     parser = argparse.ArgumentParser(description="构建 SmartArchiver 可执行文件")
     parser.add_argument(
-        "--target", choices=sorted(RCLONE_URLS),
+        "--target",
+        choices=sorted(RCLONE_URLS),
         help="目标平台，缺省自动识别当前平台",
     )
     args = parser.parse_args()
@@ -195,7 +192,9 @@ def main():
     stage_example_configs()
     zip_path = make_zip(target, version)
 
-    print(f"构建完成:\n  程序目录: dist{os.sep}SmartArchiver\n  发行包: {os.path.relpath(zip_path, REPO_ROOT)}")
+    print(
+        f"构建完成:\n  程序目录: dist{os.sep}SmartArchiver\n  发行包: {os.path.relpath(zip_path, REPO_ROOT)}"
+    )
 
 
 if __name__ == "__main__":

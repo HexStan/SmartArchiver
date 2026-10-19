@@ -79,8 +79,8 @@ class TestAtomicWriter:
             seen["temp_not_dest"] = os.path.abspath(temp_path) != os.path.abspath(
                 str(tmp_path / "a.txt")
             )
-            seen["temp_same_dir"] = (
-                os.path.dirname(os.path.abspath(temp_path)) == os.path.abspath(str(tmp_path))
+            seen["temp_same_dir"] = os.path.dirname(os.path.abspath(temp_path)) == os.path.abspath(
+                str(tmp_path)
             )
 
         dest = tmp_path / "a.txt"
@@ -105,9 +105,7 @@ class TestAtomicWriter:
         assert not stale.exists()
         assert dest.read_bytes() == b"data"
 
-    def test_falls_back_to_random_name_when_deterministic_name_is_a_directory(
-        self, tmp_path
-    ):
+    def test_falls_back_to_random_name_when_deterministic_name_is_a_directory(self, tmp_path):
         """确定性名字被目录占用（残留清理失败）时，回退随机名仍能完成写入。"""
         (tmp_path / PARTIAL_NAME).mkdir()
 
@@ -194,9 +192,7 @@ class TestMoveFile:
         assert not src.exists()
         assert (dest_dir / "a.txt").read_bytes() == b"data"
 
-    def test_cross_device_move_falls_back_to_copy_then_delete(
-        self, tmp_path, monkeypatch
-    ):
+    def test_cross_device_move_falls_back_to_copy_then_delete(self, tmp_path, monkeypatch):
         """EXDEV（跨设备）时回退原子复制，复制成功后才删源。"""
         src = tmp_path / "src" / "a.txt"
         src.parent.mkdir()
@@ -223,9 +219,7 @@ class TestMoveFile:
         assert dest.stat().st_mtime == 1000000000
         assert [p.name for p in dest_dir.iterdir()] == ["a.txt"]
 
-    def test_cross_device_move_keeps_source_when_copy_fails(
-        self, tmp_path, monkeypatch
-    ):
+    def test_cross_device_move_keeps_source_when_copy_fails(self, tmp_path, monkeypatch):
         """复制失败时源文件必须完好——移动的破坏性动作只能发生在成功之后。"""
         src = tmp_path / "src" / "a.txt"
         src.parent.mkdir()
