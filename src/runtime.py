@@ -158,6 +158,26 @@ def _run_schedule(manager):
         sys.exit(1)
 
 
+def _run_first_round(manager, schedule_config):
+    """按 first_run_delay 执行首轮任务；返回 False 表示调度应退出。
+
+    -1（默认）不在此执行——等待至下个调度时间点的语义由调度主循环
+    实现；0 表示启动后立即执行；正数表示等待指定秒数后执行首轮，
+    之后的轮次仍按调度周期进行。
+    """
+    ctx = AppContext.get()
+    first_run_delay = schedule_config.get("first_run_delay", -1)
+    if first_run_delay < 0:
+        return True
+
+    ctx.logger.info(f"等待 {first_run_delay} 秒后开始执行任务。")
+    if _interruptible_sleep(first_run_delay):
+        return False
+
+    _execute_tasks(manager)
+    return True
+
+
 def _run_cron(manager, schedule_config):
     ctx = AppContext.get()
     cron_expr = schedule_config.get("cron_expr")
@@ -167,11 +187,8 @@ def _run_cron(manager, schedule_config):
 
     ctx.logger.info(f"已设置定时任务 (cron 模式): {cron_expr}。")
 
-    first_run_delay = schedule_config.get("first_run_delay", -1)
-    if first_run_delay >= 0:
-        ctx.logger.info(f"等待 {first_run_delay} 秒后开始执行任务。")
-        if _interruptible_sleep(first_run_delay):
-            return
+    if not _run_first_round(manager, schedule_config):
+        return
 
     while True:
         now = datetime.datetime.now()
@@ -200,11 +217,8 @@ def _run_interval(manager, schedule_config):
     ctx = AppContext.get()
     ctx.logger.info(f"已设置定时任务 (interval 模式): 每 {interval_seconds} 秒执行一次。")
 
-    first_run_delay = schedule_config.get("first_run_delay", -1)
-    if first_run_delay >= 0:
-        ctx.logger.info(f"等待 {first_run_delay} 秒后开始执行任务。")
-        if _interruptible_sleep(first_run_delay):
-            return
+    if not _run_first_round(manager, schedule_config):
+        return
 
     while True:
         next_run = datetime.datetime.now() + datetime.timedelta(seconds=interval_seconds)
