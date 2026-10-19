@@ -7,7 +7,7 @@ import time
 from collections import namedtuple
 from datetime import datetime
 
-from src import fs_ops
+from src import fs
 from src.app.context import AppContext
 from src.app.paths import bundled_rclone_path
 from src.core.backend import RemoteDestBackend, SshDestBackend
@@ -409,7 +409,7 @@ class SyncHandler(BaseTaskHandler):
                 if len(backups) >= max_backups:
                     num_to_delete = len(backups) - max_backups + 1
                     for b in backups[:num_to_delete]:
-                        fs_ops.delete_dir(b)
+                        fs.delete_dir(b)
                         ctx.logger.info(f"已删除旧备份: {b}")
             except Exception as e:  # noqa: BLE001
                 ctx.logger.error(f"清理旧备份失败: {e}")

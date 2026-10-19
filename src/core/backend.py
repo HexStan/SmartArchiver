@@ -3,7 +3,7 @@ import re
 import subprocess
 from abc import ABC, abstractmethod
 
-from src import fs_ops
+from src import fs
 from src.app.context import AppContext
 from src.ssh.remotes import SshRemote, build_ssh_command, build_ssh_target
 
@@ -67,25 +67,25 @@ class DestBackend(ABC):
 
 class LocalDestBackend(DestBackend):
     def exists(self, path):
-        return fs_ops.path_exists(path)
+        return fs.path_exists(path)
 
     def is_dir(self, path):
-        return fs_ops.is_dir(path)
+        return fs.is_dir(path)
 
     def makedirs(self, path):
-        fs_ops.ensure_dir(path)
+        fs.ensure_dir(path)
 
     def copy_file(self, src_local_path, dest_path):
-        fs_ops.copy_file(src_local_path, dest_path)
+        fs.copy_file(src_local_path, dest_path)
 
     def move_file(self, src_local_path, dest_path):
-        fs_ops.move_file(src_local_path, dest_path)
+        fs.move_file(src_local_path, dest_path)
 
     def stat(self, path):
-        return fs_ops.get_stat(path)
+        return fs.get_stat(path)
 
     def list_dir(self, path):
-        return fs_ops.list_dir(path)
+        return fs.list_dir(path)
 
 
 # ============================================================
@@ -116,11 +116,11 @@ class RemoteDestBackend(DestBackend):
 
     def move_file(self, src_local_path, dest_path):
         self._client.upload(src_local_path, dest_path)
-        fs_ops.delete_file(src_local_path)
+        fs.delete_file(src_local_path)
 
     def stat(self, path):
         result = self._client.stat(path)
-        return fs_ops.StatResult(
+        return fs.StatResult(
             exists=result["exists"],
             size=result["size"],
             mtime=result["mtime"],
@@ -130,7 +130,7 @@ class RemoteDestBackend(DestBackend):
     def list_dir(self, path):
         entries = self._client.list_dir(path)
         return [
-            fs_ops.DirEntry(
+            fs.DirEntry(
                 name=e["name"],
                 is_dir=e["is_dir"],
                 size=e["size"],

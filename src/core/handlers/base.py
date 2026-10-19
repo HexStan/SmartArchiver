@@ -6,8 +6,8 @@ from src.app.context import AppContext
 from src.core.filters import FileFilterPolicy
 from src.core.patterns import parse_size_string
 from src.core.types import FileAction, MoverStats
-from src.fs_ops import TransferAbortedError, is_file_locked
-from src.fs_ops import delete_file as _fs_delete
+from src.fs import TransferAbortedError, is_file_locked
+from src.fs import delete_file as _fs_delete
 from src.output.presentation import fmt_size as _fmt_size
 
 # ============================================================

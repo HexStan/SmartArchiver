@@ -1,11 +1,11 @@
-"""白盒·原子写入原语（fs_ops.atomic_writer / copy_file / move_file）。
+"""白盒·原子写入原语（fs.atomic_writer / copy_file / move_file）。
 
 为什么必须白盒（tests/README.md 原则二）：
 - EXDEV 回退依赖"跨设备"这一 OS 层错误，只能在 os.replace 边界模拟；
 - fsync 先于 rename 的顺序、临时文件的独占创建与残留清理是瞬时中间态，
   从 execute() 入口无法确定性观察；
 - 临时文件名是「残留清理」契约的一部分，必须直接钉死。
-打桩全部落在 OS 边界，符合原则三；fs_ops 是无业务依赖的纯原语层，
+打桩全部落在 OS 边界，符合原则三；fs 包是无业务依赖的纯原语层，
 直接调用即为被测入口。
 """
 
@@ -14,9 +14,10 @@ import os
 
 import pytest
 
-from src import fs_ops
+from src import fs
+from src.fs.atomic import _PARTIAL_SUFFIX
 
-PARTIAL_NAME = ".a.txt" + fs_ops._PARTIAL_SUFFIX
+PARTIAL_NAME = ".a.txt" + _PARTIAL_SUFFIX
 
 
 # ============================================================
@@ -29,7 +30,7 @@ class TestAtomicWriter:
         dest = tmp_path / "a.txt"
         dest.write_bytes(b"old")
 
-        with fs_ops.atomic_writer(str(dest)) as f:
+        with fs.atomic_writer(str(dest)) as f:
             f.write(b"new")
 
         assert dest.read_bytes() == b"new"
@@ -39,7 +40,7 @@ class TestAtomicWriter:
         dest = tmp_path / "a.txt"
         dest.write_bytes(b"old")
 
-        with pytest.raises(RuntimeError), fs_ops.atomic_writer(str(dest)) as f:
+        with pytest.raises(RuntimeError), fs.atomic_writer(str(dest)) as f:
             f.write(b"partial")
             raise RuntimeError("boom")
 
@@ -64,7 +65,7 @@ class TestAtomicWriter:
         monkeypatch.setattr(os, "replace", fake_replace)
 
         dest = tmp_path / "a.txt"
-        with fs_ops.atomic_writer(str(dest)) as f:
+        with fs.atomic_writer(str(dest)) as f:
             f.write(b"data")
 
         assert calls == ["fsync", "replace"]
@@ -84,7 +85,7 @@ class TestAtomicWriter:
             )
 
         dest = tmp_path / "a.txt"
-        with fs_ops.atomic_writer(str(dest), finalize=finalize) as f:
+        with fs.atomic_writer(str(dest), finalize=finalize) as f:
             f.write(b"data")
 
         assert seen == {
@@ -99,7 +100,7 @@ class TestAtomicWriter:
         stale.write_bytes(b"stale")
 
         dest = tmp_path / "a.txt"
-        with fs_ops.atomic_writer(str(dest)) as f:
+        with fs.atomic_writer(str(dest)) as f:
             f.write(b"data")
 
         assert not stale.exists()
@@ -110,7 +111,7 @@ class TestAtomicWriter:
         (tmp_path / PARTIAL_NAME).mkdir()
 
         dest = tmp_path / "a.txt"
-        with fs_ops.atomic_writer(str(dest)) as f:
+        with fs.atomic_writer(str(dest)) as f:
             f.write(b"data")
 
         assert dest.read_bytes() == b"data"
@@ -132,7 +133,7 @@ class TestCopyFile:
         (src / "a.txt").write_bytes(b"data")
         os.utime(src / "a.txt", (1000000000, 1000000000))
 
-        fs_ops.copy_file(str(src / "a.txt"), str(tmp_path / "dest" / "a.txt"))
+        fs.copy_file(str(src / "a.txt"), str(tmp_path / "dest" / "a.txt"))
 
         dest = tmp_path / "dest" / "a.txt"
         assert dest.read_bytes() == b"data"
@@ -146,7 +147,7 @@ class TestCopyFile:
         src.write_bytes(b"data")
         os.chmod(src, 0o600)
 
-        fs_ops.copy_file(str(src), str(tmp_path / "b.txt"))
+        fs.copy_file(str(src), str(tmp_path / "b.txt"))
 
         assert (tmp_path / "b.txt").stat().st_mode & 0o777 == 0o600
 
@@ -158,7 +159,7 @@ class TestCopyFile:
         src = tmp_path / "a.txt"
         src.write_bytes(b"data")
 
-        fs_ops.copy_file(str(src), str(dest_dir / "a.txt"))
+        fs.copy_file(str(src), str(dest_dir / "a.txt"))
 
         assert not (dest_dir / PARTIAL_NAME).exists()
         assert (dest_dir / "a.txt").read_bytes() == b"data"
@@ -186,7 +187,7 @@ class TestMoveFile:
 
         monkeypatch.setattr(os, "replace", fake_replace)
 
-        fs_ops.move_file(str(src), str(dest_dir / "a.txt"))
+        fs.move_file(str(src), str(dest_dir / "a.txt"))
 
         assert replace_calls == [(str(src), str(dest_dir / "a.txt"))]
         assert not src.exists()
@@ -212,7 +213,7 @@ class TestMoveFile:
 
         monkeypatch.setattr(os, "replace", fake_replace)
 
-        fs_ops.move_file(str(src), str(dest))
+        fs.move_file(str(src), str(dest))
 
         assert not src.exists()
         assert dest.read_bytes() == b"data"
@@ -234,14 +235,14 @@ class TestMoveFile:
         def fake_replace(s, d):
             if s == str(src) and d == str(dest):
                 raise OSError(errno.EXDEV, "Invalid cross-device link")
-            if s.endswith(fs_ops._PARTIAL_SUFFIX):
+            if s.endswith(_PARTIAL_SUFFIX):
                 raise OSError(errno.ENOSPC, "No space left on device")
             return real_replace(s, d)
 
         monkeypatch.setattr(os, "replace", fake_replace)
 
-        with pytest.raises(fs_ops.FsOpError):
-            fs_ops.move_file(str(src), str(dest))
+        with pytest.raises(fs.FsOpError):
+            fs.move_file(str(src), str(dest))
 
         assert src.read_bytes() == b"data"
         assert not dest.exists()
@@ -251,5 +252,5 @@ class TestMoveFile:
         dest_dir = tmp_path / "dest"
         dest_dir.mkdir()
 
-        with pytest.raises(fs_ops.FsOpError):
-            fs_ops.move_file(str(tmp_path / "missing.txt"), str(dest_dir / "a.txt"))
+        with pytest.raises(fs.FsOpError):
+            fs.move_file(str(tmp_path / "missing.txt"), str(dest_dir / "a.txt"))

@@ -8,13 +8,13 @@
   清理已写入的临时文件后退出。
 
 信号由 ``src.app.instance.ControlWatcher`` 从控制文件读入后注入；业务循环
-在文件/任务边界查询，``fs_ops`` 的复制循环在 chunk 边界查询 fast 中止。
+在文件/任务边界查询，``fs.transfer`` 的复制循环在 chunk 边界查询 fast 中止。
 sync 模式的外部同步进程在启动时登记，fast 中止时被整树终止，不留孤儿。
 """
 
 import threading
 
-from src import fs_ops
+from src import fs
 from src.app.instance import terminate_process_tree
 
 
@@ -108,5 +108,5 @@ class ShutdownCoordinator:
 
 
 def install_abort_check(coordinator):
-    """把 fast 中止信号接入 fs_ops 的 chunk 边界。"""
-    fs_ops.set_abort_check(coordinator.is_aborted)
+    """把 fast 中止信号接入 fs.transfer 的 chunk 边界。"""
+    fs.set_abort_check(coordinator.is_aborted)

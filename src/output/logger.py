@@ -146,7 +146,7 @@ def setup_logger(log_dir, max_log_files=0, log_level="INFO", prefix="smartarchiv
         logger.addHandler(console_handler)
 
     # 桥接业务模块日志：让统一文件操作与实例控制模块的日志输出到相同的 handler
-    for name in ("src.fs_ops", "src.app.instance"):
+    for name in ("src.fs", "src.app.instance"):
         bridged = logging.getLogger(name)
         bridged.setLevel(numeric_level)
         bridged.propagate = False

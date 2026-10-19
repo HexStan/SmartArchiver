@@ -2,7 +2,7 @@
 
 停止协调器像 now 一样由测试注入（AppContext 自动装配 ShutdownCoordinator）：
 - graceful / slow / fast 预置在任务开始前，从 execute() 入口断言边界行为；
-- "当前文件传完后停止"与"传输中途丢弃任务"借助 fs_ops 的中止检查钩子在
+- "当前文件传完后停止"与"传输中途丢弃任务"借助 fs.abort 的中止检查钩子在
   chunk 边界精确触发——该钩子是生产注入缝（生产环境由停止协调器注入），
   不是业务打桩。
 主断言落在目录树快照上（原则五）。
@@ -12,14 +12,14 @@ import os
 
 import pytest
 
-from src import fs_ops
-from src.fs_ops import TransferAbortedError
+from src import fs
+from src.fs import TransferAbortedError
 from tests.helpers import make_tree, snapshot
 
 
 @pytest.fixture
 def abort_hook(app_context):
-    """fs_ops 中止检查钩子：handlers 列表中的回调按调用次序触发，
+    """fs.abort 中止检查钩子：handlers 列表中的回调按调用次序触发，
     返回 True 表示中止（测试后复位钩子）。"""
     calls = {"count": 0}
     handlers = []
@@ -31,9 +31,9 @@ def abort_hook(app_context):
                 return True
         return False
 
-    fs_ops.set_abort_check(check)
+    fs.set_abort_check(check)
     yield handlers
-    fs_ops.set_abort_check(None)
+    fs.set_abort_check(None)
 
 
 def make_task(src, dest, mode):

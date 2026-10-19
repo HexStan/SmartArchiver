@@ -39,8 +39,8 @@ import pytest
 from flask import Flask
 from werkzeug.serving import make_server
 
-from src import fs_ops
 from src.app.shutdown import ShutdownCoordinator
+from src.fs.atomic import _PARTIAL_SUFFIX
 from src.remote.client import RemoteClient
 from src.remote.concurrency import ConcurrencyGate
 from src.remote.protocol import UPLOAD_PATH
@@ -50,7 +50,7 @@ API_KEY = "test-key"
 # 与 src/remote/server.py::_receive_upload 的读取块一致；BODY 恰好横跨两个块
 CHUNK_SIZE = 65536
 BODY = bytes(range(256)) * 256 + b"tail-of-body"
-PARTIAL_NAME = ".a.txt" + fs_ops._PARTIAL_SUFFIX
+PARTIAL_NAME = ".a.txt" + _PARTIAL_SUFFIX
 SOURCE_MTIME = 1000000000.0
 
 
@@ -159,7 +159,7 @@ class _DirectWriteProbe:
 
         final = self.events[-1]
         dest_dir = os.path.dirname(os.path.abspath(dest_path))
-        assert os.path.basename(final["src"]).endswith(fs_ops._PARTIAL_SUFFIX)
+        assert os.path.basename(final["src"]).endswith(_PARTIAL_SUFFIX)
         assert _same_dir(os.path.dirname(final["src"]), dest_dir), (
             f"落盘前的临时文件不在目标目录: {final['src']}"
         )

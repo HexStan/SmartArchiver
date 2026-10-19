@@ -4,7 +4,7 @@ import urllib.parse
 
 from flask import Flask, jsonify, request
 
-from src import fs_ops
+from src import fs
 from src.remote.concurrency import (
     ClientDisconnectedError,
     ConcurrencyGate,
@@ -76,14 +76,14 @@ def _receive_upload(path, mtime):
             # mkstemp 回退路径默认 0600，还原 open(path, "wb") 的常规权限
             os.chmod(temp_path, 0o644)
 
-    with fs_ops.atomic_writer(path, _finalize) as f:
+    with fs.atomic_writer(path, _finalize) as f:
         received = 0
         chunk_size = 65536  # 64KB
         while True:
             # chunk 边界响应停止指令；中止时 atomic_writer 的收尾
             # 逻辑会清理已写入的临时文件，最终路径不受影响
-            if fs_ops.abort_requested():
-                raise fs_ops.TransferAbortedError("接收被停止指令中止")
+            if fs.abort_requested():
+                raise fs.TransferAbortedError("接收被停止指令中止")
             chunk = request.stream.read(chunk_size)
             if not chunk:
                 break
@@ -145,28 +145,28 @@ def create_app(api_key, logger, gate):
 
                 try:
                     if action == RemoteAction.EXISTS:
-                        return jsonify({"exists": fs_ops.path_exists(path)})
+                        return jsonify({"exists": fs.path_exists(path)})
 
                     elif action == RemoteAction.IS_DIR:
-                        return jsonify({"is_dir": fs_ops.is_dir(path)})
+                        return jsonify({"is_dir": fs.is_dir(path)})
 
                     elif action == RemoteAction.MKDIR:
-                        fs_ops.ensure_dir(path)
+                        fs.ensure_dir(path)
                         logger.success(f"创建目录: {path}")
                         return jsonify({"success": True})
 
                     elif action == RemoteAction.DELETE_FILE:
-                        fs_ops.delete_file(path)
+                        fs.delete_file(path)
                         logger.success(f"删除文件: {path}")
                         return jsonify({"success": True})
 
                     elif action == RemoteAction.DELETE_DIR:
-                        fs_ops.delete_dir(path)
+                        fs.delete_dir(path)
                         logger.success(f"删除目录: {path}")
                         return jsonify({"success": True})
 
                     elif action == RemoteAction.STAT:
-                        st = fs_ops.get_stat(path)
+                        st = fs.get_stat(path)
                         if not st.exists:
                             return jsonify(
                                 {
@@ -186,7 +186,7 @@ def create_app(api_key, logger, gate):
                         )
 
                     elif action == RemoteAction.LIST_DIR:
-                        entries = fs_ops.list_dir(path)
+                        entries = fs.list_dir(path)
                         return jsonify(
                             {
                                 "entries": [
@@ -201,13 +201,13 @@ def create_app(api_key, logger, gate):
                             }
                         )
 
-                except fs_ops.PermissionDeniedError as e:
+                except fs.PermissionDeniedError as e:
                     logger.error(f"权限不足: {path} - {e}")
                     return jsonify({"error": "permission denied"}), 403
-                except fs_ops.PathNotFoundError as e:
+                except fs.PathNotFoundError as e:
                     logger.error(f"路径不存在: {path} - {e}")
                     return jsonify({"error": "path not found"}), 404
-                except fs_ops.FsOpError as e:
+                except fs.FsOpError as e:
                     logger.error(f"操作失败: {path} - {e}")
                     return jsonify({"error": str(e)}), 500
                 except OSError as e:
@@ -257,16 +257,16 @@ def create_app(api_key, logger, gate):
                     logger.success(f"接收文件: {path}")
                     return jsonify({"success": True})
 
-                except fs_ops.TransferAbortedError:
+                except fs.TransferAbortedError:
                     logger.warning(f"上传被停止指令中止: {path}")
                     return jsonify({"error": "aborted by stop"}), 499
                 except _UploadSizeMismatch as e:
                     logger.error(f"上传失败: {path} - {e}")
                     return jsonify({"error": str(e)}), 400
-                except fs_ops.PermissionDeniedError as e:
+                except fs.PermissionDeniedError as e:
                     logger.error(f"权限不足: {path} - {e}")
                     return jsonify({"error": "permission denied"}), 403
-                except fs_ops.FsOpError as e:
+                except fs.FsOpError as e:
                     logger.error(f"上传失败: {path} - {e}")
                     return jsonify({"error": str(e)}), 500
 

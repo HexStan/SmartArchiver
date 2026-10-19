@@ -1,6 +1,6 @@
 """传输中止测试（stop --fast 的文件系统侧契约）。
 
-中止检查钩子是 fs_ops 提供的注入缝（生产环境由 ShutdownCoordinator
+中止检查钩子是 fs.abort 提供的注入缝（生产环境由 ShutdownCoordinator
 注入），测试借助它在 chunk 边界精确触发中止，从外部断言三个不变量：
 最终路径不受影响、已写入的临时文件被清理、异常不被改写成操作失败。
 """
@@ -9,8 +9,8 @@ import os
 
 import pytest
 
-from src import fs_ops
-from src.fs_ops import TransferAbortedError, atomic_writer, copy_file
+from src import fs
+from src.fs import TransferAbortedError, atomic_writer, copy_file
 
 
 @pytest.fixture
@@ -22,9 +22,9 @@ def abort_after():
         state["calls"] += 1
         return state["fire_on"] > 0 and state["calls"] >= state["fire_on"]
 
-    fs_ops.set_abort_check(check)
+    fs.set_abort_check(check)
     yield state
-    fs_ops.set_abort_check(None)
+    fs.set_abort_check(None)
 
 
 def test_copy_aborts_before_first_chunk(tmp_path, abort_after):
@@ -78,7 +78,7 @@ def test_aborted_error_not_wrapped_as_fs_error(tmp_path, abort_after):
     with pytest.raises(TransferAbortedError) as exc_info:
         copy_file(str(src), str(tmp_path / "dest" / "x.bin"))
 
-    assert not isinstance(exc_info.value, fs_ops.FsOpError)
+    assert not isinstance(exc_info.value, fs.FsOpError)
 
 
 def test_atomic_writer_cleans_temp_on_abort_inside_block(tmp_path):

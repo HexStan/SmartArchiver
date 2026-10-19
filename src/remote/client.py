@@ -6,8 +6,8 @@ import urllib.parse
 import requests
 import urllib3.exceptions
 
-from src import fs_ops
-from src.fs_ops import TransferAbortedError
+from src import fs
+from src.fs import TransferAbortedError
 from src.remote.protocol import API_PATH, UPLOAD_PATH, RemoteAction
 
 # 退避重试：2s + 4s + 8s + 16s = 30s 总等待时间
@@ -42,7 +42,7 @@ class _AbortingReader:
         self._remote_path = remote_path
 
     def read(self, size=-1):
-        if fs_ops.abort_requested():
+        if fs.abort_requested():
             raise TransferAbortedError(f"上传被中止: {self._local_path} -> {self._remote_path}")
         return self._fileobj.read(size)
 
@@ -183,13 +183,13 @@ class RemoteClient:
         except json.JSONDecodeError:
             raise RemoteClientError(f"Invalid JSON response from {self.alias}")
         except _RETRYABLE_EXCEPTIONS as e:
-            if fs_ops.abort_requested():
+            if fs.abort_requested():
                 raise TransferAbortedError(f"上传被中止: {local_path} -> {remote_path}")
             raise RemoteClientError(f"Connection error to {self.alias} ({self.address}): {e}")
         except Exception:
             # 中止异常可能在流式传输过程中被 requests/urllib3 包装，
             # 只要中止信号在位，一律还原为中止语义而非连接错误
-            if fs_ops.abort_requested():
+            if fs.abort_requested():
                 raise TransferAbortedError(f"上传被中止: {local_path} -> {remote_path}")
             raise
 

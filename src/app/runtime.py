@@ -12,7 +12,7 @@ import time
 
 from croniter import croniter
 
-from src import fs_ops
+from src import fs
 from src.app import instance, paths
 from src.app.config import ConfigManager
 from src.app.context import AppContext
@@ -77,7 +77,7 @@ def _execute_tasks(manager):
         ctx = AppContext.get()
         run_tasks()
         ctx.history_mgr.save()
-    except fs_ops.TransferAbortedError:
+    except fs.TransferAbortedError:
         ctx = AppContext.get()
         ctx.logger.warning("本轮任务已被中止（stop --fast）。")
         ctx.history_mgr.save()
@@ -263,7 +263,7 @@ def run_client():
         with SingleInstance(ctx.instance_name, ctx.logger):
             _start_control_watcher(ctx)
             _run_schedule(manager)
-    except fs_ops.TransferAbortedError:
+    except fs.TransferAbortedError:
         ctx.logger.warning("任务已被中止（stop --fast），程序退出。")
     finally:
         ctx.history_mgr.save()
