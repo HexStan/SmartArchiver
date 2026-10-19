@@ -12,6 +12,8 @@ bundled_rclone_path() 负责在运行时定位它们。
 import os
 import sys
 
+import src
+
 
 def is_frozen():
     """是否运行于 PyInstaller 打包环境中。"""
@@ -19,10 +21,16 @@ def is_frozen():
 
 
 def app_base_dir():
-    """应用根目录：打包后为可执行文件所在目录，源码运行为仓库根目录。"""
+    """应用根目录：打包后为可执行文件所在目录，源码运行为仓库根目录。
+
+    源码形态锚定 ``src`` 包的位置（仓库根 = src 包的父目录），
+    而非本模块自身的 ``__file__`` 层级——后者会随模块在包内的
+    位置漂移（参见包层级重组时 app_paths.py -> app/paths.py 的教训）。
+    """
     if is_frozen():
         return os.path.dirname(os.path.abspath(sys.executable))
-    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    src_dir = os.path.dirname(os.path.abspath(src.__file__))
+    return os.path.dirname(src_dir)
 
 
 def config_path(is_server):
