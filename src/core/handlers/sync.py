@@ -79,8 +79,7 @@ def _resolve_sync_tool(task):
     if tool not in ("auto", "rsync", "rclone"):
         ctx = AppContext.get()
         ctx.logger.error(
-            f"sync 模式的 tool 配置值无效: '{tool}'，"
-            f"可选值: auto、rsync、rclone，跳过该任务。"
+            f"sync 模式的 tool 配置值无效: '{tool}'，可选值: auto、rsync、rclone，跳过该任务。"
         )
         return None
 
@@ -108,7 +107,6 @@ def _run_sync_command(cmd, tool_name, prepend_timestamp=False):
     ctx = AppContext.get()
     ctx.logger.info(f"正在使用 {tool_name} 进行同步……")
     try:
-        start_time = time.time()
         process = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
@@ -117,22 +115,41 @@ def _run_sync_command(cmd, tool_name, prepend_timestamp=False):
             encoding="utf-8",
             errors="replace",
         )
+    except Exception as e:  # noqa: BLE001
+        ctx.logger.error(f"执行 {tool_name} 时发生错误: {e}")
+        return
+    _consume_sync_process(process, tool_name, prepend_timestamp)
+
+
+def _consume_sync_process(process, tool_name, prepend_timestamp=False):
+    """读取同步工具的输出直至其退出。
+
+    进程在停止协调器登记，``stop --fast`` 时由协调器终止整棵进程树
+    （rsync/rclone 可能派生子进程，只杀直接子进程会留下孤儿）。
+    """
+    ctx = AppContext.get()
+    coordinator = ctx.shutdown
+    coordinator.register_process(process)
+    try:
+        start_time = time.time()
         for line in process.stdout:
+            if coordinator.is_aborted():
+                break
             if prepend_timestamp:
                 ctx.logger.info(line.strip(), raw=True, prepend_timestamp=True)
             else:
                 ctx.logger.info(line.strip())
         process.wait()
-        if process.returncode != 0:
-            ctx.logger.error(f"{tool_name} 同步失败，退出码: {process.returncode}")
-        else:
-            end_time = time.time()
-            exec_time = end_time - start_time
-            ctx.logger.success(
-                f"{tool_name} 同步完成，耗时: {fmt_timespan(exec_time)}。"
-            )
-    except Exception as e:  # noqa: BLE001
-        ctx.logger.error(f"执行 {tool_name} 时发生错误: {e}")
+    finally:
+        coordinator.unregister_process(process)
+
+    if coordinator.is_aborted():
+        ctx.logger.warning(f"{tool_name} 同步已被中止（stop --fast）。")
+    elif process.returncode != 0:
+        ctx.logger.error(f"{tool_name} 同步失败，退出码: {process.returncode}")
+    else:
+        exec_time = time.time() - start_time
+        ctx.logger.success(f"{tool_name} 同步完成，耗时: {fmt_timespan(exec_time)}。")
 
 
 def _run_rclone_sync(source_root, dest_root, exclude_list, backup_dir, rclone_cmd):
@@ -162,9 +179,13 @@ class SyncHandler(BaseTaskHandler):
         if not self.validate():
             return
 
-        print_task_header(self.task)
-
         ctx = AppContext.get()
+
+        if ctx.shutdown.should_stop_before_file():
+            ctx.logger.info("收到停止指令，跳过该任务。")
+            return
+
+        print_task_header(self.task)
 
         if isinstance(self.dest_backend, RemoteDestBackend):
             ctx.logger.error(
@@ -198,9 +219,7 @@ class SyncHandler(BaseTaskHandler):
             backup_dir = None
             if backup_enabled:
                 if tool.supports_backup_dir:
-                    backup_dir = self._setup_backup_dir(
-                        self.dest_root, max_backups, exclude_list
-                    )
+                    backup_dir = self._setup_backup_dir(self.dest_root, max_backups, exclude_list)
                 else:
                     _warn_backup_unsupported()
 
@@ -209,7 +228,10 @@ class SyncHandler(BaseTaskHandler):
                 "rsync": _run_rsync_sync,
             }
             _sync_runners[tool.name](
-                self.source_root, self.dest_root, exclude_list, backup_dir,
+                self.source_root,
+                self.dest_root,
+                exclude_list,
+                backup_dir,
                 tool.exec_path,
             )
 
@@ -320,7 +342,6 @@ class SyncHandler(BaseTaskHandler):
 
         ctx.logger.info("正在使用 rclone (SFTP) 进行同步……")
         try:
-            start_time = time.time()
             process = subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE,
@@ -330,19 +351,10 @@ class SyncHandler(BaseTaskHandler):
                 errors="replace",
                 env=env,
             )
-            for line in process.stdout:
-                ctx.logger.info(line.strip())
-            process.wait()
-            if process.returncode != 0:
-                ctx.logger.error(f"rclone 同步失败，退出码: {process.returncode}")
-            else:
-                end_time = time.time()
-                exec_time = end_time - start_time
-                ctx.logger.success(
-                    f"rclone 同步完成，耗时: {fmt_timespan(exec_time)}。"
-                )
         except Exception as e:  # noqa: BLE001
             ctx.logger.error(f"执行 rclone 时发生错误: {e}")
+            return
+        _consume_sync_process(process, "rclone")
 
     def _setup_ssh_backup_dir(self, max_backups, exclude_list):
         """为 SSH 远端目标设置备份目录。

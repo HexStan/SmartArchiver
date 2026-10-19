@@ -1,4 +1,5 @@
 import os
+import time
 import urllib.parse
 
 from flask import Flask, jsonify, request
@@ -12,6 +13,9 @@ from src.remote.concurrency import (
 )
 from src.remote.protocol import UPLOAD_PATH, RemoteAction
 
+# 收到停止指令后，等待在途请求收尾的最长时间（临时文件由 atomic_writer 清理）
+_STOP_DRAIN_TIMEOUT = 3.0
+
 
 def _parse_queue_timeout():
     """从请求头解析客户端允许的最大排队秒数。"""
@@ -21,7 +25,7 @@ def _parse_queue_timeout():
         if value < 0:
             return 0.0
         return value
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return 0.0
 
 
@@ -76,6 +80,10 @@ def _receive_upload(path, mtime):
         received = 0
         chunk_size = 65536  # 64KB
         while True:
+            # chunk 边界响应停止指令；中止时 atomic_writer 的收尾
+            # 逻辑会清理已写入的临时文件，最终路径不受影响
+            if fs_ops.abort_requested():
+                raise fs_ops.TransferAbortedError("接收被停止指令中止")
             chunk = request.stream.read(chunk_size)
             if not chunk:
                 break
@@ -84,8 +92,7 @@ def _receive_upload(path, mtime):
 
         if expected_size is not None and received != expected_size:
             raise _UploadSizeMismatch(
-                f"接收字节数与 Content-Length 不一致: "
-                f"期望 {expected_size}，实际 {received}"
+                f"接收字节数与 Content-Length 不一致: 期望 {expected_size}，实际 {received}"
             )
 
 
@@ -209,14 +216,10 @@ def create_app(api_key, logger, gate):
 
         except QueueFullError as e:
             logger.warning(f"来自 {client_ip} 的请求被拒绝: {e}")
-            return jsonify(
-                {"error": "server busy", "detail": str(e), "queued": False}
-            ), 503
+            return jsonify({"error": "server busy", "detail": str(e), "queued": False}), 503
         except QueueTimeoutError as e:
             logger.warning(f"来自 {client_ip} 的请求排队超时: {e}")
-            return jsonify(
-                {"error": "queue timeout", "detail": str(e), "queued": True}
-            ), 503
+            return jsonify({"error": "queue timeout", "detail": str(e), "queued": True}), 503
         except ClientDisconnectedError:
             logger.info(f"来自 {client_ip} 的客户端在排队期间断开连接")
             return jsonify({"error": "client disconnected"}), 499
@@ -254,6 +257,9 @@ def create_app(api_key, logger, gate):
                     logger.success(f"接收文件: {path}")
                     return jsonify({"success": True})
 
+                except fs_ops.TransferAbortedError:
+                    logger.warning(f"上传被停止指令中止: {path}")
+                    return jsonify({"error": "aborted by stop"}), 499
                 except _UploadSizeMismatch as e:
                     logger.error(f"上传失败: {path} - {e}")
                     return jsonify({"error": str(e)}), 400
@@ -266,14 +272,10 @@ def create_app(api_key, logger, gate):
 
         except QueueFullError as e:
             logger.warning(f"来自 {client_ip} 的上传请求被拒绝: {e}")
-            return jsonify(
-                {"error": "server busy", "detail": str(e), "queued": False}
-            ), 503
+            return jsonify({"error": "server busy", "detail": str(e), "queued": False}), 503
         except QueueTimeoutError as e:
             logger.warning(f"来自 {client_ip} 的上传请求排队超时: {e}")
-            return jsonify(
-                {"error": "queue timeout", "detail": str(e), "queued": True}
-            ), 503
+            return jsonify({"error": "queue timeout", "detail": str(e), "queued": True}), 503
         except ClientDisconnectedError:
             logger.info(f"来自 {client_ip} 的客户端在上传排队期间断开连接")
             return jsonify({"error": "client disconnected"}), 499
@@ -281,7 +283,36 @@ def create_app(api_key, logger, gate):
     return app
 
 
-def run_server(config, logger):
+def _start_stop_watcher(logger, coordinator, gate, instance_name):
+    """启动控制指令监视线程：server 模式下任何 stop 都按 fast 处理。
+
+    收到指令后中止进行中的传输（各处理线程在 chunk 边界感知中止信号），
+    等在途请求收尾后直接退出进程——Flask 内建服务器没有干净的停机接口，
+    且"尽快停止"本就允许这种语义。
+    """
+    from src.instance import ControlWatcher, instance_paths
+
+    def _on_command(_mode):
+        logger.warning("收到停止指令：中止进行中的传输并停止服务器。")
+        coordinator.request_abort(logger)
+        deadline = time.time() + _STOP_DRAIN_TIMEOUT
+        while gate.active_requests > 0 and time.time() < deadline:
+            time.sleep(0.05)
+        logger.info("服务器已停止。")
+        # os._exit 跳过 with 块的收尾，这里手动清理 PID / 控制文件
+        # （锁由操作系统随进程退出释放，锁文件本身无需删除）
+        paths = instance_paths(instance_name)
+        for path in (paths.pid, paths.ctl):
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+        os._exit(0)
+
+    ControlWatcher(instance_name, _on_command).start()
+
+
+def run_server(config, logger, coordinator, instance_name):
     api_key = config.get("api_key", "")
     port = int(config.get("port", "13579"))
 
@@ -300,4 +331,5 @@ def run_server(config, logger):
     logger.info(f"监听端口: {port}")
 
     app = create_app(api_key, logger, gate)
+    _start_stop_watcher(logger, coordinator, gate, instance_name)
     app.run(host="0.0.0.0", port=port, debug=False, threaded=True)

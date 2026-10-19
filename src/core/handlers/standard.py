@@ -86,9 +86,7 @@ class StandardHandler(BaseTaskHandler):
                 dirs_to_remove.append(d)
             elif action == FileAction.SKIP:
                 size_str = (
-                    f" ({fmt_size(dir_size_cache[0], binary=True)})"
-                    if dir_size_cache
-                    else ""
+                    f" ({fmt_size(dir_size_cache[0], binary=True)})" if dir_size_cache else ""
                 )
                 ctx.logger.debug(f"跳过目录 (匹配规则): {rel_dir_path}{size_str}")
                 self.stats.record_kept()
@@ -98,7 +96,12 @@ class StandardHandler(BaseTaskHandler):
             dirs.remove(d)
 
     def _process_files(self, files, root, mtime_threshold_seconds, is_copy):
+        ctx = AppContext.get()
+
         for file in files:
+            if ctx.shutdown.should_stop_before_file():
+                return False
+
             src_path = os.path.join(root, file)
             rel_path = os.path.relpath(src_path, self.source_root)
 
@@ -115,9 +118,7 @@ class StandardHandler(BaseTaskHandler):
                 continue
 
             action = self.policy.decide(rel_path, size)
-            success = self.executor.execute(
-                action, src_path, rel_path, size, self.stats, is_copy
-            )
+            success = self.executor.execute(action, src_path, rel_path, size, self.stats, is_copy)
             if not success:
                 return False
         return True

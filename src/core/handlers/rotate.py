@@ -98,17 +98,11 @@ class RotateGroupManager:
     def log_unmet_limits(self):
         ctx = AppContext.get()
         global_stats = self.group_stats[("global", "global")]
-        if (
-            global_stats["size_limit"] > 0
-            and global_stats["size"] > global_stats["size_limit"]
-        ):
+        if global_stats["size_limit"] > 0 and global_stats["size"] > global_stats["size_limit"]:
             ctx.logger.warning(
                 f"已无可处理文件，但目录体积 ({fmt_size(global_stats['size'], binary=True)}) 仍未满足限制 ({fmt_size(global_stats['size_limit'], binary=True)})，请检查配置。"
             )
-        if (
-            global_stats["count_limit"] > 0
-            and global_stats["count"] > global_stats["count_limit"]
-        ):
+        if global_stats["count_limit"] > 0 and global_stats["count"] > global_stats["count_limit"]:
             ctx.logger.warning(
                 f"已无可处理文件，但文件数量 ({global_stats['count']}) 仍未满足限制 ({global_stats['count_limit']})，请检查配置。"
             )
@@ -154,9 +148,7 @@ class RotateHandler(BaseTaskHandler):
         raw_rotate_size = rotate_rules.get("size", {})
         raw_rotate_count = rotate_rules.get("count", {})
 
-        rotate_size_rules = {
-            k: parse_size_string(v) for k, v in raw_rotate_size.items()
-        }
+        rotate_size_rules = {k: parse_size_string(v) for k, v in raw_rotate_size.items()}
         rotate_count_rules = {k: int(v) for k, v in raw_rotate_count.items()}
 
         rotate_mgr = RotateGroupManager(
@@ -213,12 +205,13 @@ class RotateHandler(BaseTaskHandler):
             if not rotate_mgr.is_any_group_exceeded():
                 break
 
+            if ctx.shutdown.should_stop_before_file():
+                break
+
             if not rotate_mgr.is_file_needs_rotation(f["groups"]):
                 continue
 
-            if self.checker.should_skip(
-                f["path"], f["rel_path"], f["mtime"], 0, self.stats
-            ):
+            if self.checker.should_skip(f["path"], f["rel_path"], f["mtime"], 0, self.stats):
                 continue
 
             action = self.policy.decide(f["rel_path"], f["size"], parent_dir_sizes=dir_sizes)

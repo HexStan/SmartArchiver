@@ -5,8 +5,8 @@ from abc import ABC, abstractmethod
 from src.app_context import AppContext
 from src.core.filters import FileFilterPolicy
 from src.core.types import FileAction, MoverStats
+from src.fs_ops import TransferAbortedError, is_file_locked
 from src.fs_ops import delete_file as _fs_delete
-from src.fs_ops import is_file_locked
 from src.presentation import fmt_size as _fmt_size
 from src.utils import parse_size_string
 
@@ -61,9 +61,7 @@ def validate_task_config(task, task_mode):
 
     missing_fields = [field for field in required_fields if field not in task]
     if missing_fields:
-        ctx.logger.error(
-            f"任务配置缺少必填项: {'、'.join(missing_fields)}，跳过该任务。"
-        )
+        ctx.logger.error(f"任务配置缺少必填项: {'、'.join(missing_fields)}，跳过该任务。")
         return False
 
     if task_mode in ("rotate", "sync") and task.get("include_rules"):
@@ -88,9 +86,7 @@ class FileChecker:
 
     def should_skip(self, src_path, rel_path, mtime, mtime_threshold_seconds, stats):
         ctx = AppContext.get()
-        should_skip, _fail_count = ctx.history_mgr.should_skip(
-            src_path, self.max_retries
-        )
+        should_skip, _fail_count = ctx.history_mgr.should_skip(src_path, self.max_retries)
         if should_skip:
             stats.record_dropped()
             ctx.logger.warning(f"跳过文件 (多次失败): {src_path}")
@@ -204,6 +200,9 @@ class ActionExecutor:
             else:
                 ctx.logger.success(f"{action_name}文件: {rel_path} ({size_str})")
 
+        except TransferAbortedError:
+            # stop --fast：任务被丢弃，不计入失败次数，向上传播以中止任务
+            raise
         except Exception as e:  # noqa: BLE001
             count = ctx.history_mgr.record_failure(src_path)
             ctx.logger.error(f"{action_name}文件失败 ({count} 次): {rel_path}\n{e}")
@@ -215,9 +214,7 @@ class ActionExecutor:
         rel_path = os.path.relpath(src_path, self.source_root)
         try:
             _fs_delete(src_path)
-            ctx.logger.success(
-                f"删除文件: {rel_path}  ({_fmt_size(file_size, binary=True)})"
-            )
+            ctx.logger.success(f"删除文件: {rel_path}  ({_fmt_size(file_size, binary=True)})")
             ctx.history_mgr.record_success(src_path)
             stats.record_deleted()
         except OSError as e:

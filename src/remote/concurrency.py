@@ -37,6 +37,20 @@ class _Gate:
         # deque 元素: {"event": threading.Event, "addr": str, "arrived": float}
         self._waiters = deque()
         self._queue_count = 0
+        self._active = 0
+
+    def _enter_active(self):
+        with self._lock:
+            self._active += 1
+
+    def _exit_active(self):
+        with self._lock:
+            self._active -= 1
+
+    @property
+    def active(self):
+        """正在处理中的请求数（不含排队等待）。"""
+        return self._active
 
     def _wake_next(self):
         """尝试将信号量授予队列中的下一个等待者。
@@ -93,8 +107,10 @@ class _Gate:
         # 1. 尝试立即获取信号量
         if self._sem.acquire(blocking=False):
             try:
+                self._enter_active()
                 yield
             finally:
+                self._exit_active()
                 self._sem.release()
                 self._wake_next()
             return
@@ -110,9 +126,7 @@ class _Gate:
 
         with self._lock:
             if self._queue_count >= self._max_queue:
-                raise QueueFullError(
-                    f"队列已满 ({self._queue_count}/{self._max_queue})"
-                )
+                raise QueueFullError(f"队列已满 ({self._queue_count}/{self._max_queue})")
             self._waiters.append(entry)
             self._queue_count += 1
 
@@ -122,17 +136,13 @@ class _Gate:
             while not event.is_set():
                 elapsed = time.time() - arrived
                 if elapsed >= queue_timeout:
-                    raise QueueTimeoutError(
-                        f"排队超时 ({queue_timeout}s)"
-                    )
+                    raise QueueTimeoutError(f"排队超时 ({queue_timeout}s)")
 
                 # 检查客户端断连
                 if check_disconnect is not None:
                     try:
                         if check_disconnect():
-                            raise ClientDisconnectedError(
-                                f"客户端 {client_addr} 已断开连接"
-                            )
+                            raise ClientDisconnectedError(f"客户端 {client_addr} 已断开连接")
                     except ClientDisconnectedError:
                         raise
                     except Exception:  # noqa: BLE001, S110
@@ -145,12 +155,14 @@ class _Gate:
             # 5. Event 已被 _wake_next 设置 → 信号量已由 _wake_next 为我们获取
             got_slot = True
             try:
+                self._enter_active()
                 yield
             finally:
+                self._exit_active()
                 self._sem.release()
                 self._wake_next()
 
-        except (QueueTimeoutError, ClientDisconnectedError):
+        except QueueTimeoutError, ClientDisconnectedError:
             self._cleanup(event, got_slot)
             raise
         except Exception:
@@ -177,17 +189,13 @@ class ConcurrencyGate:
     @contextmanager
     def metadata_context(self, client_addr, queue_timeout, check_disconnect=None):
         """元数据请求的并发控制上下文管理器。"""
-        with self._metadata_gate.acquire(
-            client_addr, queue_timeout, check_disconnect
-        ):
+        with self._metadata_gate.acquire(client_addr, queue_timeout, check_disconnect):
             yield
 
     @contextmanager
     def upload_context(self, client_addr, queue_timeout, check_disconnect=None):
         """上传请求的并发控制上下文管理器。"""
-        with self._upload_gate.acquire(
-            client_addr, queue_timeout, check_disconnect
-        ):
+        with self._upload_gate.acquire(client_addr, queue_timeout, check_disconnect):
             yield
 
     @property
@@ -199,3 +207,8 @@ class ConcurrencyGate:
     def upload_queue_depth(self):
         """当前上传队列长度（仅用于信息展示）。"""
         return self._upload_gate._queue_count
+
+    @property
+    def active_requests(self):
+        """正在处理中的请求数（不含排队等待），供停止流程等待在途请求收尾。"""
+        return self._metadata_gate.active + self._upload_gate.active

@@ -80,7 +80,8 @@ class TestLocalSyncCommands:
         monkeypatch.setattr(os, "name", "posix")
         # rclone 不可用时，POSIX 的 auto 回退到系统 rsync
         monkeypatch.setattr(
-            shutil, "which",
+            shutil,
+            "which",
             lambda name: None if name == "rclone" else f"/fake/bin/{name}",
         )
 
@@ -219,7 +220,8 @@ class TestBundledRcloneResolution:
         monkeypatch.setattr(os, "name", "posix")
         monkeypatch.setattr(sys, "platform", "linux")
         monkeypatch.setattr(
-            shutil, "which",
+            shutil,
+            "which",
             lambda name: None if name == "rclone" else f"/fake/bin/{name}",
         )
         _src, _dest = prepared_dirs
@@ -229,14 +231,21 @@ class TestBundledRcloneResolution:
         assert stub_procs.calls[0].cmd[0] == "rsync"
 
     def test_macos_rsync_is_openrsync_and_ignores_backups(
-        self, run_task, tmp_path, stub_procs, prepared_dirs, frozen_env,
-        monkeypatch, capture_log,
+        self,
+        run_task,
+        tmp_path,
+        stub_procs,
+        prepared_dirs,
+        frozen_env,
+        monkeypatch,
+        capture_log,
     ):
         """macOS 的系统 rsync 即 openrsync：不支持备份目录，警告后继续同步。"""
         monkeypatch.setattr(os, "name", "posix")
         monkeypatch.setattr(sys, "platform", "darwin")
         monkeypatch.setattr(
-            shutil, "which",
+            shutil,
+            "which",
             lambda name: None if name == "rclone" else f"/fake/bin/{name}",
         )
         _src, _dest = prepared_dirs
@@ -293,9 +302,7 @@ class TestSyncRejections:
         assert stub_procs.calls == []
         assert capture_log.has("error", "tool 配置值无效")
 
-    def test_missing_dest_dir_aborts(
-        self, run_task, tmp_path, stub_procs, capture_log
-    ):
+    def test_missing_dest_dir_aborts(self, run_task, tmp_path, stub_procs, capture_log):
         make_tree(tmp_path / "src", {"a.txt": b"x"})
         run_task(sync_task(tmp_path))  # dest 目录未创建
 
@@ -313,13 +320,9 @@ class TestSshSyncCommands:
     def ssh_ready(self, monkeypatch):
         monkeypatch.setattr(SshDestBackend, "is_dir", lambda self, path: True)
 
-    def test_rsync_ssh_command_with_port_and_key(
-        self, run_task, tmp_path, stub_procs, ssh_ready
-    ):
+    def test_rsync_ssh_command_with_port_and_key(self, run_task, tmp_path, stub_procs, ssh_ready):
         src = make_tree(tmp_path / "src", {"a.txt": b"x"})
-        remote = SshRemote(
-            alias="vps", host="192.168.1.100", user="root", port=2222, key_file="/k"
-        )
+        remote = SshRemote(alias="vps", host="192.168.1.100", user="root", port=2222, key_file="/k")
         run_task(
             sync_task(tmp_path, tool="rsync", dest="{ssh:vps}?/remote/data"),
             ssh_remotes={"vps": remote},
@@ -329,18 +332,16 @@ class TestSshSyncCommands:
         assert cmd[:3] == ["rsync", "-av", "--delete"]
         assert cmd[3:5] == [
             "-e",
-            ("ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "
-            "-o LogLevel=ERROR -p 2222 -i /k"),
+            (
+                "ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "
+                "-o LogLevel=ERROR -p 2222 -i /k"
+            ),
         ]
         assert cmd[-2:] == [src + "/", "root@192.168.1.100:/remote/data"]
 
-    def test_rsync_ssh_password_file_wraps_sshpass(
-        self, run_task, tmp_path, stub_procs, ssh_ready
-    ):
+    def test_rsync_ssh_password_file_wraps_sshpass(self, run_task, tmp_path, stub_procs, ssh_ready):
         make_tree(tmp_path / "src", {"a.txt": b"x"})
-        remote = SshRemote(
-            alias="vps", host="192.168.1.100", user="root", password_file="/pass"
-        )
+        remote = SshRemote(alias="vps", host="192.168.1.100", user="root", password_file="/pass")
         run_task(
             sync_task(tmp_path, tool="rsync", dest="{ssh:vps}?/remote/data"),
             ssh_remotes={"vps": remote},
@@ -349,13 +350,9 @@ class TestSshSyncCommands:
         rsh = stub_procs.calls[0].cmd[4]
         assert rsh.startswith("sshpass -f /pass ssh ")
 
-    def test_rclone_ssh_command(
-        self, run_task, tmp_path, stub_procs, ssh_ready
-    ):
+    def test_rclone_ssh_command(self, run_task, tmp_path, stub_procs, ssh_ready):
         src = make_tree(tmp_path / "src", {"a.txt": b"x"})
-        remote = SshRemote(
-            alias="vps", host="192.168.1.100", user="root", port=2222, key_file="/k"
-        )
+        remote = SshRemote(alias="vps", host="192.168.1.100", user="root", port=2222, key_file="/k")
         run_task(
             sync_task(tmp_path, tool="rclone", dest="{ssh:vps}?/remote/data"),
             ssh_remotes={"vps": remote},
@@ -397,3 +394,82 @@ class TestSshSyncCommands:
         call = stub_procs.calls[0]
         assert "s3cret" not in " ".join(call.cmd)
         assert call.kwargs["env"]["RCLONE_SFTP_PASS"] == "s3cret"
+
+
+class _FakeSyncProc:
+    """可编程的假同步进程：stdout 产出预置行并执行预置回调。
+
+    回调用于在"进程运行期间"精确注入停止指令（模拟 stop 指令在
+    外部工具执行中途到达），回调本身调用真实的停止协调器。
+    """
+
+    pid = 999_999_999  # 不存在的 PID；终止动作由边界桩记录
+    returncode = 0
+
+    def __init__(self, after_first_line=None):
+        def _gen():
+            yield "tool: working\n"
+            if after_first_line:
+                after_first_line()
+
+        self.stdout = _gen()
+
+    def wait(self):
+        return None
+
+
+class TestStopControl:
+    """sync 模式与停止指令的交互（tests/README.md 原则一/三）。"""
+
+    def test_stop_preset_skips_task(
+        self, run_task, app_context, tmp_path, stub_procs, prepared_dirs, capture_log
+    ):
+        app_context.shutdown.request_stop_after_file()
+        run_task(sync_task(tmp_path, tool="rclone"))
+
+        assert stub_procs.calls == []
+        assert capture_log.has("info", "收到停止指令")
+
+    def test_graceful_during_sync_lets_tool_finish(
+        self, run_task, app_context, tmp_path, prepared_dirs, capture_log, monkeypatch
+    ):
+        """graceful 在 sync 执行期间到达：外部工具自然退出，不终止进程。"""
+        killed = []
+        monkeypatch.setattr(
+            "src.shutdown.terminate_process_tree",
+            lambda pid, **kwargs: killed.append(pid),
+        )
+
+        def on_first_line():
+            app_context.shutdown.request_stop_after_file()
+
+        monkeypatch.setattr(subprocess, "Popen", lambda cmd, **kwargs: _FakeSyncProc(on_first_line))
+        monkeypatch.setattr(shutil, "which", lambda name: f"/fake/bin/{name}")
+
+        run_task(sync_task(tmp_path, tool="rclone"))
+
+        assert capture_log.has("success", "同步完成")
+        assert not capture_log.has("warning", "已被中止")
+        assert killed == []
+
+    def test_fast_during_sync_terminates_process_tree(
+        self, run_task, app_context, tmp_path, prepared_dirs, capture_log, monkeypatch
+    ):
+        """fast 在 sync 执行期间到达：整棵进程树被终止（不留孤儿）。"""
+        killed = []
+        monkeypatch.setattr(
+            "src.shutdown.terminate_process_tree",
+            lambda pid, **kwargs: killed.append(pid),
+        )
+
+        def on_first_line():
+            app_context.shutdown.request_abort()
+
+        fake = _FakeSyncProc(on_first_line)
+        monkeypatch.setattr(subprocess, "Popen", lambda cmd, **kwargs: fake)
+        monkeypatch.setattr(shutil, "which", lambda name: f"/fake/bin/{name}")
+
+        run_task(sync_task(tmp_path, tool="rclone"))
+
+        assert killed == [fake.pid]
+        assert capture_log.has("warning", "同步已被中止")

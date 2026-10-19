@@ -33,6 +33,30 @@ class FsOpError(OSError):
     """文件系统操作异常的基类。"""
 
 
+class TransferAbortedError(Exception):
+    """文件传输被停止指令中止（stop --fast）。
+
+    继承 Exception 而非 FsOpError：中止不是文件系统操作的失败，
+    不应被各处的 ``except OSError`` 吞掉改写成操作错误。
+    """
+
+
+# 传输中止检查钩子：由运行入口注入（ShutdownCoordinator.is_aborted），
+# 复制循环在每个 chunk 边界查询，实现 fast 停止的即时响应。
+_abort_check = None
+
+
+def set_abort_check(check):
+    """注入传输中止检查函数（无参可调用，返回 True 表示应立即中止）。"""
+    global _abort_check
+    _abort_check = check
+
+
+def abort_requested():
+    """当前是否收到 fast 停止指令。"""
+    return _abort_check is not None and _abort_check()
+
+
 class PathNotFoundError(FsOpError):
     """路径不存在。"""
 
@@ -320,7 +344,15 @@ def copy_file(src_path, dest_path):
 
     try:
         with open(src_path, "rb") as src, atomic_writer(dest_path, _finalize) as out:
-            shutil.copyfileobj(src, out, _COPY_CHUNK_SIZE)
+            while True:
+                # chunk 边界响应 fast 停止指令；中止时 atomic_writer
+                # 的收尾逻辑会清理已写入的临时文件，最终路径不受影响
+                if abort_requested():
+                    raise TransferAbortedError(f"复制被中止: {src_path} -> {dest_path}")
+                chunk = src.read(_COPY_CHUNK_SIZE)
+                if not chunk:
+                    break
+                out.write(chunk)
     except PermissionError:
         raise PermissionDeniedError(f"权限不足，无法复制: {src_path} -> {dest_path}")
     except OSError as e:
@@ -343,9 +375,7 @@ def move_file(src_path, dest_path):
     except OSError as e:
         if e.errno != errno.EXDEV:
             if isinstance(e, PermissionError):
-                raise PermissionDeniedError(
-                    f"权限不足，无法移动: {src_path} -> {dest_path}"
-                )
+                raise PermissionDeniedError(f"权限不足，无法移动: {src_path} -> {dest_path}")
             raise FsOpError(f"移动文件失败: {src_path} -> {dest_path} — {e}")
 
     try:

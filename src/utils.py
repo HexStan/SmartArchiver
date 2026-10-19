@@ -19,9 +19,9 @@ except ImportError:
 # 单实例 / 文件锁
 # ============================================================
 
-# lock_file 未配置或非法时使用的默认锁文件名
-DEFAULT_LOCK_NAME = "smartarchiver.lock"
-DEFAULT_SERVER_LOCK_NAME = "smartarchiver-server.lock"
+# instance_name 未配置或非法时使用的默认实例标识
+DEFAULT_INSTANCE_NAME = "smartarchiver"
+DEFAULT_SERVER_INSTANCE_NAME = "smartarchiver-server"
 
 
 def _lock_available():
@@ -50,12 +50,12 @@ def _release_lock(fp):
         msvcrt.locking(fp.fileno(), msvcrt.LK_UNLCK, 1)
 
 
-def _resolve_lock_name(value, default_name):
-    """把 lock_file 配置值解析为锁文件名，返回 (文件名, 是否非法回退)。
+def resolve_instance_name(value, default_name):
+    """把 instance_name 配置值解析为实例标识，返回 (标识, 是否非法回退)。
 
-    配置值只接受纯文件名（不含任何路径成分），锁文件的存放目录由程序
-    按平台决定，用户不可自定义。未配置时静默使用默认名；配置了但非法时
-    回退默认名并标记非法，由调用方给出警告。
+    配置值只接受纯名称（不含任何路径成分），锁文件、控制文件、PID
+    文件的存放目录由程序按平台决定，用户不可自定义。未配置时静默
+    使用默认名；配置了但非法时回退默认名并标记非法，由调用方给出警告。
     """
     if isinstance(value, str):
         name = value.strip()
@@ -73,13 +73,16 @@ class SingleInstance:
     - Linux / macOS：fcntl.flock
     - Windows：msvcrt.locking（锁住文件首字节）
     - 锁由操作系统在进程退出时自动释放，不会残留死锁
+    - 获锁后写入 PID 文件（供 ``stop --fast`` 强杀兜底）；退出时清理
+      PID 文件与控制文件——持锁期间它们必然属于本实例
     """
 
-    def __init__(self, lock_name, logger, default_name=DEFAULT_LOCK_NAME):
-        name, invalid = _resolve_lock_name(lock_name, default_name)
-        if invalid:
-            logger.warning(f"lock_file 配置值非法，已使用默认锁文件名 {default_name}。")
-        self.lock_file_path = os.path.join(tempfile.gettempdir(), name)
+    def __init__(self, instance_name, logger):
+        self.instance_name = instance_name
+        directory = tempfile.gettempdir()
+        self.lock_file_path = os.path.join(directory, f"{instance_name}.lock")
+        self.pid_file_path = os.path.join(directory, f"{instance_name}.pid")
+        self.ctl_file_path = os.path.join(directory, f"{instance_name}.ctl")
         self.logger = logger
         self.fp = None
 
@@ -103,11 +106,29 @@ class SingleInstance:
             self.logger.error(f"无法获取实例锁: {e}")
             sys.exit(1)
 
+        self._write_pid_file()
         return self
+
+    def _write_pid_file(self):
+        """写入本进程 PID，供 stop --fast 超时强杀定位目标。"""
+        try:
+            with open(self.pid_file_path, "w", encoding="utf-8") as f:
+                f.write(str(os.getpid()))
+        except OSError as e:
+            self.logger.warning(f"写入 PID 文件失败（stop --fast 将无法强杀兜底）: {e}")
+
+    def _cleanup_runtime_files(self):
+        """清理 PID 文件与控制文件（必须在释放锁之前执行）。"""
+        for path in (self.pid_file_path, self.ctl_file_path):
+            try:
+                os.remove(path)
+            except OSError:
+                pass
 
     def __exit__(self, _type, value, traceback):
         if self.fp is None:
             return
+        self._cleanup_runtime_files()
         try:
             _release_lock(self.fp)
         except Exception:  # noqa: BLE001, S110
@@ -151,5 +172,5 @@ def parse_size_string(size_str):
 
     try:
         return parse_size(s, binary=True)
-    except (InvalidSize, ValueError):
+    except InvalidSize, ValueError:
         return 0

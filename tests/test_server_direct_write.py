@@ -44,6 +44,7 @@ from src.remote.client import RemoteClient
 from src.remote.concurrency import ConcurrencyGate
 from src.remote.protocol import UPLOAD_PATH
 from src.remote.server import create_app, run_server
+from src.shutdown import ShutdownCoordinator
 
 API_KEY = "test-key"
 # 与 src/remote/server.py::_receive_upload 的读取块一致；BODY 恰好横跨两个块
@@ -187,7 +188,7 @@ class _ProbingStream:
         size = max(0, min(size, len(self._data) - self._pos))
         if size > 0:
             self._probe.record_read(self._pos, self._dest_dir)
-        chunk = self._data[self._pos:self._pos + size]
+        chunk = self._data[self._pos : self._pos + size]
         self._pos += len(chunk)
         return chunk
 
@@ -342,9 +343,7 @@ def loopback(capture_log):
     srv = make_server("127.0.0.1", 0, app, threaded=True)
     thread = threading.Thread(target=srv.serve_forever, daemon=True)
     thread.start()
-    client = RemoteClient(
-        f"http://127.0.0.1:{srv.server_port}", API_KEY, logger=capture_log
-    )
+    client = RemoteClient(f"http://127.0.0.1:{srv.server_port}", API_KEY, logger=capture_log)
     yield client
     client._session.close()
     srv.shutdown()
@@ -391,8 +390,16 @@ class TestServerAssembly:
         """
         boots = []
         monkeypatch.setattr(Flask, "run", lambda self, **kwargs: boots.append(kwargs))
+        # 停止指令监视与本测试无关（其契约见 test_instance_control.py），
+        # 置空以避免拉起针对临时实例标识的监视线程
+        monkeypatch.setattr("src.remote.server._start_stop_watcher", lambda *args: None)
 
-        run_server({"api_key": API_KEY, "port": "23456"}, capture_log)
+        run_server(
+            {"api_key": API_KEY, "port": "23456"},
+            capture_log,
+            ShutdownCoordinator(),
+            "smartarchiver-test-assembly",
+        )
 
         assert len(boots) == 1
         assert boots[0] == {

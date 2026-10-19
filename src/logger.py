@@ -76,9 +76,7 @@ class DailyRotatingFileHandler(logging.FileHandler):
     按天滚动的日志处理器，每天生成一个新的日志文件，并清理旧日志。
     """
 
-    def __init__(
-        self, log_dir, max_log_files, prefix="smartarchiver", encoding="utf-8"
-    ):
+    def __init__(self, log_dir, max_log_files, prefix="smartarchiver", encoding="utf-8"):
         self.log_dir = log_dir
         self.max_log_files = max_log_files
         self.prefix = prefix
@@ -91,9 +89,7 @@ class DailyRotatingFileHandler(logging.FileHandler):
         if new_date != self.current_date:
             self.current_date = new_date
             self.close()
-            filename = os.path.join(
-                self.log_dir, f"{self.prefix}.{self.current_date}.log"
-            )
+            filename = os.path.join(self.log_dir, f"{self.prefix}.{self.current_date}.log")
             self.baseFilename = os.path.abspath(filename)
             self.stream = self._open()
 
@@ -104,9 +100,13 @@ class DailyRotatingFileHandler(logging.FileHandler):
         super().emit(record)
 
 
-def setup_logger(log_dir, max_log_files=0, log_level="INFO", prefix="smartarchiver"):
+def setup_logger(log_dir, max_log_files=0, log_level="INFO", prefix="smartarchiver", console=True):
     """
     配置日志记录器，格式：2025-01-01 08:00:00 [INFO] 消息内容
+
+    Args:
+        console: 是否同时输出到控制台。脱离终端运行（start 子命令拉起的
+            实例）没有可用的控制台，应传 False 仅写文件。
     """
     if not os.path.exists(log_dir):
         os.makedirs(log_dir)
@@ -124,9 +124,7 @@ def setup_logger(log_dir, max_log_files=0, log_level="INFO", prefix="smartarchiv
     if logger.handlers:
         logger.handlers = []
 
-    file_handler = DailyRotatingFileHandler(
-        log_dir, max_log_files, prefix=prefix, encoding="utf-8"
-    )
+    file_handler = DailyRotatingFileHandler(log_dir, max_log_files, prefix=prefix, encoding="utf-8")
 
     # 执行旧日志清理 (启动时清理一次)
     if max_log_files > 0:
@@ -141,17 +139,20 @@ def setup_logger(log_dir, max_log_files=0, log_level="INFO", prefix="smartarchiv
     file_handler.setFormatter(formatter)
     logger.addHandler(file_handler)
 
-    # 同时输出到控制台
-    console_handler = logging.StreamHandler()
-    console_handler.setFormatter(formatter)
-    logger.addHandler(console_handler)
+    # 同时输出到控制台（脱离终端运行的实例没有可用控制台，跳过）
+    if console:
+        console_handler = logging.StreamHandler()
+        console_handler.setFormatter(formatter)
+        logger.addHandler(console_handler)
 
-    # 桥接 fs_ops 日志：让统一文件操作模块的日志输出到相同的 handler
-    _fs_ops_logger = logging.getLogger("src.fs_ops")
-    _fs_ops_logger.setLevel(numeric_level)
-    _fs_ops_logger.propagate = False
-    _fs_ops_logger.addHandler(file_handler)
-    _fs_ops_logger.addHandler(console_handler)
+    # 桥接业务模块日志：让统一文件操作与实例控制模块的日志输出到相同的 handler
+    for name in ("src.fs_ops", "src.instance"):
+        bridged = logging.getLogger(name)
+        bridged.setLevel(numeric_level)
+        bridged.propagate = False
+        bridged.addHandler(file_handler)
+        if console:
+            bridged.addHandler(console_handler)
 
     # 返回包装后的 Logger 对象
     return LoggerWrapper(logger)
