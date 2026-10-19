@@ -22,6 +22,7 @@ SmartArchiver 的本质是一个"目录树 + 配置 → 新目录树"的变换�
 | 白盒·轮转分组 | `test_rotate_groups.py` | RotateGroupManager | 直接调用分组统计接口 |
 | 白盒·纯函数 | `test_size_and_pattern.py` | parse_size_string / match_pattern | 直接调用 |
 | 白盒·路径与分派 | `test_dest_backend.py` | DestBackend 路径拼接、create_dest_backend | 直接调用（get_unique_dest 用真实文件） |
+| 白盒·HTTP 直写 | `test_server_direct_write.py` | 上传落盘位置（目标目录 vs 系统临时目录）与服务器选型 | create_app + test_client 探针流；make_server 真实回环；run_server 装配录制 |
 | 端到端·打包产物 | `test_e2e_packaged.py` | PyInstaller 产物（main 入口） | 子进程驱动；`SMARTARCHIVER_BIN` 未设置时整体跳过 |
 
 ## 编写原则
@@ -34,7 +35,8 @@ SmartArchiver 的本质是一个"目录树 + 配置 → 新目录树"的变换�
 - **惰性求值**：`ge."模式" = -1` 命中时不计算大小——性能契约，只能靠传入计数 callable 验证（`test_rule_engine.py`）；
 - **include 继承的遍历顺序**：`included_dirs` 在遍历中累积，目录必须先于子文件被评估（`test_rule_engine.py`）；
 - **多分组扣减联动**：一个文件从所有关联分组中扣除统计值（`test_rotate_groups.py`）；
-- **阈值边界**：lt 严格小于、ge 大于等于（两处都有，白盒侧钉死语义）。
+- **阈值边界**：lt 严格小于、ge 大于等于（两处都有，白盒侧钉死语义）；
+- **落盘位置（HTTP 传输）**：上传字节必须自始至终以目标目录内的临时文件为落盘目标、只经目标目录内一次 rename 落盘，系统临时目录全程零介入——「先落系统临时目录再移动」与直写的最终目录树完全相同，只能在传输过程、落盘边界与服务器选型上观察（`test_server_direct_write.py`）。
 不在此列的内部细节（比如某个私有方法的返回结构）不要测——那会把测试焊死在实现上。
 
 **原则三：打桩只发生在外部边界。**
