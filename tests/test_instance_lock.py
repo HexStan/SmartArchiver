@@ -17,7 +17,7 @@ import tempfile
 import uuid
 from pathlib import Path
 
-from src.utils import (
+from src.app.instance import (
     DEFAULT_INSTANCE_NAME,
     SingleInstance,
     resolve_instance_name,
@@ -30,7 +30,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 CHILD_CODE = """
 import sys
 
-from src.utils import SingleInstance
+from src.app.instance import SingleInstance
 
 
 class QuietLogger:

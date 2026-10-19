@@ -6,7 +6,7 @@
 
 import json
 
-from src.history import HistoryManager
+from src.core.history import HistoryManager
 
 
 def make_manager(tmp_path, name="h"):

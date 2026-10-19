@@ -43,7 +43,7 @@ def print_task_header(task):
         ctx.logger.info(f" - 时间阈值: {fmt_timespan(mtime_threshold_seconds)}")
 
     if task_mode == "rotate":
-        from src.utils import parse_size_string
+        from src.core.patterns import parse_size_string
 
         size_limit = task.get("size_limit")
         count_limit = task.get("count_limit")

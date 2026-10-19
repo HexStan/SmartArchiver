@@ -16,7 +16,7 @@ from types import SimpleNamespace
 import pytest
 
 from src.core.backend import SshDestBackend
-from src.ssh.config import SshRemote
+from src.ssh.remotes import SshRemote
 from tests.helpers import make_tree
 
 

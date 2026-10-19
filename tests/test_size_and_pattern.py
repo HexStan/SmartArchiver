@@ -5,7 +5,7 @@
 错误的动作上。纯函数、边界密集，直接单元测试最经济。
 """
 
-from src.utils import match_pattern, parse_size_string
+from src.core.patterns import match_pattern, parse_size_string
 
 
 class TestParseSizeString:

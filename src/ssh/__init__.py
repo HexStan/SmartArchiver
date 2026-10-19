@@ -1,4 +1,4 @@
-from src.ssh.config import (
+from src.ssh.remotes import (
     SshRemote,
     build_ssh_command,
     parse_ssh_remote_config,

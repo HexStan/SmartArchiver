@@ -18,10 +18,13 @@ import psutil
 import pytest
 
 from src.app.instance import (
+    DEFAULT_INSTANCE_NAME,
+    DEFAULT_SERVER_INSTANCE_NAME,
     STOP_FAST,
     STOP_GRACEFUL,
     STOP_SLOW,
     ControlWatcher,
+    SingleInstance,
     force_kill_tree,
     instance_paths,
     is_running,
@@ -31,7 +34,6 @@ from src.app.instance import (
     terminate_process_tree,
     wait_for_exit,
 )
-from src.utils import DEFAULT_INSTANCE_NAME, DEFAULT_SERVER_INSTANCE_NAME, SingleInstance
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
@@ -91,7 +93,7 @@ def test_resolve_identity_rejects_path_style():
 CHILD_CODE = """
 import sys
 
-from src.utils import SingleInstance
+from src.app.instance import SingleInstance
 
 
 class QuietLogger:

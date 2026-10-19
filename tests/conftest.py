@@ -10,8 +10,8 @@ import pytest
 
 from src.app.context import AppContext
 from src.core.backend import create_dest_backend
+from src.core.history import HistoryManager
 from src.core.registry import get_handler_class
-from src.history import HistoryManager
 
 
 class CaptureLogger:
