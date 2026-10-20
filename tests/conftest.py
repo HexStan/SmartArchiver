@@ -9,9 +9,8 @@
 import pytest
 
 from src.app.context import AppContext
-from src.core.backend import create_dest_backend
 from src.core.history import HistoryManager
-from src.core.registry import get_handler_class
+from src.core.registry import create_handler
 
 
 class CaptureLogger:
@@ -71,14 +70,19 @@ def run_task(app_context):
 
         handler = run_task({"mode": "move", "source": ..., ...}, now=NOW)
 
-    返回 handler 实例，可读取 stats 做补充断言；主断言应落在目录树快照上。
+    返回 handler 实例，可读取 stats 做补充断言；任务在构造期被跳过
+    （如容量规则配置错误）时返回 None。主断言应落在目录树快照上。
     远程后端测试通过 remote_clients / ssh_remotes 注入（见 test_greybox_sync.py）。
     """
 
     def _run(task, now=None, remote_clients=None, ssh_remotes=None):
-        handler_cls = get_handler_class(task["mode"].lower())
-        backend = create_dest_backend(task.get("dest", ""), remote_clients or {}, ssh_remotes or {})
-        handler = handler_cls(task, backend, now)
+        # 与生产 process_task 共用同一条装配路径（含构造期配置错误的
+        # 捕获语义），错误路径测试才是在测生产行为而不是测试替身。
+        handler = create_handler(
+            task, now=now, remote_clients=remote_clients, ssh_remotes=ssh_remotes
+        )
+        if handler is None:
+            return None
         handler.execute()
         return handler
 

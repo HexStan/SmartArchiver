@@ -1,18 +1,21 @@
-"""统一的表现层：集中所有 humanfriendly 格式化调用和任务输出格式化"""
+"""统一的表现层：集中所有容量/时长格式化调用和任务输出格式化"""
 
+from datetime import timedelta
 from typing import Any, Protocol
 
-from humanfriendly import format_size, format_timespan
+import humanize
 
 from src.output.logger import Logger
 
 
 def fmt_size(size_bytes: float, binary: bool = True) -> str:
-    return format_size(size_bytes, binary=binary)
+    return humanize.naturalsize(size_bytes, binary=binary)
 
 
 def fmt_timespan(seconds: float) -> str:
-    return format_timespan(seconds)
+    if seconds < 0:
+        seconds = 0.0  # precisedelta 对负时长取绝对值，展示会失真；防御性钳制为 0
+    return humanize.precisedelta(timedelta(seconds=seconds), minimum_unit="seconds")
 
 
 class TaskStats(Protocol):
@@ -73,6 +76,7 @@ def print_task_header(task: dict[str, Any], logger: Logger) -> None:
         logger.info(f" - 时间阈值: {fmt_timespan(mtime_threshold_seconds)}")
 
     if task_mode == "rotate":
+        # size_limit 已在 validate_task_config 中校验，此处解析保证成功
         from src.core.patterns import parse_size_string
 
         size_limit = task.get("size_limit")

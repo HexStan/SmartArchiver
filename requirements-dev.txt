@@ -2,7 +2,7 @@
 # pytest 不在 requirements.txt，按 AGENTS.md 约定单独安装
 pyrefly==1.4.0
 pytest==9.1.1
-# typeshed 官方 stub：requests / psutil 未自带 py.typed，补齐后参与检查
-types-requests==2.33.0.20261006
+# typeshed 官方 stub：psutil 未自带 py.typed，补齐后参与检查
 types-psutil==7.2.2.20260906
-# flask 自带 py.typed；croniter / humanfriendly 无 stub，按 Any 处理（用量小）
+# flask 自带 py.typed；requests 2.34+ 自带内联类型，均无需 stub
+# croniter 无 stub，按 Any 处理（用量小）；humanize / pydantic 自带 py.typed

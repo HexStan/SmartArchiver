@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Any
 
 from src.app.context import AppContext
 from src.core.backend import create_dest_backend
+from src.core.patterns import InvalidSizeError
 
 if TYPE_CHECKING:
     from src.core.handlers.base import BaseTaskHandler
@@ -33,18 +34,40 @@ def get_handler_class(mode_name: str) -> type[BaseTaskHandler] | None:
     return _registry.get(mode_name)
 
 
-def process_task(task: dict[str, Any], now: float | None = None) -> None:
+def create_handler(
+    task: dict[str, Any],
+    now: float | None = None,
+    remote_clients: dict[str, Any] | None = None,
+    ssh_remotes: dict[str, Any] | None = None,
+) -> BaseTaskHandler | None:
+    """按 mode 从注册表取处理器并完成构造；无法构造时记错误日志并返回 None。
+
+    规则的容量值在 handler.__init__ 里解析（FileFilterPolicy 构造），
+    此处是构造阶段 InvalidSizeError 的唯一捕获点，与"不支持的模式"
+    同一模式：报错 + 跳过。测试入口（conftest.run_task）与本函数共用
+    同一条装配路径，保证错误路径行为一致。
+    """
     ctx = AppContext.get()
     mode = task.get("mode", "").lower()
     handler_cls = _registry.get(mode)
     if handler_cls is None:
         ctx.logger.error(f"不支持的任务模式: {mode}，跳过该任务。")
-        return
+        return None
 
-    remote_clients = getattr(ctx, "remote_clients", {})
-    ssh_remotes = getattr(ctx, "ssh_remotes", {})
-    dest_root = task.get("dest", "")
-    dest_backend = create_dest_backend(dest_root, remote_clients, ssh_remotes)
+    remote_clients = (
+        remote_clients if remote_clients is not None else getattr(ctx, "remote_clients", {})
+    )
+    ssh_remotes = ssh_remotes if ssh_remotes is not None else getattr(ctx, "ssh_remotes", {})
+    dest_backend = create_dest_backend(task.get("dest", ""), remote_clients, ssh_remotes)
 
-    handler = handler_cls(task, dest_backend, now)
-    handler.execute()
+    try:
+        return handler_cls(task, dest_backend, now)
+    except InvalidSizeError as e:
+        ctx.logger.error(f"任务的容量规则配置错误：{e}，跳过该任务。")
+        return None
+
+
+def process_task(task: dict[str, Any], now: float | None = None) -> None:
+    handler = create_handler(task, now=now)
+    if handler is not None:
+        handler.execute()

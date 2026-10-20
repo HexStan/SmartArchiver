@@ -90,19 +90,19 @@ class TestThresholdBoundary:
     """阈值边界契约：lt 为严格小于，ge 为大于等于。"""
 
     def test_lt_at_exact_threshold_misses(self):
-        policy = build_policy(exclude={"lt": {"*.log": "1MB"}})
+        policy = build_policy(exclude={"lt": {"*.log": "1MiB"}})
         assert policy.decide("app.log", 1 * MB) == TRANSFER
 
     def test_lt_below_threshold_hits(self):
-        policy = build_policy(exclude={"lt": {"*.log": "1MB"}})
+        policy = build_policy(exclude={"lt": {"*.log": "1MiB"}})
         assert policy.decide("app.log", 1 * MB - 1) == SKIP
 
     def test_ge_at_exact_threshold_hits(self):
-        policy = build_policy(exclude={"ge": {"*.log": "1MB"}})
+        policy = build_policy(exclude={"ge": {"*.log": "1MiB"}})
         assert policy.decide("app.log", 1 * MB) == SKIP
 
     def test_ge_below_threshold_misses(self):
-        policy = build_policy(exclude={"ge": {"*.log": "1MB"}})
+        policy = build_policy(exclude={"ge": {"*.log": "1MiB"}})
         assert policy.decide("app.log", 1 * MB - 1) == TRANSFER
 
     def test_zero_size_with_lt_threshold_hits(self):

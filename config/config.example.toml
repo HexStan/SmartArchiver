@@ -208,7 +208,9 @@ conflict_policy = "skip"
 remove_empty_dirs = true
 
 #【以下四项必填至少一项】
-size_limit = "1GB"    # 全局目录总体积限制，支持单位: B、KB、MB、GB、TB，0 表示不限制。
+# 容量单位遵循 IEC 80000-13：KB/MB/GB/TB 按十进制（1KB = 1000B），
+# KiB/MiB/GiB/TiB 按二进制（1KiB = 1024B）；无法解析的容量值会导致任务被跳过。
+size_limit = "1GB"    # 全局目录总体积限制，0 表示不限制。
 count_limit = 20    # 全局目录文件总数量限制，0 表示不限制。
 
 # 细粒度轮转规则：

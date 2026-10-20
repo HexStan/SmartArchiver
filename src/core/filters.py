@@ -2,7 +2,7 @@ import os
 from collections.abc import Callable, Mapping
 from typing import Any
 
-from src.core.patterns import match_pattern, parse_size_string
+from src.core.patterns import InvalidSizeError, match_pattern, parse_size_string
 from src.core.types import FileAction
 
 
@@ -37,15 +37,22 @@ class FileFilterPolicy:
             file_lt: dict[str, int],
             file_ge: dict[str, int],
         ) -> None:
+            def parse_rule_size(pattern: str, size_str: Any) -> int:
+                """补充规则键上下文，让用户能从错误日志定位到具体规则。"""
+                try:
+                    return parse_size_string(size_str)
+                except InvalidSizeError as e:
+                    raise InvalidSizeError(f"规则 '{pattern}' 的容量值无效：{e}") from e
+
             for pattern, size_str in raw_rules.get("lt", {}).items():
-                size = parse_size_string(size_str)
+                size = parse_rule_size(pattern, size_str)
                 if pattern.endswith("/"):
                     dir_lt[pattern[:-1]] = size
                 else:
                     file_lt[pattern] = size
 
             for pattern, size_str in raw_rules.get("ge", {}).items():
-                size = parse_size_string(size_str)
+                size = parse_rule_size(pattern, size_str)
                 if pattern.endswith("/"):
                     dir_ge[pattern[:-1]] = size
                 else:

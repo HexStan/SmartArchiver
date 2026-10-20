@@ -318,3 +318,15 @@ class TestErrorPaths:
         assert snapshot(task["source"]) == {"a.txt": 1}
         assert snapshot(task["dest"]) == {}
         assert capture_log.has("error", "mtime_threshold_minutes")
+
+    def test_invalid_rule_size_skips_everything(self, run_task, tmp_path, capture_log):
+        """规则容量值无法解析时任务在构造阶段被跳过：错误日志带规则键
+        上下文 + 目录树零变化。"""
+        task = move_task(tmp_path, delete_rules={"lt": {"*.tmp": "banana"}})
+        make_tree(task["source"], {"a.txt": b"x", "b.tmp": b"x"})
+
+        run_task(task, now=NOW)
+
+        assert snapshot(task["source"]) == {"a.txt": 1, "b.tmp": 1}
+        assert snapshot(task["dest"]) == {}
+        assert capture_log.has("error", "规则 '*.tmp' 的容量值无效")
