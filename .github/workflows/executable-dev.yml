@@ -15,7 +15,7 @@ jobs:
       is_dev: ${{ steps.version.outputs.is_dev }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Check VERSION suffix
         id: version
