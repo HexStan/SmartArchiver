@@ -21,11 +21,12 @@ SmartArchiver 是文件归档/清理工具：目录树 + 配置 → 新目录树
 ## 常用命令
 
 ```bash
-pip install -r requirements.txt && pip install pytest   # pytest 不在 requirements.txt，需单独装
+pip install -r requirements.txt -r requirements-dev.txt  # dev 依赖含 pyrefly / pytest / 类型存根
 python -m pytest                                        # 全部测试（pytest.ini 已设 pythonpath=. 和 testpaths=tests）
 python -m pytest tests/test_greybox_rotate.py -v        # 单个测试文件
 ruff check .                                            # Ruff 静态检查
 ruff format .                                           # Ruff 格式化
+pyrefly check                                           # Pyrefly 类型检查（strict 门禁，配置见 pyrefly.toml）
 python main.py                                          # 客户端模式，读取 config/config.toml，缺失即退出
 python main.py --server                                 # 服务器模式，读取 config/config.server.toml
 python scripts/build_executable.py                      # 构建当前平台的可执行文件（PyInstaller onedir + 内置 rclone）
@@ -33,7 +34,11 @@ python scripts/smoke_test.py "dist/SmartArchiver-*.zip" # 对发行 zip 做冒�
 ```
 
 - 运行前需 `cp config/config.example.toml config/config.toml`；`config.toml` 已 gitignore，只提交 `config/*.example.toml`。
-- 仓库没有 typecheck 配置，验证手段就是 pytest；formatter 用 Ruff Format（`ruff.toml` 的 `[format]`）。
+- 验证手段 = pytest + ruff check + pyrefly check；formatter 用 Ruff Format（`ruff.toml` 的 `[format]`）。
+
+## 类型检查（权威配置：pyrefly.toml）
+
+- 详见 `pyrefly.toml` 的注释。
 
 ## 架构速览
 
@@ -44,7 +49,7 @@ python scripts/smoke_test.py "dist/SmartArchiver-*.zip" # 对发行 zip 做冒�
 - 规则引擎 `src/core/filters.py` 的 `FileFilterPolicy`：顺序流水线 include → exclude → delete → TRANSFER，命中即停。模式匹配与容量解析在 `src/core/patterns.py`。
 - 本地文件 I/O 原语在 `src/fs/`（errors / abort / scan / atomic / transfer / cleanup），不依赖任何上层包；`fs.abort` 的中止检查由 `app/runtime.py` 组装时注入。
 - `AppContext`（`src/app/context.py`）是全局单例，logger / history 均经 `AppContext.get()` 获取；测试 fixture 用完会重置单例。
-- 包分层依赖方向：`app/` 装配层可依赖全部；`core/` → `fs/`、`output/`、`remote/`、`ssh/`；`remote/`、`ssh/` → `fs/`；`output/` → `fs/`、`core/patterns`；`fs/` 仅标准库。领域包不得依赖 `app/` 的装配模块（runtime/control），需要 app 层能力时由组合根注入参数，依赖必须无环；唯一例外是文档化的 `AppContext` 服务定位与 `app.paths` 等叶子助手。
+- 包分层依赖方向：`app/` 装配层可依赖全部；`core/` → `fs/`、`output/`、`remote/`、`ssh/`；`remote/`、`ssh/` → `fs/`；`output/` → `fs/`、`core/patterns`；`fs/` 仅标准库。领域包不得依赖 `app/` 的装配模块（runtime/control），需要 app 层能力时由组合根注入参数，依赖必须无环；唯一例外是文档化的 `AppContext` 服务定位与 `app.paths` 等叶子助手。`TYPE_CHECKING` 下的类型级 import（注解专用，运行时零导入）不构成违规，如 `remote/`、`app/context.py` 引用 `output.logger.Logger` 协议。
 
 ## 测试约定（权威文档：tests/README.md）
 
