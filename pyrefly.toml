@@ -17,8 +17,7 @@ required-version = ">=1.4.0,<2"
 # 检查范围
 # ============================================================
 # 仅覆盖 src/ 与 main.py。tests/ 与 scripts/ 暂不纳入：
-# 测试大量使用无类型 lambda 与 object() 打桩，注解收益低、改动面大，
-# 待后续单独推进；纳入时需同步补齐第三方 stub 对测试替身的兼容。
+# 测试大量使用无类型 lambda 与 object() 打桩，注解收益低、改动面大。
 project-includes = ["src", "main.py"]
 
 # 代码以仓库根为包根（`from src.fs import ...`，与 pytest.ini 的 pythonpath = . 一致），
