@@ -19,7 +19,7 @@ from src.app import instance, paths
 from src.app.config import ConfigManager
 from src.app.context import AppContext
 from src.app.instance import SingleInstance
-from src.app.shutdown import install_abort_check
+from src.app.shutdown import install_abort_check, install_sigterm_fast_stop
 from src.core import process_task
 from src.core.history import HistoryManager
 from src.output.logger import setup_logger
@@ -243,8 +243,8 @@ def _run_interval(manager: ConfigManager, schedule_config: dict[str, Any]) -> No
         _execute_tasks(manager)
 
 
-def _start_control_watcher(ctx: AppContext) -> None:
-    """启动控制文件监视线程，把 stop 指令映射到停止协调器。"""
+def _make_stop_dispatcher(ctx: AppContext) -> Callable[[str], None]:
+    """把停止模式映射为协调器请求；控制文件监视线程与 SIGTERM 共用。"""
     coordinator = ctx.shutdown
     logger = ctx.logger
 
@@ -259,7 +259,7 @@ def _start_control_watcher(ctx: AppContext) -> None:
             logger.info("收到停止指令：当前文件传输完成后退出。")
             coordinator.request_stop_after_file()
 
-    instance.ControlWatcher(ctx.instance_name, _dispatch).start()
+    return _dispatch
 
 
 def run_client() -> None:
@@ -268,12 +268,16 @@ def run_client() -> None:
 
     ctx = AppContext.get()
     install_abort_check(ctx.shutdown)
+    dispatch = _make_stop_dispatcher(ctx)
+    # 容器/系统停服的 SIGTERM 按 stop --fast 处理：处理器只派生线程，
+    # 真正的停止动作与控制文件指令走同一条分发路径
+    install_sigterm_fast_stop(lambda: dispatch(instance.STOP_FAST), ctx.logger)
 
     try:
         # 实例锁覆盖整个进程生命周期：运行中与调度睡眠期都属于"实例存活"，
         # stop 子命令靠锁探测判断目标是否存在
         with SingleInstance(ctx.instance_name, ctx.logger):
-            _start_control_watcher(ctx)
+            instance.ControlWatcher(ctx.instance_name, dispatch).start()
             _run_schedule(manager)
     except fs.TransferAbortedError:
         ctx.logger.warning("任务已被中止（stop --fast），程序退出。")
@@ -281,9 +285,20 @@ def run_client() -> None:
         ctx.history_mgr.save()
 
 
-def _start_stop_watcher(instance_name: str, on_command: Callable[[str], None]) -> None:
-    """供 remote.server 注入的停止监视线程启动器(装配收敛在 app 层)。"""
-    instance.ControlWatcher(instance_name, on_command).start()
+def _make_server_stop_watcher(
+    ctx: AppContext,
+) -> Callable[[str, Callable[[str], None]], None]:
+    """构造供 remote.server 注入的停止指令装配器。
+
+    控制文件监视线程与 SIGTERM 两个指令来源都收敛在 app 层装配；
+    remote 层只提供 fast 停止回调，不感知实例控制与信号细节。
+    """
+
+    def start(name: str, on_command: Callable[[str], None]) -> None:
+        instance.ControlWatcher(name, on_command).start()
+        install_sigterm_fast_stop(lambda: on_command(instance.STOP_FAST), ctx.logger)
+
+    return start
 
 
 def run_server() -> None:
@@ -302,7 +317,7 @@ def run_server() -> None:
             ctx.logger,
             ctx.shutdown,
             ctx.instance_name,
-            # app 域能力注入:remote 层不感知实例控制的实现
-            stop_watcher=_start_stop_watcher,
+            # app 域能力注入:remote 层不感知实例控制与信号装配的实现
+            stop_watcher=_make_server_stop_watcher(ctx),
             runtime_paths=instance.instance_paths,
         )

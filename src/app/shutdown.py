@@ -7,13 +7,18 @@
 - fast（``stop --fast``）——立即中止文件传输、丢弃当前任务，
   清理已写入的临时文件后退出。
 
-信号由 ``src.app.instance.ControlWatcher`` 从控制文件读入后注入；业务循环
-在文件/任务边界查询，``fs.transfer`` 的复制循环在 chunk 边界查询 fast 中止。
-sync 模式的外部同步进程在启动时登记，fast 中止时被整树终止，不留孤儿。
+信号由 ``src.app.instance.ControlWatcher`` 从控制文件读入后注入，Docker /
+systemd 停服的 SIGTERM 由 ``install_sigterm_fast_stop`` 接入同一条 fast 链路；
+业务循环在文件/任务边界查询，``fs.transfer`` 的复制循环在 chunk 边界查询
+fast 中止。sync 模式的外部同步进程在启动时登记，fast 中止时被整树终止，
+不留孤儿。
 """
 
+import signal
 import subprocess
 import threading
+from collections.abc import Callable
+from typing import Any
 
 from src import fs
 from src.app.instance import terminate_process_tree
@@ -112,3 +117,30 @@ class ShutdownCoordinator:
 def install_abort_check(coordinator: ShutdownCoordinator) -> None:
     """把 fast 中止信号接入 fs.transfer 的 chunk 边界。"""
     fs.set_abort_check(coordinator.is_aborted)
+
+
+def install_sigterm_fast_stop(action: Callable[[], None], logger: Logger | None = None) -> None:
+    """把 SIGTERM（容器 / 系统停服信号）映射为 fast 停止动作。
+
+    ``docker stop`` 与 systemd 等均以 SIGTERM 请求停止，由此接入
+    ``stop --fast`` 语义（Windows 上处理器可安装但系统不投递
+    SIGTERM，安装无副作用；SIGKILL 不可捕获，维持现状）。处理器在
+    主线程的任意字节码边界运行，内部只派生线程、不直接执行动作：
+    sync 循环持续打日志，处理器内打日志可能重入 logging 锁死锁，
+    ``request_abort`` 又含 psutil 终止（最长数秒阻塞）。线程执行与
+    ``ControlWatcher`` 的回调线程同构。
+
+    Args:
+        action: fast 停止动作（无参可调用），在新守护线程中执行。
+        logger: 安装失败时的告警出口。非主线程调用 ``signal.signal``
+            会抛 ValueError，此时不中止启动，仅降级为无 SIGTERM 处理。
+    """
+
+    def _handler(_signum: int, _frame: Any) -> None:
+        threading.Thread(target=action, daemon=True, name="sigterm-stop").start()
+
+    try:
+        signal.signal(signal.SIGTERM, _handler)
+    except (ValueError, OSError) as e:
+        if logger is not None:
+            logger.warning(f"SIGTERM 停止处理器安装失败（{e}），容器停止将依赖宽限期后的强杀。")

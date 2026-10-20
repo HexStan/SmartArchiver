@@ -135,6 +135,8 @@ docker-compose logs -f
 - **server**（已注释）：运行 HTTP 服务器，需配合 `command: ["--server"]` 和 `config.server.toml`
 - **ssh-server**（已注释）：SSH 远端目标，供 sync 模式使用
 
+`docker stop` 会向容器发送 SIGTERM，程序将其按 `stop --fast` 处理：立即中止文件传输、清理临时文件并退出。默认 10 秒宽限期通常足够；如担心极端情况，可在 compose 服务中加 `stop_grace_period: 30s` 留出余量。
+
 也可直接构建镜像（注意 Dockerfile 路径）：
 
 ```bash

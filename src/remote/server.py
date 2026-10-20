@@ -305,7 +305,8 @@ def _start_stop_watcher(
     且"尽快停止"本就允许这种语义。
 
     ``stop_watcher(instance_name, on_command)`` 与 ``runtime_paths(instance_name)``
-    由组合根注入（app 层），本模块不感知实例控制的实现。
+    由组合根注入（app 层）：前者启动控制文件监视线程并把 SIGTERM 接入同一
+    回调，本模块不感知实例控制与信号的实现。
     """
 
     def _on_command(_mode: str) -> None:
@@ -339,8 +340,9 @@ def run_server(
     """启动 HTTP 远端 API 服务器。
 
     Args:
-        stop_watcher: 停止监视线程启动器 ``stop_watcher(instance_name, on_command)``，
-            由组合根注入（app 层），避免本模块反向依赖 app 包。
+        stop_watcher: 停止指令装配器 ``stop_watcher(instance_name, on_command)``
+            ——启动控制文件监视线程并接入 SIGTERM，由组合根注入（app 层），
+            避免本模块反向依赖 app 包。
         runtime_paths: 实例运行时文件路径函数 ``runtime_paths(instance_name)``，
             供 stop 后清理 PID / 控制文件。
     """

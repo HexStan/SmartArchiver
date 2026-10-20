@@ -20,6 +20,7 @@ SmartArchiver 的本质是一个"目录树 + 配置 → 新目录树"的变换�
 | 灰盒·停止语义 | `test_greybox_stop.py` | 停止指令下的处理器边界行为 | `run_task()` 入口 + 注入 ShutdownCoordinator / fs_ops 中止钩子 |
 | 灰盒·持久化 | `test_history_persistence.py` | HistoryManager | 真实文件读写 |
 | 白盒·实例控制 | `test_instance_control.py` | 锁探测、控制文件协议、进程树终止 | 真实锁原语 + 子进程边界 |
+| 白盒·停止信号 | `test_sigterm_fast_stop.py` | SIGTERM → fast 停止的接线映射 | 同步调用已注册处理器 + POSIX 子进程真实信号 |
 | 白盒·实例锁 | `test_instance_lock.py` | SingleInstance 跨进程互斥、instance_name 解析 | 子进程边界 + 纯函数 |
 | 白盒·日志跟随 | `test_logtail.py` | LogFollower（尾部回读/增量/切换） | 真实日志文件 + 手动步进 |
 | 白盒·状态栏 | `test_statusbar.py` | StatusBar（滚动区域/反色绘制/降级） | 注入输出流、尺寸查询与 VT 开关 |
