@@ -15,7 +15,7 @@ from src.app.config import ConfigManager
 from src.output.logtail import LogFollower
 
 # stop --fast 发出指令后等待实例自行退出的时限，超时则强杀
-_FAST_STOP_TIMEOUT = 8.0
+_FAST_STOP_TIMEOUT = 5.0
 
 
 def _load_control_context(is_server: bool, strict: bool = False) -> tuple[str, str]:
@@ -143,7 +143,9 @@ def cmd_stop(is_server: bool, fast: bool, slow: bool) -> None:
         print("已发送停止指令，服务器将中止传输并尽快退出……")
     elif fast:
         mode = instance.STOP_FAST
-        print("已发送停止指令 (fast)，等待实例退出（最多 8 秒，超时将强制结束）……")
+        print(
+            f"已发送停止指令 (fast)，等待实例退出（最多 {_FAST_STOP_TIMEOUT:g} 秒，超时将强制结束）……"
+        )
     elif slow:
         mode = instance.STOP_SLOW
         print("已发送停止指令 (slow)，等待本轮任务结束后退出（Ctrl+C 放弃等待）……")

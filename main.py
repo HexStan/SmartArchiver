@@ -62,7 +62,7 @@ def main() -> None:
     stop_group.add_argument(
         "--fast",
         action="store_true",
-        help="立即中止文件传输并退出（8 秒内未退出则强制结束）",
+        help="立即中止文件传输并退出（5 秒内未退出则强制结束）",
     )
     stop_group.add_argument("--slow", action="store_true", help="等待本轮任务结束后再退出")
 
