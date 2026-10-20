@@ -85,6 +85,16 @@ class TestGlobalLimits:
         assert snapshot(task["source"]) == {"a.txt": 1}
         assert capture_log.has("error", "容量字符串 'banana' 无法解析")
 
+    def test_invalid_count_limit_skips_task(self, run_task, tmp_path, capture_log):
+        """数量配置无法解析时任务报错跳过：错误日志 + 目录树零变化。"""
+        task = rotate_task(tmp_path, count_limit="banana")
+        make_tree(task["source"], {"a.txt": b"x"})
+
+        run_task(task, now=NOW)
+
+        assert snapshot(task["source"]) == {"a.txt": 1}
+        assert capture_log.has("error", "count_limit 的数量配置值 'banana' 无效")
+
     def test_include_rules_rejected_in_rotate(self, run_task, tmp_path, capture_log):
         task = rotate_task(tmp_path, size_limit="1KB")
         task["include_rules"] = {"ge": {"*.log": "-1"}}

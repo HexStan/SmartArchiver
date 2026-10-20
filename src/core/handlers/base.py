@@ -6,7 +6,6 @@ from typing import Any
 from src.app.context import AppContext
 from src.core.backend import DestBackend
 from src.core.filters import FileFilterPolicy
-from src.core.patterns import InvalidSizeError, parse_size_string
 from src.core.types import FileAction, MoverStats
 from src.fs import TransferAbortedError, is_file_locked
 from src.fs import delete_file as _fs_delete
@@ -36,34 +35,6 @@ def validate_task_config(task: dict[str, Any], task_mode: str) -> bool:
             "source",
             "remove_empty_dirs",
         ]
-        rotate_rules = task.get("rotate_rules", {})
-        rotate_size_rules = rotate_rules.get("size", {})
-        rotate_count_rules = rotate_rules.get("count", {})
-
-        try:
-            size_limit = parse_size_string(str(task.get("size_limit", "0")))
-            # rotate.execute() 与 print_task_header 会在校验通过后裸调用
-            # parse_size_string，这里逐项校验才能保证
-            # "校验边界捕获、下游解析保成功"的不变量。
-            for size_str in rotate_size_rules.values():
-                parse_size_string(size_str)
-        except InvalidSizeError as e:
-            ctx.logger.error(f"rotate 任务的容量配置错误：{e}，跳过该任务。")
-            return False
-
-        count_limit = int(task.get("count_limit", 0))
-
-        if (
-            size_limit == 0
-            and count_limit == 0
-            and not rotate_size_rules
-            and not rotate_count_rules
-        ):
-            ctx.logger.error(
-                "rotate 模式下必须配置 size_limit、count_limit、"
-                "rotate_rules.size 或 rotate_rules.count 中的至少一项，跳过该任务。"
-            )
-            return False
     else:
         required_fields = [
             "mode",

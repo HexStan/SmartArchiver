@@ -21,8 +21,8 @@ class InvalidSizeError(ValueError):
     """容量字符串无法解析（配置错误）。
 
     由 parse_size_string 的严格模式抛出。调用方应在校验边界
-    （registry.create_handler / validate_task_config）捕获并记日志跳过任务；
-    通过校验后的下游解析保证成功。
+    （registry.create_handler，构造期统一捕获）记日志跳过任务；
+    构造完成后的下游（validate / execute / 展示）不再解析。
     """
 
 

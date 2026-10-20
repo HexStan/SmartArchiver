@@ -76,7 +76,7 @@ def print_task_header(task: dict[str, Any], logger: Logger) -> None:
         logger.info(f" - 时间阈值: {fmt_timespan(mtime_threshold_seconds)}")
 
     if task_mode == "rotate":
-        # size_limit 已在 validate_task_config 中校验，此处解析保证成功
+        # size_limit 已在 RotateHandler 构造期解析成功，此处解析保证成功
         from src.core.patterns import parse_size_string
 
         size_limit = task.get("size_limit")

@@ -1,8 +1,9 @@
 import os
 import time
-from typing import TypedDict, override
+from typing import Any, TypedDict, override
 
 from src.app.context import AppContext
+from src.core.backend import DestBackend
 from src.core.handlers.base import BaseTaskHandler
 from src.core.patterns import match_pattern, parse_size_string
 from src.core.registry import register_handler
@@ -149,8 +150,54 @@ class RotateGroupManager:
                 )
 
 
+def _parse_count(label: str, value: Any) -> int:
+    """数量配置值强转；无法解析时抛出中文 ValueError（构造期由 create_handler 捕获）。"""
+    try:
+        return int(value)
+    except ValueError as e:
+        raise ValueError(f"{label} 的数量配置值 {value!r} 无效（应为整数）") from e
+
+
 @register_handler("rotate")
 class RotateHandler(BaseTaskHandler):
+    @override
+    def __init__(
+        self, task: dict[str, Any], dest_backend: DestBackend, now: float | None = None
+    ) -> None:
+        super().__init__(task, dest_backend, now)
+
+        # 限额在构造期一次解析并存储：容量值解析失败抛 InvalidSizeError、
+        # 数量值强转失败抛 ValueError，均由 registry.create_handler 统一
+        # 捕获并跳过任务——validate / execute / header 展示不再解析。
+        self.size_limit = parse_size_string(str(task.get("size_limit", "0")))
+        self.count_limit = _parse_count("count_limit", task.get("count_limit", 0))
+        rotate_rules = task.get("rotate_rules", {})
+        self.rotate_size_rules = {
+            key: parse_size_string(v) for key, v in rotate_rules.get("size", {}).items()
+        }
+        self.rotate_count_rules = {
+            key: _parse_count(f"rotate_rules.count 规则 '{key}'", v)
+            for key, v in rotate_rules.get("count", {}).items()
+        }
+
+    @override
+    def validate(self) -> bool:
+        if not super().validate():
+            return False
+
+        if (
+            self.size_limit == 0
+            and self.count_limit == 0
+            and not self.rotate_size_rules
+            and not self.rotate_count_rules
+        ):
+            AppContext.get().logger.error(
+                "rotate 模式下必须配置 size_limit、count_limit、"
+                "rotate_rules.size 或 rotate_rules.count 中的至少一项，跳过该任务。"
+            )
+            return False
+        return True
+
     @override
     def execute(self) -> None:
         if not self.validate():
@@ -164,18 +211,8 @@ class RotateHandler(BaseTaskHandler):
             ctx.logger.error(f"源目录不存在: {self.source_root}")
             return
 
-        size_limit = parse_size_string(self.task.get("size_limit", "0"))
-        count_limit = int(self.task.get("count_limit", 0))
-
-        rotate_rules = self.task.get("rotate_rules", {})
-        raw_rotate_size = rotate_rules.get("size", {})
-        raw_rotate_count = rotate_rules.get("count", {})
-
-        rotate_size_rules = {k: parse_size_string(v) for k, v in raw_rotate_size.items()}
-        rotate_count_rules = {k: int(v) for k, v in raw_rotate_count.items()}
-
         rotate_mgr = RotateGroupManager(
-            size_limit, count_limit, rotate_size_rules, rotate_count_rules
+            self.size_limit, self.count_limit, self.rotate_size_rules, self.rotate_count_rules
         )
 
         start_time = time.time()
