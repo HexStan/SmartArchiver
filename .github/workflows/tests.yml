@@ -12,6 +12,23 @@ on:
   workflow_dispatch:
 
 jobs:
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up Python 3.14
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Type check (Pyrefly)
+        run: pyrefly check
+
   test:
     runs-on: ${{ matrix.os }}
     strategy:
