@@ -1,0 +1,19 @@
+# 换行符约定：所有文本文件统一使用 LF（仓库存储与各平台工作区检出均为 LF）。
+# per-path 属性优先级高于 core.autocrlf，因此 Windows 机器上无需修改全局配置。
+# 理由：跨平台项目（CI 含 ubuntu），且 Dockerfile / entrypoint.sh / sshd_config
+# 会被 COPY 进 Linux 镜像，CRLF 会导致 shell 脚本无法执行。
+* text=auto eol=lf
+
+# Windows 专属脚本例外：检出为 CRLF。
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# 显式声明的二进制类型：禁止换行符与 diff 处理，防止 text=auto 误判。
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.zip binary
+*.gz binary

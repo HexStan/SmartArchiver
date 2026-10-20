@@ -24,3 +24,6 @@ line-length = 100
 # target-version = "py314" 使 format 会把 `except (A, B):` 改写为 PEP 758 的
 # 无括号形式 `except A, B:`（Python 3.14 起合法），此为预期行为，非 bug。
 quote-style = "double"
+# 换行符固定为 LF，与 .gitattributes 一致（"auto" 默认值会逐文件探测，混入 CRLF
+# 文件时不同平台产出不一致）。
+line-ending = "lf"
