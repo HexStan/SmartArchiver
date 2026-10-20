@@ -1,20 +1,21 @@
 """Remote client factory: creates RemoteClient instances from configuration."""
 
 import re
+from typing import Any
 
 from src.remote.client import RemoteClient
 
 _ALIAS_PATTERN = re.compile(r"^[a-zA-Z0-9\-_]+$")
 
 
-def validate_remote_alias(alias):
+def validate_remote_alias(alias: str) -> bool:
     """Return True if alias contains only alphanumeric chars, hyphens, and underscores."""
     return bool(_ALIAS_PATTERN.match(alias))
 
 
-def parse_remote_config(config):
+def parse_remote_config(config: dict[str, Any]) -> dict[str, RemoteClient]:
     """Parse http_remotes from config dict into {alias: RemoteClient} dict."""
-    remotes = {}
+    remotes: dict[str, RemoteClient] = {}
     http_remotes = config.get("http_remotes", [])
     if not http_remotes:
         return remotes

@@ -6,7 +6,7 @@ import os
 logger = logging.getLogger(__name__)
 
 
-def clean_empty_dirs(source_root):
+def clean_empty_dirs(source_root: str) -> None:
     """自底向上清理 source_root 下的空目录。
 
     跳过符号链接、挂载点，以及 source_root 本身。

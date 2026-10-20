@@ -4,6 +4,8 @@ import contextlib
 import logging
 import os
 import tempfile
+from collections.abc import Callable, Generator
+from typing import BinaryIO
 
 from src.fs.scan import ensure_dir
 
@@ -14,7 +16,7 @@ logger = logging.getLogger(__name__)
 _PARTIAL_SUFFIX = ".smartarchiver-partial"
 
 
-def _partial_temp_path(dest_path):
+def _partial_temp_path(dest_path: str) -> str:
     """生成与目标同目录的确定性临时文件路径。
 
     与目标同目录保证二者位于同一文件系统，最后的 os.replace 才是原子操作。
@@ -24,7 +26,7 @@ def _partial_temp_path(dest_path):
     return os.path.join(dest_dir, f".{filename}{_PARTIAL_SUFFIX}")
 
 
-def _discard_partial(temp_path):
+def _discard_partial(temp_path: str) -> None:
     """尽力删除临时文件（本次写入失败或上次崩溃的残留）。"""
     try:
         os.remove(temp_path)
@@ -34,7 +36,7 @@ def _discard_partial(temp_path):
         logger.debug(f"清理临时文件失败: {temp_path} — {e}")
 
 
-def _create_temp_file(dest_path):
+def _create_temp_file(dest_path: str) -> str:
     """清理同名残留后独占创建临时文件，返回临时文件路径。
 
     优先使用确定性名字，残留清理依赖该名字（单实例锁保证同名残留
@@ -64,7 +66,9 @@ def _create_temp_file(dest_path):
 
 
 @contextlib.contextmanager
-def atomic_writer(dest_path, finalize=None):
+def atomic_writer(
+    dest_path: str, finalize: Callable[[str], None] | None = None
+) -> Generator[BinaryIO]:
     """以原子方式写入 dest_path。
 
     用法::

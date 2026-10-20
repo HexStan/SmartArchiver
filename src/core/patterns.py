@@ -9,7 +9,7 @@ import fnmatch
 from humanfriendly import InvalidSize, parse_size
 
 
-def match_pattern(name, pattern):
+def match_pattern(name: str, pattern: str) -> bool:
     name = name.replace("\\", "/").lower()
     pattern = pattern.replace("\\", "/").lower()
 
@@ -19,7 +19,7 @@ def match_pattern(name, pattern):
     return fnmatch.fnmatch(name, pattern)
 
 
-def parse_size_string(size_str):
+def parse_size_string(size_str: object) -> int:
     if not size_str:
         return 0
 

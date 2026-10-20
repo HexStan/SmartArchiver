@@ -2,6 +2,8 @@ import json
 import os
 import time
 import urllib.parse
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any, BinaryIO
 
 import requests
 import urllib3.exceptions
@@ -9,6 +11,9 @@ import urllib3.exceptions
 from src import fs
 from src.fs import TransferAbortedError
 from src.remote.protocol import API_PATH, UPLOAD_PATH, RemoteAction
+
+if TYPE_CHECKING:
+    from src.output.logger import Logger
 
 # 退避重试：2s + 4s + 8s + 16s = 30s 总等待时间
 _RETRY_BACKOFFS = (2, 4, 8, 16)
@@ -35,13 +40,13 @@ class _AbortingReader:
     Content-Length 头冲突。
     """
 
-    def __init__(self, fileobj, size, local_path, remote_path):
+    def __init__(self, fileobj: BinaryIO, size: int, local_path: str, remote_path: str) -> None:
         self._fileobj = fileobj
         self.len = size  # 供 urllib3 super_len 计算 Content-Length
         self._local_path = local_path
         self._remote_path = remote_path
 
-    def read(self, size=-1):
+    def read(self, size: int = -1) -> bytes:
         if fs.abort_requested():
             raise TransferAbortedError(f"上传被中止: {self._local_path} -> {self._remote_path}")
         return self._fileobj.read(size)
@@ -50,7 +55,15 @@ class _AbortingReader:
 class RemoteClient:
     _DEFAULT_TIMEOUT = 14400
 
-    def __init__(self, address, api_key, alias="", logger=None, timeout=None, queue_time=0):
+    def __init__(
+        self,
+        address: str,
+        api_key: str,
+        alias: str = "",
+        logger: Logger | None = None,
+        timeout: float | None = None,
+        queue_time: float | None = 0,
+    ) -> None:
         self.address = address.rstrip("/")
         self.api_key = api_key
         self.alias = alias
@@ -61,17 +74,17 @@ class RemoteClient:
         self._upload_endpoint = f"{self.address}{UPLOAD_PATH}"
         self._session = requests.Session()
 
-    def _log(self, level, msg):
+    def _log(self, level: str, msg: str) -> None:
         if self.logger:
             getattr(self.logger, level)(f"[remote:{self.alias}] {msg}")
 
-    def _retry_request(self, request_fn, description):
+    def _retry_request[T](self, request_fn: Callable[[], T], description: str) -> T:
         """带指数退避重试的请求包装。
 
         request_fn: 无参可调用对象，返回 requests.Response
         description: 用于日志的描述字符串
         """
-        last_error = None
+        last_error: Exception | None = None
         for attempt, wait in enumerate(_RETRY_BACKOFFS, start=1):
             try:
                 return request_fn()
@@ -89,9 +102,10 @@ class RemoteClient:
                 raise
 
         self._log("error", f"{description}重试耗尽 ({_RETRY_TOTAL_WAIT}s)，记入失败")
-        raise last_error
+        # _RETRY_BACKOFFS 非空，循环体至少执行一次，last_error 必已被赋值
+        raise last_error  # type: ignore[pyrefly:bad-raise]
 
-    def _json_request(self, body):
+    def _json_request(self, body: dict[str, str]) -> Any:
         """发送 application/json 请求，返回解析后的 JSON 响应。"""
 
         def _do():
@@ -119,29 +133,29 @@ class RemoteClient:
         except _RETRYABLE_EXCEPTIONS as e:
             raise RemoteClientError(f"Connection error to {self.alias} ({self.address}): {e}")
 
-    def _action(self, action, **extra_fields):
+    def _action(self, action: RemoteAction, **extra_fields: object) -> Any:
         body = {"api_key": self.api_key, "action": action.value}
         body.update({k: str(v) for k, v in extra_fields.items() if v is not None})
         return self._json_request(body)
 
-    def exists(self, path):
+    def exists(self, path: str) -> bool:
         result = self._action(RemoteAction.EXISTS, path=path)
         return result.get("exists", False)
 
-    def is_dir(self, path):
+    def is_dir(self, path: str) -> bool:
         result = self._action(RemoteAction.IS_DIR, path=path)
         return result.get("is_dir", False)
 
-    def mkdir(self, path):
+    def mkdir(self, path: str) -> None:
         self._action(RemoteAction.MKDIR, path=path)
 
-    def delete_file(self, path):
+    def delete_file(self, path: str) -> None:
         self._action(RemoteAction.DELETE_FILE, path=path)
 
-    def delete_dir(self, path):
+    def delete_dir(self, path: str) -> None:
         self._action(RemoteAction.DELETE_DIR, path=path)
 
-    def upload(self, local_path, remote_path):
+    def upload(self, local_path: str, remote_path: str) -> None:
         """上传文件到远程实例。若网络中断则从头重传。"""
         file_stat = os.stat(local_path)
         file_size = file_stat.st_size
@@ -169,7 +183,7 @@ class RemoteClient:
             return resp.json()
 
         try:
-            return self._retry_request(_do, "文件上传")
+            self._retry_request(_do, "文件上传")
         except TransferAbortedError:
             raise
         except requests.HTTPError as e:
@@ -193,11 +207,11 @@ class RemoteClient:
                 raise TransferAbortedError(f"上传被中止: {local_path} -> {remote_path}")
             raise
 
-    def list_dir(self, path):
+    def list_dir(self, path: str) -> list[dict[str, Any]]:
         result = self._action(RemoteAction.LIST_DIR, path=path)
         return result.get("entries", [])
 
-    def stat(self, path):
+    def stat(self, path: str) -> dict[str, Any]:
         result = self._action(RemoteAction.STAT, path=path)
         return {
             "exists": result.get("exists", False),

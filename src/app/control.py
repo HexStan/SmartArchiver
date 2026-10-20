@@ -8,6 +8,7 @@
 import os
 import subprocess
 import sys
+from typing import Any
 
 from src.app import instance, paths
 from src.app.config import ConfigManager
@@ -17,7 +18,7 @@ from src.output.logtail import LogFollower
 _FAST_STOP_TIMEOUT = 8.0
 
 
-def _load_control_context(is_server, strict=False):
+def _load_control_context(is_server: bool, strict: bool = False) -> tuple[str, str]:
     """控制子命令的配置读取，返回 (instance_name, log_dir)。
 
     与运行路径不同，这里不做完整校验，只解析实例标识与日志目录。
@@ -25,7 +26,7 @@ def _load_control_context(is_server, strict=False):
     （log/stop）回退默认实例标识与日志目录，保证配置异常时依然可用。
     """
     path = paths.config_path(is_server)
-    raw_config = {}
+    raw_config: dict[str, Any] = {}
     if os.path.exists(path):
         try:
             raw_config = ConfigManager.load_toml(path)
@@ -46,13 +47,13 @@ def _load_control_context(is_server, strict=False):
     return instance_name, paths.resolve_log_dir(raw_config)
 
 
-def _command_hint(is_server):
+def _command_hint(is_server: bool) -> str:
     prog = os.path.basename(sys.argv[0]) or "main.py"
     suffix = " --server" if is_server else ""
     return f"{prog}{suffix}"
 
 
-def _spawn_detached(is_server):
+def _spawn_detached(is_server: bool) -> int:
     """以脱离终端的方式拉起自身，返回子进程 PID。"""
     if paths.is_frozen():
         cmd = [sys.executable]
@@ -64,7 +65,7 @@ def _spawn_detached(is_server):
     env = os.environ.copy()
     env[instance.DETACHED_ENV] = "1"
 
-    kwargs = {}
+    kwargs: dict[str, Any] = {}
     if os.name == "nt":
         # CREATE_NO_WINDOW：进程带一个不可见的控制台。不用 DETACHED_PROCESS
         # 是因为源码模式下 venv 的 python.exe 是跳板程序，它重新 spawn 的
@@ -89,14 +90,14 @@ def _spawn_detached(is_server):
     return proc.pid
 
 
-def _follow_logs(is_server, lines=100):
+def _follow_logs(is_server: bool, lines: int = 100) -> None:
     """滚动显示运行日志，底部状态栏显示实例存活状态。
 
     Ctrl+C 结束跟随（不影响实例运行）。
     """
     instance_name, log_dir = _load_control_context(is_server)
 
-    def _probe_status():
+    def _probe_status() -> tuple[bool, int | None]:
         return instance.is_running(instance_name), instance.read_pid(instance_name)
 
     follower = LogFollower(log_dir, instance_name, status_provider=_probe_status)
@@ -106,7 +107,7 @@ def _follow_logs(is_server, lines=100):
         pass
 
 
-def cmd_start(is_server):
+def cmd_start(is_server: bool) -> None:
     """start 子命令：脱离终端启动实例，随后滚动显示运行日志。"""
     instance_name, _log_dir = _load_control_context(is_server, strict=True)
     if instance.is_running(instance_name):
@@ -122,11 +123,11 @@ def cmd_start(is_server):
     _follow_logs(is_server)
 
 
-def cmd_log(is_server, lines):
+def cmd_log(is_server: bool, lines: int) -> None:
     _follow_logs(is_server, lines)
 
 
-def cmd_stop(is_server, fast, slow):
+def cmd_stop(is_server: bool, fast: bool, slow: bool) -> None:
     """stop 子命令：向运行实例发送停止指令并等待退出。"""
     if is_server and (fast or slow):
         print("server 模式的 stop 不支持 --fast/--slow：行为固定为中止传输并尽快停止。")

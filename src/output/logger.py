@@ -2,9 +2,30 @@ import glob
 import logging
 import os
 from datetime import datetime
+from typing import Any, Protocol, override
 
 SUCCESS_LEVEL_NUM = 25
 logging.addLevelName(SUCCESS_LEVEL_NUM, "SUCCESS")
+
+
+class Logger(Protocol):
+    """应用日志接口（结构化协议）。
+
+    生产实现为 :class:`LoggerWrapper`；测试替身（如 CaptureLogger）
+    只需结构兼容即可注入，无需继承本协议。
+    """
+
+    def debug(self, msg: str, raw: bool = False) -> None: ...
+
+    def info(self, msg: str, raw: bool = False, prepend_timestamp: bool = False) -> None: ...
+
+    def success(self, msg: str, raw: bool = False) -> None: ...
+
+    def warning(self, msg: str, raw: bool = False) -> None: ...
+
+    def error(self, msg: str, raw: bool = False) -> None: ...
+
+    def critical(self, msg: str, raw: bool = False) -> None: ...
 
 
 class DualFormatter(logging.Formatter):
@@ -14,7 +35,8 @@ class DualFormatter(logging.Formatter):
     否则输出带时间戳和等级的标准格式。
     """
 
-    def format(self, record):
+    @override
+    def format(self, record: logging.LogRecord) -> str:
         # 检查 record 中是否有 is_raw 属性且为 True
         if getattr(record, "is_raw", False):
             msg = record.getMessage()
@@ -26,48 +48,48 @@ class DualFormatter(logging.Formatter):
         return super().format(record)
 
 
-class LoggerWrapper:
+class LoggerWrapper(Logger):
     """
     Logger 的包装类，支持 raw 参数
     """
 
-    def __init__(self, logger):
+    def __init__(self, logger: logging.Logger) -> None:
         self._logger = logger
 
-    def _sanitize(self, msg):
+    def _sanitize(self, msg: str) -> str:
         if isinstance(msg, str):
             return msg.encode("utf-8", "surrogateescape").decode("utf-8", "replace")
         return msg
 
-    def debug(self, msg, raw=False):
+    def debug(self, msg: str, raw: bool = False) -> None:
         """记录 debug 级别日志，raw=True 时不带格式"""
         self._logger.debug(self._sanitize(msg), extra={"is_raw": raw})
 
-    def info(self, msg, raw=False, prepend_timestamp=False):
+    def info(self, msg: str, raw: bool = False, prepend_timestamp: bool = False) -> None:
         """记录 info 级别日志，raw=True 时不带格式，prepend_timestamp=True 时在 raw 模式下也添加时间戳"""
         self._logger.info(
             self._sanitize(msg),
             extra={"is_raw": raw, "prepend_timestamp": prepend_timestamp},
         )
 
-    def success(self, msg, raw=False):
+    def success(self, msg: str, raw: bool = False) -> None:
         """记录 success 级别日志，raw=True 时不带格式"""
         self._logger.log(SUCCESS_LEVEL_NUM, self._sanitize(msg), extra={"is_raw": raw})
 
-    def warning(self, msg, raw=False):
+    def warning(self, msg: str, raw: bool = False) -> None:
         """记录 warning 级别日志"""
         self._logger.warning(self._sanitize(msg), extra={"is_raw": raw})
 
-    def error(self, msg, raw=False):
+    def error(self, msg: str, raw: bool = False) -> None:
         """记录 error 级别日志，raw=True 时不带格式"""
         self._logger.error(self._sanitize(msg), extra={"is_raw": raw})
 
-    def critical(self, msg, raw=False):
+    def critical(self, msg: str, raw: bool = False) -> None:
         """记录 critical 级别日志，raw=True 时不带格式"""
         self._logger.critical(self._sanitize(msg), extra={"is_raw": raw})
 
     # 如果需要访问底层 logger 的其他方法（如 warning, debug），可以通过 getattr 委托
-    def __getattr__(self, name):
+    def __getattr__(self, name: str) -> Any:
         return getattr(self._logger, name)
 
 
@@ -76,7 +98,13 @@ class DailyRotatingFileHandler(logging.FileHandler):
     按天滚动的日志处理器，每天生成一个新的日志文件，并清理旧日志。
     """
 
-    def __init__(self, log_dir, max_log_files, prefix="smartarchiver", encoding="utf-8"):
+    def __init__(
+        self,
+        log_dir: str,
+        max_log_files: int,
+        prefix: str = "smartarchiver",
+        encoding: str = "utf-8",
+    ) -> None:
         self.log_dir = log_dir
         self.max_log_files = max_log_files
         self.prefix = prefix
@@ -84,7 +112,8 @@ class DailyRotatingFileHandler(logging.FileHandler):
         filename = os.path.join(log_dir, f"{self.prefix}.{self.current_date}.log")
         super().__init__(filename, encoding=encoding)
 
-    def emit(self, record):
+    @override
+    def emit(self, record: logging.LogRecord) -> None:
         new_date = datetime.now().strftime("%Y-%m-%d")
         if new_date != self.current_date:
             self.current_date = new_date
@@ -101,13 +130,13 @@ class DailyRotatingFileHandler(logging.FileHandler):
 
 
 def setup_logger(
-    log_dir,
-    max_log_files=0,
-    log_level="INFO",
-    prefix="smartarchiver",
-    console=True,
-    bridge_loggers=(),
-):
+    log_dir: str,
+    max_log_files: int = 0,
+    log_level: str = "INFO",
+    prefix: str = "smartarchiver",
+    console: bool = True,
+    bridge_loggers: tuple[str, ...] = (),
+) -> LoggerWrapper:
     """
     配置日志记录器，格式：2025-01-01 08:00:00 [INFO] 消息内容
 
@@ -150,25 +179,28 @@ def setup_logger(
     logger.addHandler(file_handler)
 
     # 同时输出到控制台（脱离终端运行的实例没有可用控制台，跳过）
+    handlers: list[logging.Handler] = [file_handler]
     if console:
         console_handler = logging.StreamHandler()
         console_handler.setFormatter(formatter)
-        logger.addHandler(console_handler)
+        handlers.append(console_handler)
+
+    for handler in handlers:
+        logger.addHandler(handler)
 
     # 桥接业务模块日志：让统一文件操作与实例控制模块的日志输出到相同的 handler
     for name in bridge_loggers:
         bridged = logging.getLogger(name)
         bridged.setLevel(numeric_level)
         bridged.propagate = False
-        bridged.addHandler(file_handler)
-        if console:
-            bridged.addHandler(console_handler)
+        for handler in handlers:
+            bridged.addHandler(handler)
 
     # 返回包装后的 Logger 对象
     return LoggerWrapper(logger)
 
 
-def clean_old_logs(log_dir, max_files, prefix="smartarchiver"):
+def clean_old_logs(log_dir: str, max_files: int, prefix: str = "smartarchiver") -> None:
     """
     清理旧日志文件，只保留最近的 max_files 个
     """

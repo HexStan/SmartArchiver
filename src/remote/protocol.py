@@ -11,7 +11,7 @@ class RemoteAction(str, Enum):
     LIST_DIR = "list_dir"
 
     @classmethod
-    def is_valid(cls, value):
+    def is_valid(cls, value: object) -> bool:
         return value in cls._value2member_map_
 
 

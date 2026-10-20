@@ -4,9 +4,13 @@ import os
 import shutil
 import tomllib
 from dataclasses import dataclass, field
+from typing import Any
 
+from src.output.logger import Logger
 from src.remote import parse_remote_config
+from src.remote.client import RemoteClient
 from src.ssh import parse_ssh_remote_config
+from src.ssh.remotes import SshRemote
 
 
 class ConfigError(Exception):
@@ -17,9 +21,9 @@ class ConfigError(Exception):
 class ConfigData:
     """从配置文件加载的完整数据集。"""
 
-    config: dict
-    remote_clients: dict = field(default_factory=dict)
-    ssh_remotes: dict = field(default_factory=dict)
+    config: dict[str, Any]
+    remote_clients: dict[str, RemoteClient] = field(default_factory=dict)
+    ssh_remotes: dict[str, SshRemote] = field(default_factory=dict)
     used_backup: bool = False
 
 
@@ -30,7 +34,7 @@ class ConfigManager:
     两条路径共享相同的加载、验证和错误处理逻辑。
     """
 
-    def __init__(self, config_path, logger):
+    def __init__(self, config_path: str, logger: Logger) -> None:
         self._config_path = os.path.abspath(config_path)
         self._backup_path = os.path.splitext(self._config_path)[0] + ".backup.toml"
         self._logger = logger
@@ -38,7 +42,7 @@ class ConfigManager:
 
     # -- public API ----------------------------------------------------------
 
-    def load(self, config=None):
+    def load(self, config: dict[str, Any] | None = None) -> ConfigData:
         """初始加载配置。
 
         若调用方已预先读取过配置文件，可传入 *config* 字典以避免重复读取。
@@ -47,7 +51,7 @@ class ConfigManager:
             config = self.load_toml(self._config_path)
         return self._process(config, save_backup=True)
 
-    def reload(self):
+    def reload(self) -> ConfigData | None:
         """运行时重载配置。
 
         仅在文件 mtime 发生变化时执行；否则返回 ``None``。
@@ -64,27 +68,27 @@ class ConfigManager:
             self._last_mtime = self._get_mtime()
             return self._load_backup()
 
-    def has_changed(self):
+    def has_changed(self) -> bool:
         """配置文件 mtime 是否自上次加载后发生了变化。"""
         return self._get_mtime() != self._last_mtime
 
     # -- static helpers ------------------------------------------------------
 
     @staticmethod
-    def load_toml(path):
+    def load_toml(path: str) -> dict[str, Any]:
         """从路径读取 TOML 文件，返回字典。"""
         with open(path, "rb") as f:
             return tomllib.load(f)
 
     @staticmethod
-    def _validate_structure(config):
+    def _validate_structure(config: Any) -> None:
         """致命的结构验证——失败意味着配置文件不可用。"""
         if not isinstance(config, dict):
             raise ConfigError("配置文件内容不是有效的字典结构")
 
     # -- internal ------------------------------------------------------------
 
-    def _process(self, config, save_backup=False):
+    def _process(self, config: dict[str, Any], save_backup: bool = False) -> ConfigData:
         """加载流程核心：验证 → 解析远端 → 保存备份 → 更新 mtime。"""
         self._validate_structure(config)
         self._warn_task_structure(config)
@@ -105,7 +109,7 @@ class ConfigManager:
             used_backup=False,
         )
 
-    def _load_backup(self):
+    def _load_backup(self) -> ConfigData:
         """加载备份配置（致命失败会向上抛出）。"""
         try:
             config = self.load_toml(self._backup_path)
@@ -116,7 +120,7 @@ class ConfigManager:
         result.used_backup = True
         return result
 
-    def _warn_task_structure(self, config):
+    def _warn_task_structure(self, config: dict[str, Any]) -> None:
         """逐任务检查基础字段——仅警告，不阻止加载。"""
         tasks = config.get("tasks", [])
         for i, task in enumerate(tasks):
@@ -128,14 +132,14 @@ class ConfigManager:
             if "source" not in task:
                 self._logger.warning(f"任务 #{i + 1} 缺少 source 字段，将被跳过")
 
-    def _save_backup(self):
+    def _save_backup(self) -> None:
         """将当前配置文件复制为备份。"""
         try:
             shutil.copy2(self._config_path, self._backup_path)
         except OSError as e:
             self._logger.warning(f"保存配置备份失败: {e}")
 
-    def _get_mtime(self):
+    def _get_mtime(self) -> float:
         try:
             return os.path.getmtime(self._config_path)
         except OSError:

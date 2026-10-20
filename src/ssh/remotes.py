@@ -4,6 +4,7 @@ import os
 import re
 import subprocess
 from dataclasses import dataclass
+from typing import Any
 
 _ALIAS_PATTERN = re.compile(r"^[a-zA-Z0-9\-_]+$")
 
@@ -35,7 +36,7 @@ class SshRemote:
 # ============================================================
 
 
-def parse_ssh_remote_config(config: dict) -> dict[str, SshRemote]:
+def parse_ssh_remote_config(config: dict[str, Any]) -> dict[str, SshRemote]:
     """从顶级配置字典中解析 [[ssh_remotes]] 配置块。
 
     与 `parse_remote_config`（http_remotes）完全隔离，

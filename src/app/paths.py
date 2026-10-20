@@ -11,16 +11,17 @@ bundled_rclone_path() 负责在运行时定位它们。
 
 import os
 import sys
+from typing import Any
 
 import src
 
 
-def is_frozen():
+def is_frozen() -> bool:
     """是否运行于 PyInstaller 打包环境中。"""
     return getattr(sys, "frozen", False)
 
 
-def app_base_dir():
+def app_base_dir() -> str:
     """应用根目录：打包后为可执行文件所在目录，源码运行为仓库根目录。
 
     源码形态锚定 ``src`` 包的位置（仓库根 = src 包的父目录），
@@ -33,13 +34,13 @@ def app_base_dir():
     return os.path.dirname(src_dir)
 
 
-def config_path(is_server):
+def config_path(is_server: bool) -> str:
     """配置文件路径：客户端为 config/config.toml，服务器为 config/config.server.toml。"""
     name = "config/config.server.toml" if is_server else "config/config.toml"
     return os.path.join(app_base_dir(), name)
 
 
-def resolve_log_dir(raw_config):
+def resolve_log_dir(raw_config: dict[str, Any]) -> str:
     """解析日志目录：相对路径以应用根目录为基准，与启动时的工作目录无关。"""
     log_dir = raw_config.get("log_dir", "./logs")
     if log_dir and not os.path.isabs(log_dir):
@@ -47,7 +48,7 @@ def resolve_log_dir(raw_config):
     return log_dir
 
 
-def bundled_rclone_path():
+def bundled_rclone_path() -> str | None:
     """打包版内置 rclone 的绝对路径；未打包或内置缺失时返回 None。"""
     if not is_frozen():
         return None
@@ -65,7 +66,7 @@ def bundled_rclone_path():
     return path
 
 
-def _ensure_executable(path):
+def _ensure_executable(path: str) -> None:
     """兜底确保二进制具有可执行权限（防打包/解压过程丢失执行位）。"""
     if os.name == "nt":
         return

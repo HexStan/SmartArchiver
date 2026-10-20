@@ -16,7 +16,7 @@ import sys
 from src.app import control, runtime
 
 
-def _ensure_utf8_stdio():
+def _ensure_utf8_stdio() -> None:
     """管道/重定向场景下 stdout/stderr 默认跟随系统 ANSI 代码页，中文会直接
     UnicodeEncodeError（如 Windows 的 cp1252）；交互控制台走 WindowsConsoleIO，
     编码本就是 UTF-8，不受影响。此处将非 UTF-8 的流统一强制为 UTF-8，
@@ -29,7 +29,7 @@ def _ensure_utf8_stdio():
             stream.reconfigure(encoding="utf-8")
 
 
-def main():
+def main() -> None:
     _ensure_utf8_stdio()
 
     parser = argparse.ArgumentParser(

@@ -1,8 +1,10 @@
 import os
 import time
 from abc import ABC, abstractmethod
+from typing import Any
 
 from src.app.context import AppContext
+from src.core.backend import DestBackend
 from src.core.filters import FileFilterPolicy
 from src.core.patterns import parse_size_string
 from src.core.types import FileAction, MoverStats
@@ -15,7 +17,7 @@ from src.output.presentation import fmt_size as _fmt_size
 # ============================================================
 
 
-def validate_task_config(task, task_mode):
+def validate_task_config(task: dict[str, Any], task_mode: str) -> bool:
     """验证任务配置是否完整。"""
     ctx = AppContext.get()
 
@@ -79,12 +81,19 @@ def validate_task_config(task, task_mode):
 class FileChecker:
     """文件检查器：负责历史失败次数、时间阈值、文件锁检查。"""
 
-    def __init__(self, task, now=None):
+    def __init__(self, task: dict[str, Any], now: float | None = None) -> None:
         self.now = now or time.time()
         ctx = AppContext.get()
         self.max_retries = ctx.config.get("max_retries", 3)
 
-    def should_skip(self, src_path, rel_path, mtime, mtime_threshold_seconds, stats):
+    def should_skip(
+        self,
+        src_path: str,
+        rel_path: str,
+        mtime: float,
+        mtime_threshold_seconds: float,
+        stats: MoverStats,
+    ) -> bool:
         ctx = AppContext.get()
         should_skip, _fail_count = ctx.history_mgr.should_skip(src_path, self.max_retries)
         if should_skip:
@@ -114,15 +123,23 @@ class ActionExecutor:
     整合了原 actions.py 中 transfer_file 和 delete_file 的业务逻辑。
     """
 
-    def __init__(self, task, dest_backend):
-        self.source_root = task.get("source")
-        self.dest_root = task.get("dest")
+    def __init__(self, task: dict[str, Any], dest_backend: DestBackend) -> None:
+        self.source_root: str = task.get("source", "")
+        self.dest_root: str = task.get("dest", "")
         self.dest_backend = dest_backend
-        self.conflict_policy = task.get("conflict_policy", "skip").lower()
+        self.conflict_policy: str = task.get("conflict_policy", "skip").lower()
         self._dest_checked = False
         self._dest_valid = False
 
-    def execute(self, action, src_path, rel_path, size, stats, is_copy):
+    def execute(
+        self,
+        action: FileAction,
+        src_path: str,
+        rel_path: str,
+        size: int,
+        stats: MoverStats,
+        is_copy: bool,
+    ) -> bool:
         """根据 FileAction 分发到对应的处理方法。"""
         ctx = AppContext.get()
 
@@ -156,7 +173,9 @@ class ActionExecutor:
 
         return True
 
-    def _transfer(self, src_path, file_size, rel_path, stats, is_copy):
+    def _transfer(
+        self, src_path: str, file_size: int, rel_path: str, stats: MoverStats, is_copy: bool
+    ) -> None:
         """执行文件传输（复制或移动），处理冲突策略。"""
         ctx = AppContext.get()
         dest_path = self.dest_backend.build_dest_path(rel_path)
@@ -208,7 +227,7 @@ class ActionExecutor:
             ctx.logger.error(f"{action_name}文件失败 ({count} 次): {rel_path}\n{e}")
             stats.record_error()
 
-    def _delete(self, src_path, file_size, stats):
+    def _delete(self, src_path: str, file_size: int, stats: MoverStats) -> None:
         """执行文件删除。"""
         ctx = AppContext.get()
         rel_path = os.path.relpath(src_path, self.source_root)
@@ -228,15 +247,20 @@ class ActionExecutor:
 
 
 class BaseTaskHandler(ABC):
-    def __init__(self, task, dest_backend, now=None):
+    def __init__(
+        self,
+        task: dict[str, Any],
+        dest_backend: DestBackend,
+        now: float | None = None,
+    ) -> None:
         self.task = task
         self.now = now or time.time()
         self.stats = MoverStats()
-        self.source_root = task.get("source")
-        self.dest_root = task.get("dest")
+        self.source_root: str = task.get("source", "")
+        self.dest_root: str = task.get("dest", "")
         self.dest_backend = dest_backend
-        self.task_mode = task.get("mode", "").lower()
-        self.remove_empty_dirs = task.get("remove_empty_dirs", False)
+        self.task_mode: str = task.get("mode", "").lower()
+        self.remove_empty_dirs: bool = task.get("remove_empty_dirs", False)
 
         merged_config = {
             "include_rules": task.get("include_rules", {})
@@ -249,9 +273,8 @@ class BaseTaskHandler(ABC):
         self.checker = FileChecker(task, now)
         self.executor = ActionExecutor(task, dest_backend)
 
-    def validate(self):
+    def validate(self) -> bool:
         return validate_task_config(self.task, self.task_mode)
 
     @abstractmethod
-    def execute(self):
-        pass
+    def execute(self) -> None: ...

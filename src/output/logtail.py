@@ -14,14 +14,19 @@ import glob
 import os
 import sys
 import time
+from collections.abc import Callable
+from typing import TextIO
 
 from src.output.statusbar import StatusBar
 
 # 回读末尾 N 行时按块向前扫描的块大小
 _TAIL_BLOCK_SIZE = 8192
 
+# 实例状态源：每次调用返回 (运行中, PID)，与 statusbar.StatusProvider 同形
+StatusProvider = Callable[[], tuple[bool, int | None]]
 
-def newest_log_file(log_dir, prefix):
+
+def newest_log_file(log_dir: str, prefix: str) -> str | None:
     """返回字典序最新的日志文件路径；没有任何日志时返回 None。
 
     文件名内嵌 YYYY-MM-DD，字典序即时间序，取 max 即最新。
@@ -33,8 +38,7 @@ def newest_log_file(log_dir, prefix):
     return max(files)
 
 
-def tail_lines(path, count):
-    """返回文件末尾 count 行（str 列表，不含换行符）。"""
+def tail_lines(path: str, count: int) -> list[str]:
     if count <= 0:
         return []
     with open(path, "rb") as f:
@@ -62,17 +66,24 @@ class LogFollower:
             注入后且输出流为真实终端时启用底部状态栏，None 则关闭。
     """
 
-    def __init__(self, log_dir, prefix, poll_interval=0.5, out=None, status_provider=None):
+    def __init__(
+        self,
+        log_dir: str,
+        prefix: str,
+        poll_interval: float = 0.5,
+        out: TextIO | None = None,
+        status_provider: StatusProvider | None = None,
+    ) -> None:
         self.log_dir = log_dir
         self.prefix = prefix
         self.poll_interval = poll_interval
-        self.out = out or sys.stdout
+        self.out: TextIO = out or sys.stdout
         self.status_provider = status_provider
-        self._bar = None
-        self._current = None
+        self._bar: StatusBar | None = None
+        self._current: str | None = None
         self._offset = 0
 
-    def follow(self, lines=100):
+    def follow(self, lines: int = 100) -> None:
         """阻塞跟随日志；KeyboardInterrupt 由调用方处理，退出时恢复终端。"""
         self._bar = StatusBar.create(self.out, self.status_provider)
         try:
@@ -86,7 +97,7 @@ class LogFollower:
             if self._bar is not None:
                 self._bar.close()
 
-    def _tick(self):
+    def _tick(self) -> None:
         """单轮跟随：刷新状态栏，随后读取日志增量。"""
         if self._bar is not None:
             self._bar.refresh()
@@ -94,7 +105,7 @@ class LogFollower:
 
     # ---- 内部实现 ----------------------------------------------------
 
-    def _print_tail(self, count):
+    def _print_tail(self, count: int) -> None:
         path = newest_log_file(self.log_dir, self.prefix)
         if path is None:
             self._emit(f"（{self.log_dir} 下暂无日志文件，等待新日志产生……）")
@@ -107,7 +118,7 @@ class LogFollower:
         except OSError:
             self._offset = 0
 
-    def _step(self):
+    def _step(self) -> None:
         """单次轮询：切换到更新的日志文件并输出新增内容。"""
         newest = newest_log_file(self.log_dir, self.prefix)
         if newest is None:
@@ -134,8 +145,10 @@ class LogFollower:
         if size > self._offset:
             self._read_and_emit()
 
-    def _read_and_emit(self):
+    def _read_and_emit(self) -> None:
         """从上次偏移读到文件尾，只输出完整行（半行留待下次轮询）。"""
+        if self._current is None:
+            return
         try:
             with open(self._current, "rb") as f:
                 f.seek(self._offset)
@@ -151,5 +164,5 @@ class LogFollower:
             self._emit(line)
         self._offset += cut + 1
 
-    def _emit(self, text):
+    def _emit(self, text: str) -> None:
         print(text, file=self.out, flush=True)

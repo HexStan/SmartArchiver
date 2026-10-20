@@ -1,17 +1,50 @@
 """统一的表现层：集中所有 humanfriendly 格式化调用和任务输出格式化"""
 
+from typing import Any, Protocol
+
 from humanfriendly import format_size, format_timespan
 
+from src.output.logger import Logger
 
-def fmt_size(size_bytes, binary=True):
+
+def fmt_size(size_bytes: float, binary: bool = True) -> str:
     return format_size(size_bytes, binary=binary)
 
 
-def fmt_timespan(seconds):
+def fmt_timespan(seconds: float) -> str:
     return format_timespan(seconds)
 
 
-def print_task_header(task, logger):
+class TaskStats(Protocol):
+    """任务统计接口（结构化协议）。
+
+    生产实现为 core.types.MoverStats；output 层不反向依赖 core，
+    故以协议声明本模块消费的最小统计面。
+    """
+
+    @property
+    def success(self) -> int: ...
+
+    @property
+    def error(self) -> int: ...
+
+    @property
+    def dropped(self) -> int: ...
+
+    @property
+    def kept(self) -> int: ...
+
+    @property
+    def deleted(self) -> int: ...
+
+    @property
+    def conflict_skipped(self) -> int: ...
+
+    @property
+    def locked_skipped(self) -> int: ...
+
+
+def print_task_header(task: dict[str, Any], logger: Logger) -> None:
     source_root = task.get("source")
     dest_root = task.get("dest")
     task_mode = task.get("mode", "").lower()
@@ -50,7 +83,7 @@ def print_task_header(task, logger):
             logger.info(f" - 数量限制: {count_limit}")
 
 
-def print_task_summary(stats, duration, total_bytes, logger):
+def print_task_summary(stats: TaskStats, duration: float, total_bytes: int, logger: Logger) -> None:
     duration_str = fmt_timespan(duration)
     total_size_str = fmt_size(total_bytes, binary=True)
     speed_str = fmt_size(total_bytes / max(duration, 0.001), binary=True) + "/s"

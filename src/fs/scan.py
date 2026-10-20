@@ -1,6 +1,7 @@
 """路径查询与目录枚举：只读探测、元数据获取、目录创建与体量统计。"""
 
 import os
+from dataclasses import dataclass
 
 from src.fs.errors import FsOpError, PermissionDeniedError
 
@@ -9,28 +10,24 @@ from src.fs.errors import FsOpError, PermissionDeniedError
 # ============================================================
 
 
+@dataclass(slots=True, frozen=True)
 class StatResult:
     """os.stat 的结构化返回。"""
 
-    __slots__ = ("exists", "is_dir", "mtime", "size")
-
-    def __init__(self, size=0, mtime=0, is_dir=False, exists=False):
-        self.size = size
-        self.mtime = mtime
-        self.is_dir = is_dir
-        self.exists = exists
+    size: int = 0
+    mtime: float = 0
+    is_dir: bool = False
+    exists: bool = False
 
 
+@dataclass(slots=True, frozen=True)
 class DirEntry:
     """目录条目信息。"""
 
-    __slots__ = ("is_dir", "mtime", "name", "size")
-
-    def __init__(self, name, is_dir=False, size=0, mtime=0):
-        self.name = name
-        self.is_dir = is_dir
-        self.size = size
-        self.mtime = mtime
+    name: str
+    is_dir: bool = False
+    size: int = 0
+    mtime: float = 0
 
 
 # ============================================================
@@ -38,17 +35,17 @@ class DirEntry:
 # ============================================================
 
 
-def path_exists(path):
+def path_exists(path: str) -> bool:
     """检查路径是否存在。"""
     return os.path.exists(path)
 
 
-def is_dir(path):
+def is_dir(path: str) -> bool:
     """检查路径是否为目录。"""
     return os.path.isdir(path)
 
 
-def get_stat(path):
+def get_stat(path: str) -> StatResult:
     """获取路径的元数据。
 
     返回 StatResult，其中 exists 字段指示路径是否存在。
@@ -70,7 +67,7 @@ def get_stat(path):
         raise FsOpError(f"无法获取文件信息: {path} — {e}")
 
 
-def list_dir(path):
+def list_dir(path: str) -> list[DirEntry]:
     """列出目录内容，返回 DirEntry 列表。"""
     if not os.path.isdir(path):
         raise FsOpError(f"不是目录: {path}")
@@ -105,7 +102,7 @@ def list_dir(path):
 # ============================================================
 
 
-def ensure_dir(path):
+def ensure_dir(path: str) -> None:
     """创建目录（含父目录），目录已存在时不报错。"""
     try:
         os.makedirs(path, exist_ok=True)
@@ -115,7 +112,7 @@ def ensure_dir(path):
         raise FsOpError(f"创建目录失败: {path} — {e}")
 
 
-def get_dir_size_and_mtime(dir_path):
+def get_dir_size_and_mtime(dir_path: str) -> tuple[int, float]:
     """递归计算目录总大小和最新修改时间。
 
     返回 (total_size: int, latest_mtime: float)。

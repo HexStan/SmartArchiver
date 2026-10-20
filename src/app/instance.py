@@ -18,8 +18,13 @@ import sys
 import tempfile
 import threading
 import time
+from collections.abc import Callable
+from types import TracebackType
+from typing import Any, Self, TextIO, override
 
 import psutil
+
+from src.output.logger import Logger
 
 try:
     import fcntl
@@ -27,6 +32,8 @@ except ImportError:
     fcntl = None
 
 try:
+    # pyrefly 按 Linux 语义检查（见 pyrefly.toml），msvcrt 是 Windows 专属
+    # 模块，其属性在 Linux 语义下不可见；此处运行时由 ImportError 守卫
     import msvcrt
 except ImportError:
     msvcrt = None
@@ -56,12 +63,12 @@ DEFAULT_INSTANCE_NAME = "smartarchiver"
 DEFAULT_SERVER_INSTANCE_NAME = "smartarchiver-server"
 
 
-def _lock_available():
+def _lock_available() -> bool:
     """当前平台是否具备文件锁原语（POSIX 的 fcntl 或 Windows 的 msvcrt）。"""
     return fcntl is not None or msvcrt is not None
 
 
-def _acquire_lock(fp):
+def _acquire_lock(fp: TextIO) -> None:
     """在已打开的文件对象上加非阻塞排他锁，锁被占用时抛出 OSError。"""
     if fcntl is not None:
         # LOCK_EX: 排他锁, LOCK_NB: 非阻塞
@@ -70,19 +77,19 @@ def _acquire_lock(fp):
         # Windows 的字节范围锁作用于当前位置起的若干字节，
         # 对空文件的首字节加锁同样有效
         fp.seek(0)
-        msvcrt.locking(fp.fileno(), msvcrt.LK_NBLCK, 1)
+        msvcrt.locking(fp.fileno(), msvcrt.LK_NBLCK, 1)  # type: ignore[pyrefly:missing-attribute]
 
 
-def _release_lock(fp):
+def _release_lock(fp: TextIO) -> None:
     """释放 _acquire_lock 加上的锁（Windows 必须对同一字节区间解锁）。"""
     if fcntl is not None:
         fcntl.flock(fp, fcntl.LOCK_UN)
     elif msvcrt is not None:
         fp.seek(0)
-        msvcrt.locking(fp.fileno(), msvcrt.LK_UNLCK, 1)
+        msvcrt.locking(fp.fileno(), msvcrt.LK_UNLCK, 1)  # type: ignore[pyrefly:missing-attribute]
 
 
-def resolve_instance_name(value, default_name):
+def resolve_instance_name(value: object, default_name: str) -> tuple[str, bool]:
     """把 instance_name 配置值解析为实例标识，返回 (标识, 是否非法回退)。
 
     配置值只接受纯名称（不含任何路径成分），锁文件、控制文件、PID
@@ -109,16 +116,16 @@ class SingleInstance:
       PID 文件与控制文件——持锁期间它们必然属于本实例
     """
 
-    def __init__(self, instance_name, logger):
+    def __init__(self, instance_name: str, logger: Logger) -> None:
         self.instance_name = instance_name
         directory = tempfile.gettempdir()
         self.lock_file_path = os.path.join(directory, f"{instance_name}.lock")
         self.pid_file_path = os.path.join(directory, f"{instance_name}.pid")
         self.ctl_file_path = os.path.join(directory, f"{instance_name}.ctl")
         self.logger = logger
-        self.fp = None
+        self.fp: TextIO | None = None
 
-    def __enter__(self):
+    def __enter__(self) -> Self:
         if not _lock_available():
             self.logger.warning("当前平台没有可用的文件锁原语，实例锁未启用。")
             return self
@@ -141,7 +148,7 @@ class SingleInstance:
         self._write_pid_file()
         return self
 
-    def _write_pid_file(self):
+    def _write_pid_file(self) -> None:
         """写入本进程 PID，供 stop --fast 超时强杀定位目标。"""
         try:
             with open(self.pid_file_path, "w", encoding="utf-8") as f:
@@ -149,7 +156,7 @@ class SingleInstance:
         except OSError as e:
             self.logger.warning(f"写入 PID 文件失败（stop --fast 将无法强杀兜底）: {e}")
 
-    def _cleanup_runtime_files(self):
+    def _cleanup_runtime_files(self) -> None:
         """清理 PID 文件与控制文件（必须在释放锁之前执行）。"""
         for path in (self.pid_file_path, self.ctl_file_path):
             try:
@@ -157,7 +164,12 @@ class SingleInstance:
             except OSError:
                 pass
 
-    def __exit__(self, _type, value, traceback):
+    def __exit__(
+        self,
+        _type: type[BaseException] | None,
+        value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
         if self.fp is None:
             return
         self._cleanup_runtime_files()
@@ -173,7 +185,7 @@ class SingleInstance:
             self.fp = None
 
 
-def resolve_identity(raw_config, is_server=False):
+def resolve_identity(raw_config: dict[str, Any], is_server: bool = False) -> tuple[str, bool]:
     """从原始配置解析实例标识，返回 (标识, 是否非法回退默认)。"""
     default = DEFAULT_SERVER_INSTANCE_NAME if is_server else DEFAULT_INSTANCE_NAME
     return resolve_instance_name(raw_config.get("instance_name"), default)
@@ -182,28 +194,28 @@ def resolve_identity(raw_config, is_server=False):
 class InstancePaths:
     """实例运行时文件的路径集合（锁 / 控制 / PID，均在系统临时目录）。"""
 
-    def __init__(self, name):
-        self.name = name
-        self.directory = tempfile.gettempdir()
+    def __init__(self, name: str) -> None:
+        self.name: str = name
+        self.directory: str = tempfile.gettempdir()
 
     @property
-    def lock(self):
+    def lock(self) -> str:
         return os.path.join(self.directory, f"{self.name}.lock")
 
     @property
-    def ctl(self):
+    def ctl(self) -> str:
         return os.path.join(self.directory, f"{self.name}.ctl")
 
     @property
-    def pid(self):
+    def pid(self) -> str:
         return os.path.join(self.directory, f"{self.name}.pid")
 
 
-def instance_paths(instance_name):
+def instance_paths(instance_name: str) -> InstancePaths:
     return InstancePaths(instance_name)
 
 
-def is_running(instance_name):
+def is_running(instance_name: str) -> bool:
     """探测是否存在持有实例锁的运行实例。
 
     以「能否拿到锁」为准而不是检查 PID：锁由操作系统在进程退出
@@ -224,7 +236,7 @@ def is_running(instance_name):
         return False
 
 
-def read_pid(instance_name):
+def read_pid(instance_name: str) -> int | None:
     """读取运行实例的 PID；文件缺失或内容非法时返回 None。"""
     try:
         with open(instance_paths(instance_name).pid, encoding="utf-8") as f:
@@ -233,7 +245,7 @@ def read_pid(instance_name):
         return None
 
 
-def send_stop(instance_name, mode):
+def send_stop(instance_name: str, mode: str) -> None:
     """原子写入停止指令到控制文件（临时文件 + os.replace）。"""
     if mode not in _STOP_MODES:
         raise ValueError(f"未知的停止模式: {mode}")
@@ -252,7 +264,12 @@ def send_stop(instance_name, mode):
         raise
 
 
-def wait_for_exit(instance_name, timeout=None, poll_interval=0.25, on_wait=None):
+def wait_for_exit(
+    instance_name: str,
+    timeout: float | None = None,
+    poll_interval: float = 0.25,
+    on_wait: Callable[[float], None] | None = None,
+) -> bool:
     """阻塞等待实例退出（基于锁探测轮询），返回 True 表示已退出。
 
     Args:
@@ -271,7 +288,7 @@ def wait_for_exit(instance_name, timeout=None, poll_interval=0.25, on_wait=None)
         time.sleep(poll_interval)
 
 
-def force_kill_tree(pid, term_timeout=3.0):
+def force_kill_tree(pid: int, term_timeout: float = 3.0) -> bool:
     """强制结束进程及其全部后代（``stop --fast`` 的兜底手段）。
 
     动手前 best-effort 校验目标进程的可执行文件名与当前程序一致，
@@ -298,7 +315,7 @@ def force_kill_tree(pid, term_timeout=3.0):
     return True
 
 
-def _pid_belongs_to_us(process):
+def _pid_belongs_to_us(process: psutil.Process) -> bool:
     """best-effort 校验目标进程是本程序（可执行文件名一致）。"""
     try:
         exe = process.exe()
@@ -310,7 +327,7 @@ def _pid_belongs_to_us(process):
     return os.path.basename(exe).lower() == expected
 
 
-def _terminate_and_kill(targets, term_timeout):
+def _terminate_and_kill(targets: list[psutil.Process], term_timeout: float) -> None:
     """先 terminate 后 kill：给进程留出优雅退出的窗口，超时者强杀。"""
     for proc in targets:
         try:
@@ -325,7 +342,9 @@ def _terminate_and_kill(targets, term_timeout):
             pass
 
 
-def terminate_process_tree(pid, term_timeout=3.0, logger=None):
+def terminate_process_tree(
+    pid: int, term_timeout: float = 3.0, logger: Logger | None = None
+) -> None:
     """终止进程树，不留孤儿进程。
 
     供 ``ShutdownCoordinator`` 在 fast 中止时终止外部同步进程
@@ -358,14 +377,17 @@ class ControlWatcher(threading.Thread):
     崩溃残留）会被忽略，避免误停新实例。
     """
 
-    def __init__(self, instance_name, on_command, poll_interval=0.5):
+    def __init__(
+        self, instance_name: str, on_command: Callable[[str], None], poll_interval: float = 0.5
+    ) -> None:
         super().__init__(daemon=True, name=f"control-watcher-{instance_name}")
         self._ctl_path = instance_paths(instance_name).ctl
         self._on_command = on_command
         self._poll_interval = poll_interval
         self._started_at = time.time()
 
-    def run(self):
+    @override
+    def run(self) -> None:
         while True:
             try:
                 self.poll_once()
@@ -374,7 +396,7 @@ class ControlWatcher(threading.Thread):
                 logger.error(f"处理控制指令时发生错误: {e}")
             time.sleep(self._poll_interval)
 
-    def poll_once(self):
+    def poll_once(self) -> None:
         """单次轮询：读取、校验、删除控制文件并分发指令。"""
         try:
             with open(self._ctl_path, encoding="utf-8") as f:

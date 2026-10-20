@@ -1,4 +1,6 @@
 import os
+from collections.abc import Callable, Mapping
+from typing import Any
 
 from src.core.patterns import match_pattern, parse_size_string
 from src.core.types import FileAction
@@ -11,13 +13,13 @@ class FileFilterPolicy:
     """
 
     class _RuleSet:
-        def __init__(self, rules_config):
+        def __init__(self, rules_config: dict[str, Any]) -> None:
             """内部辅助类，用于解析目录和文件的匹配规则"""
 
-            self.dir_rules_lt = {}
-            self.dir_rules_ge = {}
-            self.file_rules_lt = {}
-            self.file_rules_ge = {}
+            self.dir_rules_lt: dict[str, int] = {}
+            self.dir_rules_ge: dict[str, int] = {}
+            self.file_rules_lt: dict[str, int] = {}
+            self.file_rules_ge: dict[str, int] = {}
 
             self._parse_rules(
                 rules_config,
@@ -27,7 +29,14 @@ class FileFilterPolicy:
                 self.file_rules_ge,
             )
 
-        def _parse_rules(self, raw_rules, dir_lt, dir_ge, file_lt, file_ge):
+        def _parse_rules(
+            self,
+            raw_rules: dict[str, Any],
+            dir_lt: dict[str, int],
+            dir_ge: dict[str, int],
+            file_lt: dict[str, int],
+            file_ge: dict[str, int],
+        ) -> None:
             for pattern, size_str in raw_rules.get("lt", {}).items():
                 size = parse_size_string(size_str)
                 if pattern.endswith("/"):
@@ -42,7 +51,9 @@ class FileFilterPolicy:
                 else:
                     file_ge[pattern] = size
 
-        def matches(self, name, size_or_callable, is_dir=False):
+        def matches(
+            self, name: str, size_or_callable: int | Callable[[], int], is_dir: bool = False
+        ) -> bool:
             """
             判断文件或目录是否命中该组规则。
             支持惰性求值：如果命中 ge 且阈值为 0，则不调用 size_or_callable 获取大小。
@@ -77,18 +88,24 @@ class FileFilterPolicy:
             return False
 
         @property
-        def has_rules(self):
+        def has_rules(self) -> bool:
             return bool(
                 self.dir_rules_lt or self.dir_rules_ge or self.file_rules_lt or self.file_rules_ge
             )
 
-    def __init__(self, config):
+    def __init__(self, config: dict[str, Any]) -> None:
         self.include_rules = self._RuleSet(config.get("include_rules", {}))
         self.exclude_rules = self._RuleSet(config.get("exclude_rules", {}))
         self.delete_rules = self._RuleSet(config.get("delete_rules", {}))
-        self.included_dirs = set()
+        self.included_dirs: set[str] = set()
 
-    def decide(self, name, size_or_callable, is_dir=False, parent_dir_sizes=None):
+    def decide(
+        self,
+        name: str,
+        size_or_callable: int | Callable[[], int],
+        is_dir: bool = False,
+        parent_dir_sizes: Mapping[str, int | Callable[[], int]] | None = None,
+    ) -> FileAction:
         """
         根据名称和大小，返回 FileAction 决策。
         size_or_callable 可以是一个数值，也可以是一个返回数值的可调用对象（用于惰性求值）。
@@ -108,7 +125,9 @@ class FileFilterPolicy:
 
         return FileAction.TRANSFER
 
-    def _is_included(self, name, size_or_callable, is_dir):
+    def _is_included(
+        self, name: str, size_or_callable: int | Callable[[], int], is_dir: bool
+    ) -> bool:
         if is_dir:
             if self.include_rules.matches(name, size_or_callable, is_dir=True):
                 normalized_name = name.replace("\\", "/")
@@ -128,7 +147,13 @@ class FileFilterPolicy:
 
         return False
 
-    def _check_exclude(self, name, size_or_callable, is_dir, parent_dir_sizes):
+    def _check_exclude(
+        self,
+        name: str,
+        size_or_callable: int | Callable[[], int],
+        is_dir: bool,
+        parent_dir_sizes: Mapping[str, int | Callable[[], int]] | None,
+    ) -> bool:
         if self.exclude_rules.matches(name, size_or_callable, is_dir):
             return True
         if not is_dir and parent_dir_sizes:
@@ -142,7 +167,13 @@ class FileFilterPolicy:
                 parent = os.path.dirname(parent)
         return False
 
-    def _check_delete(self, name, size_or_callable, is_dir, parent_dir_sizes):
+    def _check_delete(
+        self,
+        name: str,
+        size_or_callable: int | Callable[[], int],
+        is_dir: bool,
+        parent_dir_sizes: Mapping[str, int | Callable[[], int]] | None,
+    ) -> bool:
         if self.delete_rules.matches(name, size_or_callable, is_dir):
             return True
         if not is_dir and parent_dir_sizes:

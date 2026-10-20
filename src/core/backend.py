@@ -2,48 +2,44 @@ import os
 import re
 import subprocess
 from abc import ABC, abstractmethod
+from typing import override
 
 from src import fs
 from src.app.context import AppContext
+from src.fs.scan import DirEntry, StatResult
+from src.remote.client import RemoteClient
 from src.ssh.remotes import SshRemote, build_ssh_command, build_ssh_target
 
 
 class DestBackend(ABC):
-    def __init__(self, root_path):
+    def __init__(self, root_path: str) -> None:
         self.root_path = root_path
 
-    def build_dest_path(self, rel_path):
+    def build_dest_path(self, rel_path: str) -> str:
         return os.path.normpath(os.path.join(self.root_path, rel_path))
 
     @abstractmethod
-    def exists(self, path):
-        pass
+    def exists(self, path: str) -> bool: ...
 
     @abstractmethod
-    def is_dir(self, path):
-        pass
+    def is_dir(self, path: str) -> bool: ...
 
     @abstractmethod
-    def makedirs(self, path):
-        pass
+    def makedirs(self, path: str) -> None: ...
 
     @abstractmethod
-    def copy_file(self, src_local_path, dest_path):
-        pass
+    def copy_file(self, src_local_path: str, dest_path: str) -> None: ...
 
     @abstractmethod
-    def move_file(self, src_local_path, dest_path):
-        pass
+    def move_file(self, src_local_path: str, dest_path: str) -> None: ...
 
     @abstractmethod
-    def stat(self, path):
-        pass
+    def stat(self, path: str) -> StatResult: ...
 
     @abstractmethod
-    def list_dir(self, path):
-        pass
+    def list_dir(self, path: str) -> list[DirEntry]: ...
 
-    def get_unique_dest(self, dest_path):
+    def get_unique_dest(self, dest_path: str) -> str:
         if not self.exists(dest_path):
             return dest_path
 
@@ -66,25 +62,32 @@ class DestBackend(ABC):
 
 
 class LocalDestBackend(DestBackend):
-    def exists(self, path):
+    @override
+    def exists(self, path: str) -> bool:
         return fs.path_exists(path)
 
-    def is_dir(self, path):
+    @override
+    def is_dir(self, path: str) -> bool:
         return fs.is_dir(path)
 
-    def makedirs(self, path):
+    @override
+    def makedirs(self, path: str) -> None:
         fs.ensure_dir(path)
 
-    def copy_file(self, src_local_path, dest_path):
+    @override
+    def copy_file(self, src_local_path: str, dest_path: str) -> None:
         fs.copy_file(src_local_path, dest_path)
 
-    def move_file(self, src_local_path, dest_path):
+    @override
+    def move_file(self, src_local_path: str, dest_path: str) -> None:
         fs.move_file(src_local_path, dest_path)
 
-    def stat(self, path):
+    @override
+    def stat(self, path: str) -> StatResult:
         return fs.get_stat(path)
 
-    def list_dir(self, path):
+    @override
+    def list_dir(self, path: str) -> list[DirEntry]:
         return fs.list_dir(path)
 
 
@@ -94,43 +97,51 @@ class LocalDestBackend(DestBackend):
 
 
 class RemoteDestBackend(DestBackend):
-    def __init__(self, client, remote_root):
+    def __init__(self, client: RemoteClient, remote_root: str) -> None:
         super().__init__(remote_root)
         self._client = client
 
-    def build_dest_path(self, rel_path):
+    @override
+    def build_dest_path(self, rel_path: str) -> str:
         rel_normalized = rel_path.replace("\\", "/")
         return f"{self.root_path.rstrip('/')}/{rel_normalized}"
 
-    def exists(self, path):
+    @override
+    def exists(self, path: str) -> bool:
         return self._client.exists(path)
 
-    def is_dir(self, path):
+    @override
+    def is_dir(self, path: str) -> bool:
         return self._client.is_dir(path)
 
-    def makedirs(self, path):
+    @override
+    def makedirs(self, path: str) -> None:
         self._client.mkdir(path)
 
-    def copy_file(self, src_local_path, dest_path):
+    @override
+    def copy_file(self, src_local_path: str, dest_path: str) -> None:
         self._client.upload(src_local_path, dest_path)
 
-    def move_file(self, src_local_path, dest_path):
+    @override
+    def move_file(self, src_local_path: str, dest_path: str) -> None:
         self._client.upload(src_local_path, dest_path)
         fs.delete_file(src_local_path)
 
-    def stat(self, path):
+    @override
+    def stat(self, path: str) -> StatResult:
         result = self._client.stat(path)
-        return fs.StatResult(
+        return StatResult(
             exists=result["exists"],
             size=result["size"],
             mtime=result["mtime"],
             is_dir=result["is_dir"],
         )
 
-    def list_dir(self, path):
+    @override
+    def list_dir(self, path: str) -> list[DirEntry]:
         entries = self._client.list_dir(path)
         return [
-            fs.DirEntry(
+            DirEntry(
                 name=e["name"],
                 is_dir=e["is_dir"],
                 size=e["size"],
@@ -159,11 +170,12 @@ class SshDestBackend(DestBackend):
     额外提供远端目录管理方法供 SyncHandler 使用。
     """
 
-    def __init__(self, remote: SshRemote, remote_root: str):
+    def __init__(self, remote: SshRemote, remote_root: str) -> None:
         super().__init__(remote_root)
         self.remote = remote
 
-    def is_dir(self, path):
+    @override
+    def is_dir(self, path: str) -> bool:
         """通过 SSH 检测远端路径是否为目录。"""
         cmd = build_ssh_command(self.remote)
         target = build_ssh_target(self.remote)
@@ -181,7 +193,7 @@ class SshDestBackend(DestBackend):
         except subprocess.TimeoutExpired, FileNotFoundError, OSError:
             return False
 
-    def remote_list_dir(self, path):
+    def remote_list_dir(self, path: str) -> list[str]:
         """通过 SSH 列出远端目录内容，返回名称列表并按字母排序。"""
         cmd = build_ssh_command(self.remote)
         target = build_ssh_target(self.remote)
@@ -206,7 +218,7 @@ class SshDestBackend(DestBackend):
             pass
         return []
 
-    def remote_rmdir(self, path):
+    def remote_rmdir(self, path: str) -> bool:
         """通过 SSH 递归删除远端目录。"""
         cmd = build_ssh_command(self.remote)
         target = build_ssh_target(self.remote)
@@ -225,22 +237,28 @@ class SshDestBackend(DestBackend):
 
     # ---- 非 sync 模式不支持的方法 ----
 
-    def exists(self, path):
+    @override
+    def exists(self, path: str) -> bool:
         raise NotImplementedError
 
-    def makedirs(self, path):
+    @override
+    def makedirs(self, path: str) -> None:
         raise NotImplementedError
 
-    def copy_file(self, src_local_path, dest_path):
+    @override
+    def copy_file(self, src_local_path: str, dest_path: str) -> None:
         raise NotImplementedError
 
-    def move_file(self, src_local_path, dest_path):
+    @override
+    def move_file(self, src_local_path: str, dest_path: str) -> None:
         raise NotImplementedError
 
-    def stat(self, path):
+    @override
+    def stat(self, path: str) -> StatResult:
         raise NotImplementedError
 
-    def list_dir(self, path):
+    @override
+    def list_dir(self, path: str) -> list[DirEntry]:
         raise NotImplementedError
 
 
@@ -254,7 +272,7 @@ _REMOTE_DEST_PATTERN = re.compile(r"^\{([a-z]+):([a-zA-Z0-9\-_]+)\}\?(.*)")
 _WIN_REMOTE_PATH_PATTERN = re.compile(r"^[A-Za-z]:([\\/].*)?$")
 
 
-def _normalize_http_remote_path(remote_path):
+def _normalize_http_remote_path(remote_path: str) -> str:
     """归一化 HTTP 远端根路径。
 
     POSIX 路径统一为单一前导 /；Windows 盘符路径（如 D:/Backup）本身
@@ -267,7 +285,11 @@ def _normalize_http_remote_path(remote_path):
     return "/" + remote_path.lstrip("/")
 
 
-def create_dest_backend(dest_root, remote_clients, ssh_remotes=None):
+def create_dest_backend(
+    dest_root: str,
+    remote_clients: dict[str, RemoteClient],
+    ssh_remotes: dict[str, SshRemote] | None = None,
+) -> DestBackend:
     if dest_root and isinstance(dest_root, str):
         m = _REMOTE_DEST_PATTERN.match(dest_root)
         if m:

@@ -1,5 +1,6 @@
 import os
 import time
+from typing import override
 
 from src import fs
 from src.app.context import AppContext
@@ -12,7 +13,8 @@ from src.output.presentation import fmt_size, print_task_header, print_task_summ
 
 @register_handler("move", "copy")
 class StandardHandler(BaseTaskHandler):
-    def execute(self):
+    @override
+    def execute(self) -> None:
         if not self.validate():
             return
 
@@ -48,17 +50,19 @@ class StandardHandler(BaseTaskHandler):
             ctx.logger,
         )
 
-    def _process_directories(self, dirs, root, mtime_threshold_seconds):
+    def _process_directories(
+        self, dirs: list[str], root: str, mtime_threshold_seconds: float
+    ) -> None:
         ctx = AppContext.get()
-        dirs_to_remove = []
+        dirs_to_remove: list[str] = []
         for d in dirs:
             dir_path = os.path.join(root, d)
             rel_dir_path = os.path.relpath(dir_path, self.source_root)
 
-            dir_size_cache = []
-            dir_mtime_cache = []
+            dir_size_cache: list[int] = []
+            dir_mtime_cache: list[float] = []
 
-            def get_size():
+            def get_size() -> int:
                 if not dir_size_cache:
                     s, m = get_dir_size_and_mtime(dir_path)
                     dir_size_cache.append(s)
@@ -96,7 +100,9 @@ class StandardHandler(BaseTaskHandler):
         for d in dirs_to_remove:
             dirs.remove(d)
 
-    def _process_files(self, files, root, mtime_threshold_seconds, is_copy):
+    def _process_files(
+        self, files: list[str], root: str, mtime_threshold_seconds: float, is_copy: bool
+    ) -> bool:
         ctx = AppContext.get()
 
         for file in files:

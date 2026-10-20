@@ -1,6 +1,8 @@
 import os
 import time
 import urllib.parse
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any
 
 from flask import Flask, jsonify, request
 
@@ -13,11 +15,16 @@ from src.remote.concurrency import (
 )
 from src.remote.protocol import UPLOAD_PATH, RemoteAction
 
+if TYPE_CHECKING:
+    from src.app.instance import InstancePaths
+    from src.app.shutdown import ShutdownCoordinator
+    from src.output.logger import Logger
+
 # 收到停止指令后，等待在途请求收尾的最长时间（临时文件由 atomic_writer 清理）
 _STOP_DRAIN_TIMEOUT = 3.0
 
 
-def _parse_queue_timeout():
+def _parse_queue_timeout() -> float:
     """从请求头解析客户端允许的最大排队秒数。"""
     raw = request.headers.get("X-Queue-Timeout", "0")
     try:
@@ -29,14 +36,14 @@ def _parse_queue_timeout():
         return 0.0
 
 
-def _make_disconnect_checker():
+def _make_disconnect_checker() -> Callable[[], bool]:
     """构造当前请求上下文的断连检测函数（best-effort）。
 
     返回一个无参可调用对象：返回 True 表示客户端可能已断连。
     """
     wsgi_input = request.environ.get("wsgi.input")
 
-    def _check():
+    def _check() -> bool:
         try:
             if wsgi_input is not None:
                 wsgi_input.read(0)
@@ -51,7 +58,7 @@ class _UploadSizeMismatch(ValueError):
     """接收到的字节数与 Content-Length 不一致。"""
 
 
-def _parse_mtime():
+def _parse_mtime() -> float | None:
     """解析可选的 X-Mtime 头（源文件 mtime，Unix 秒）。
 
     头缺失时返回 None；格式非法时抛 ValueError，由调用方返回 400。
@@ -62,14 +69,14 @@ def _parse_mtime():
     return float(raw)
 
 
-def _receive_upload(path, mtime):
+def _receive_upload(path: str, mtime: float | None) -> None:
     """把请求体原子写入 path：临时文件 + 字节数校验 + fsync + os.replace。
 
     任何失败（中断、字节数不符）都不会触碰最终路径，临时文件被清理。
     """
     expected_size = request.content_length
 
-    def _finalize(temp_path):
+    def _finalize(temp_path: str) -> None:
         if mtime is not None:
             os.utime(temp_path, (mtime, mtime))
         if os.name == "posix":
@@ -96,7 +103,7 @@ def _receive_upload(path, mtime):
             )
 
 
-def create_app(api_key, logger, gate):
+def create_app(api_key: str, logger: Logger, gate: ConcurrencyGate) -> Flask:
     """创建 Flask 应用并注册路由。
 
     Args:
@@ -107,13 +114,13 @@ def create_app(api_key, logger, gate):
     app = Flask(__name__)
 
     @app.before_request
-    def _log_request():
-        client_ip = request.remote_addr
+    def _log_request() -> None:
+        client_ip = request.remote_addr or "unknown"
         logger.info(f"收到来自 {client_ip} 的连接请求")
 
     @app.route("/api/remote", methods=["POST"])
     def handle_remote():
-        client_ip = request.remote_addr
+        client_ip = request.remote_addr or "unknown"
         body = request.get_json(silent=True)
 
         if not body or not isinstance(body, dict):
@@ -226,7 +233,7 @@ def create_app(api_key, logger, gate):
 
     @app.route(UPLOAD_PATH, methods=["POST"])
     def handle_upload():
-        client_ip = request.remote_addr
+        client_ip = request.remote_addr or "unknown"
 
         req_api_key = request.headers.get("X-Api-Key", "")
         if req_api_key != api_key:
@@ -283,7 +290,14 @@ def create_app(api_key, logger, gate):
     return app
 
 
-def _start_stop_watcher(logger, coordinator, gate, instance_name, stop_watcher, runtime_paths):
+def _start_stop_watcher(
+    logger: Logger,
+    coordinator: ShutdownCoordinator,
+    gate: ConcurrencyGate,
+    instance_name: str,
+    stop_watcher: Callable[[str, Callable[[str], None]], None],
+    runtime_paths: Callable[[str], InstancePaths],
+) -> None:
     """启动控制指令监视线程：server 模式下任何 stop 都按 fast 处理。
 
     收到指令后中止进行中的传输（各处理线程在 chunk 边界感知中止信号），
@@ -294,7 +308,7 @@ def _start_stop_watcher(logger, coordinator, gate, instance_name, stop_watcher, 
     由组合根注入（app 层），本模块不感知实例控制的实现。
     """
 
-    def _on_command(_mode):
+    def _on_command(_mode: str) -> None:
         logger.warning("收到停止指令：中止进行中的传输并停止服务器。")
         coordinator.request_abort(logger)
         deadline = time.time() + _STOP_DRAIN_TIMEOUT
@@ -314,7 +328,14 @@ def _start_stop_watcher(logger, coordinator, gate, instance_name, stop_watcher, 
     stop_watcher(instance_name, _on_command)
 
 
-def run_server(config, logger, coordinator, instance_name, stop_watcher, runtime_paths):
+def run_server(
+    config: dict[str, Any],
+    logger: Logger,
+    coordinator: ShutdownCoordinator,
+    instance_name: str,
+    stop_watcher: Callable[[str, Callable[[str], None]], None],
+    runtime_paths: Callable[[str], InstancePaths],
+) -> None:
     """启动 HTTP 远端 API 服务器。
 
     Args:

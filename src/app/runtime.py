@@ -9,6 +9,8 @@ import datetime
 import os
 import sys
 import time
+from collections.abc import Callable
+from typing import Any
 
 from croniter import croniter
 
@@ -24,7 +26,7 @@ from src.output.logger import setup_logger
 from src.output.presentation import fmt_timespan
 
 
-def _reload_config_if_changed(manager):
+def _reload_config_if_changed(manager: ConfigManager) -> None:
     cfg = manager.reload()
     if cfg is None:
         return
@@ -36,7 +38,7 @@ def _reload_config_if_changed(manager):
     ctx.update_config(cfg.config, cfg.remote_clients, cfg.ssh_remotes)
 
 
-def run_tasks():
+def run_tasks() -> None:
     ctx = AppContext.get()
     coordinator = ctx.shutdown
     ctx.logger.info("=" * 80, raw=True)
@@ -70,7 +72,7 @@ def run_tasks():
     ctx.logger.info(f"{'=' * 80}", raw=True)
 
 
-def _execute_tasks(manager):
+def _execute_tasks(manager: ConfigManager) -> None:
     """执行一轮任务，支持配置热重载。"""
     try:
         _reload_config_if_changed(manager)
@@ -87,7 +89,9 @@ def _execute_tasks(manager):
         ctx.history_mgr.save()
 
 
-def _load_and_init(config_path, is_server=False, console=None):
+def _load_and_init(
+    config_path: str, is_server: bool = False, console: bool | None = None
+) -> ConfigManager:
     """加载配置文件并执行初始化流程。
 
     Args:
@@ -137,7 +141,7 @@ def _load_and_init(config_path, is_server=False, console=None):
     return manager
 
 
-def _interruptible_sleep(seconds):
+def _interruptible_sleep(seconds: float) -> bool:
     """可被停止指令打断的睡眠。返回 True 表示睡眠期间收到停止指令。"""
     coordinator = AppContext.get().shutdown
     remaining = seconds
@@ -150,7 +154,7 @@ def _interruptible_sleep(seconds):
     return coordinator.stop_requested()
 
 
-def _run_schedule(manager):
+def _run_schedule(manager: ConfigManager) -> None:
     """按 [schedule] 配置驱动任务；未配置则一次性运行。"""
     ctx = AppContext.get()
     schedule_config = ctx.config.get("schedule", {})
@@ -167,7 +171,7 @@ def _run_schedule(manager):
         sys.exit(1)
 
 
-def _run_first_round(manager, schedule_config):
+def _run_first_round(manager: ConfigManager, schedule_config: dict[str, Any]) -> bool:
     """按 first_run_delay 执行首轮任务；返回 False 表示调度应退出。
 
     -1（默认）不在此执行——等待至下个调度时间点的语义由调度主循环
@@ -187,7 +191,7 @@ def _run_first_round(manager, schedule_config):
     return True
 
 
-def _run_cron(manager, schedule_config):
+def _run_cron(manager: ConfigManager, schedule_config: dict[str, Any]) -> None:
     ctx = AppContext.get()
     cron_expr = schedule_config.get("cron_expr")
     if not cron_expr:
@@ -213,7 +217,7 @@ def _run_cron(manager, schedule_config):
         _execute_tasks(manager)
 
 
-def _run_interval(manager, schedule_config):
+def _run_interval(manager: ConfigManager, schedule_config: dict[str, Any]) -> None:
     interval_seconds = schedule_config.get("interval_seconds")
     if (
         not interval_seconds
@@ -239,12 +243,12 @@ def _run_interval(manager, schedule_config):
         _execute_tasks(manager)
 
 
-def _start_control_watcher(ctx):
+def _start_control_watcher(ctx: AppContext) -> None:
     """启动控制文件监视线程，把 stop 指令映射到停止协调器。"""
     coordinator = ctx.shutdown
     logger = ctx.logger
 
-    def _dispatch(mode):
+    def _dispatch(mode: str) -> None:
         if mode == instance.STOP_FAST:
             logger.warning("收到停止指令 (fast)：中止当前传输并退出。")
             coordinator.request_abort(logger)
@@ -258,7 +262,7 @@ def _start_control_watcher(ctx):
     instance.ControlWatcher(ctx.instance_name, _dispatch).start()
 
 
-def run_client():
+def run_client() -> None:
     config_path = paths.config_path(is_server=False)
     manager = _load_and_init(config_path)
 
@@ -277,12 +281,12 @@ def run_client():
         ctx.history_mgr.save()
 
 
-def _start_stop_watcher(instance_name, on_command):
+def _start_stop_watcher(instance_name: str, on_command: Callable[[str], None]) -> None:
     """供 remote.server 注入的停止监视线程启动器(装配收敛在 app 层)。"""
     instance.ControlWatcher(instance_name, on_command).start()
 
 
-def run_server():
+def run_server() -> None:
     config_path = paths.config_path(is_server=True)
     _load_and_init(config_path, is_server=True)
 

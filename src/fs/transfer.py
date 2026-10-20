@@ -20,14 +20,14 @@ logger = logging.getLogger(__name__)
 _COPY_CHUNK_SIZE = 1024 * 1024  # 1MB
 
 
-def copy_file(src_path, dest_path):
+def copy_file(src_path: str, dest_path: str) -> None:
     """原子复制文件，自动创建目标目录，保留元数据（含 mtime）。
 
     写入目标同目录的临时文件，fsync 后经 os.replace 原子改名。
     mtime 必须保留：归档阈值逻辑依赖它。
     """
 
-    def _finalize(temp_path):
+    def _finalize(temp_path: str) -> None:
         shutil.copystat(src_path, temp_path)
 
     try:
@@ -47,7 +47,7 @@ def copy_file(src_path, dest_path):
         raise FsOpError(f"复制文件失败: {src_path} -> {dest_path} — {e}")
 
 
-def move_file(src_path, dest_path):
+def move_file(src_path: str, dest_path: str) -> None:
     """原子移动文件，自动创建目标目录。
 
     优先 os.replace：同文件系统时为单次系统调用，瞬时且原子；
@@ -75,7 +75,7 @@ def move_file(src_path, dest_path):
         raise FsOpError(f"移动文件失败: {src_path} -> {dest_path} — {e}")
 
 
-def delete_file(path):
+def delete_file(path: str) -> None:
     """删除单个文件。
 
     如果路径是符号链接则跳过，防止误删链接目标。
@@ -93,7 +93,7 @@ def delete_file(path):
         raise FsOpError(f"删除文件失败: {path} — {e}")
 
 
-def delete_dir(path):
+def delete_dir(path: str) -> None:
     """递归删除目录树。
 
     如果路径是符号链接则跳过，防止误删链接目标。
@@ -116,7 +116,7 @@ def delete_dir(path):
 # ============================================================
 
 
-def is_file_locked(filepath):
+def is_file_locked(filepath: str) -> bool:
     """检查文件是否被 flock 锁定。
 
     仅在 Unix/Linux 系统有效，Windows 下始终返回 False。
