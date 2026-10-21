@@ -164,12 +164,12 @@ SSH 公钥认证的原理：**私钥只留在客户端，公钥登记到服务�
 在 **SmartArchiver 所在主机（客户端）**的 `docker-compose.yml` 同级目录中生成密钥对（客户端以 Docker 部署时的默认密钥位置）：
 
 ```bash
-mkdir -p ./ssh && ssh-keygen -t ed25519 -f ./ssh/sa_sync -N ""   # 生成私钥 ./ssh/sa_sync 和公钥 ./ssh/sa_sync.pub
+mkdir -p ./ssh && ssh-keygen -t ed25519 -f ./ssh/id_ed25519 -N ""
 ```
 
 ##### 第 2 步：在服务器主机部署容器
 
-把客户端 `./ssh/sa_sync.pub` 的**文件内容**复制到服务器主机（scp、手动粘贴均可），保存为 `./ssh/authorized_keys` 文件——容器会把它挂载为 root 用户的 `/root/.ssh/authorized_keys`，即 sshd 校验公钥的位置。多个公钥每行一条。
+把客户端 `./ssh/id_ed25519.pub` 的**文件内容**复制到服务器主机（scp、手动粘贴均可），保存为 `./ssh/authorized_keys` 文件——容器会把它挂载为 root 用户的 `/root/.ssh/authorized_keys`，即 sshd 校验公钥的位置。多个公钥每行一条。
 
 > ⚠️ 先创建文件再启动容器：若挂载源不存在，Docker 会自动创建同名**目录**而非文件，公钥认证会因此失效。
 
@@ -240,7 +240,7 @@ docker run -d \
 
 ```bash
 # 公钥认证（指定第 1 步生成的私钥）
-ssh -i ./ssh/sa_sync -p 2222 root@服务器IP
+ssh -i ./ssh/id_ed25519 -p 2222 root@服务器IP
 
 # 密码认证
 ssh -p 2222 root@服务器IP
@@ -542,7 +542,7 @@ alias = "my_vps"                           # 必填，仅允许字母、数字�
 host = "192.168.1.100"                     # 必填，SSH 服务器地址
 user = "root"                              # 必填，SSH 用户名
 port = 2222                                # 选填，默认 22；使用 sa-ssh-server 镜像（-p 2222:22）时填 2222
-key_file = "/root/.ssh/sa_sync"            # 选填，私钥路径（公钥认证）；示例为 Docker 客户端的容器内路径，见下方说明
+key_file = "/root/.ssh/id_ed25519"         # 选填，私钥路径（公钥认证）；示例为 Docker 客户端的容器内路径，见下方说明
 password_file = "/root/.ssh/pass"          # 选填，明文密码文件路径（密码认证，内容为单行密码），见下方说明
 
 [[tasks]]
@@ -568,7 +568,7 @@ dest = "{ssh:my_vps}?/data"                # 同步到远端 /data 目录
 **安全提示**：
 - 客户端连接禁用了主机密钥校验（`StrictHostKeyChecking=no`），首次连接无需确认指纹，请确保网络环境可信
 - `password_file` 为明文，建议设置权限（如 `chmod 600`）并避免提交到版本库；公网环境优先使用公钥认证
-- 客户端跑在 Docker 中时，取消注释 client 服务中的 `./ssh/sa_sync:/root/.ssh/sa_sync`（密码认证再加 `./ssh/pass:/root/.ssh/pass`），`key_file` / `password_file` 填容器内路径——即上方示例；非 Docker 客户端直接填私钥与密码文件的宿主机路径
+- 客户端跑在 Docker 中时，取消注释 client 服务中的 `./ssh/id_ed25519:/root/.ssh/id_ed25519`（密码认证再加 `./ssh/pass:/root/.ssh/pass`），`key_file` / `password_file` 填容器内路径——即上方示例；非 Docker 客户端直接填私钥与密码文件的宿主机路径
 - 挂载源文件必须已存在（否则 Docker 会创建同名**目录**，容器内拿到的是空目录），与服务器端 `authorized_keys` 的注意事项相同
 
 ---
