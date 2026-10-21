@@ -330,3 +330,16 @@ class TestErrorPaths:
         assert snapshot(task["source"]) == {"a.txt": 1, "b.tmp": 1}
         assert snapshot(task["dest"]) == {}
         assert capture_log.has("error", "规则 '*.tmp' 的容量值无效")
+
+    def test_unknown_remote_alias_skips_task(self, run_task, tmp_path, capture_log):
+        """远端别名未配置时任务级报错跳过（不回退本地路径），目录树零变化。"""
+        # create_dest=False：dest 是远端写法且任务会在构造阶段被跳过，
+        # 本地不存在也不应存在对应目录
+        task = move_task(tmp_path, create_dest=False, dest="{http:ghost}?/vol")
+        make_tree(task["source"], {"a.txt": b"x"})
+
+        run_task(task, now=NOW)
+
+        assert snapshot(task["source"]) == {"a.txt": 1}
+        assert capture_log.has("error", "ghost")
+        assert capture_log.has("error", "任务跳过")

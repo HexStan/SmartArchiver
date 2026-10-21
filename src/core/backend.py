@@ -1,4 +1,5 @@
 import os
+import posixpath
 import re
 import subprocess
 from abc import ABC, abstractmethod
@@ -17,6 +18,10 @@ class DestBackend(ABC):
 
     def build_dest_path(self, rel_path: str) -> str:
         return os.path.normpath(os.path.join(self.root_path, rel_path))
+
+    def relpath(self, dest_path: str) -> str:
+        """把本后端产生的完整目标路径还原为相对 root_path 的路径（用于日志展示）。"""
+        return os.path.relpath(dest_path, self.root_path)
 
     @abstractmethod
     def exists(self, path: str) -> bool: ...
@@ -105,6 +110,32 @@ class RemoteDestBackend(DestBackend):
     def build_dest_path(self, rel_path: str) -> str:
         rel_normalized = rel_path.replace("\\", "/")
         return f"{self.root_path.rstrip('/')}/{rel_normalized}"
+
+    @override
+    def get_unique_dest(self, dest_path: str) -> str:
+        """远端路径统一用 posixpath 处理，与 build_dest_path 的正斜杠拼接规则同模型。"""
+        if not self.exists(dest_path):
+            return dest_path
+
+        directory = posixpath.dirname(dest_path)
+        filename = posixpath.basename(dest_path)
+        name, ext = posixpath.splitext(filename)
+
+        counter = 1
+        while True:
+            new_path = posixpath.join(directory, f"{name}-{counter}{ext}")
+            if not self.exists(new_path):
+                return new_path
+            counter += 1
+
+    @override
+    def relpath(self, dest_path: str) -> str:
+        # build_dest_path 保证 "{root}/{rel}" 的形状，直接剥离前缀即可，
+        # 避免本地 os.path 语义介入远端路径
+        prefix = self.root_path.rstrip("/") + "/"
+        if dest_path.startswith(prefix):
+            return dest_path[len(prefix) :]
+        return dest_path
 
     @override
     def exists(self, path: str) -> bool:
@@ -289,7 +320,15 @@ def create_dest_backend(
     dest_root: str,
     remote_clients: dict[str, RemoteClient],
     ssh_remotes: dict[str, SshRemote] | None = None,
-) -> DestBackend:
+) -> DestBackend | None:
+    """解析 dest 字符串并创建对应的目标后端。
+
+    dest 允许为空（LocalDestBackend("")），是否利用这一特性由配置组合决定。
+
+    远端别名未配置或远端类型未知时记错误日志并返回 None，由调用方跳过任务。
+    不回退为本地后端：带 {类型:别名}? 前缀的原始串不是合法的本地路径，
+    回退只会把配置错误推迟到落盘阶段才暴露。
+    """
     if dest_root and isinstance(dest_root, str):
         m = _REMOTE_DEST_PATTERN.match(dest_root)
         if m:
@@ -302,10 +341,8 @@ def create_dest_backend(
                 if client is not None:
                     return RemoteDestBackend(client, _normalize_http_remote_path(remote_path))
                 ctx = AppContext.get()
-                ctx.logger.error(
-                    f"HTTP 远端别名 '{alias}' 未在 http_remotes 中配置，fallback 到本地路径"
-                )
-                return LocalDestBackend(dest_root)
+                ctx.logger.error(f"HTTP 远端别名 '{alias}' 未在 http_remotes 中配置，任务跳过")
+                return None
 
             elif remote_type == "ssh":
                 ssh_dict = ssh_remotes or {}
@@ -314,17 +351,15 @@ def create_dest_backend(
                     # SSH 远端为 POSIX 语义（rsync / rclone over SSH），统一补前导 /
                     return SshDestBackend(ssh_remote, "/" + remote_path.lstrip("/"))
                 ctx = AppContext.get()
-                ctx.logger.error(
-                    f"SSH 远端别名 '{alias}' 未在 ssh_remotes 中配置，fallback 到本地路径"
-                )
-                return LocalDestBackend(dest_root)
+                ctx.logger.error(f"SSH 远端别名 '{alias}' 未在 ssh_remotes 中配置，任务跳过")
+                return None
 
             else:
                 ctx = AppContext.get()
                 ctx.logger.error(
                     f"未知的远端类型 '{remote_type}'（dest 路径: {dest_root}），"
-                    f"仅支持 http 和 ssh，fallback 到本地路径"
+                    f"仅支持 http 和 ssh，任务跳过"
                 )
-                return LocalDestBackend(dest_root)
+                return None
 
     return LocalDestBackend(dest_root)

@@ -59,6 +59,9 @@ def create_handler(
     )
     ssh_remotes = ssh_remotes if ssh_remotes is not None else getattr(ctx, "ssh_remotes", {})
     dest_backend = create_dest_backend(task.get("dest", ""), remote_clients, ssh_remotes)
+    if dest_backend is None:
+        # 错误日志已由 create_dest_backend 记录（远端别名缺失 / 远端类型未知）
+        return None
 
     try:
         return handler_cls(task, dest_backend, now)

@@ -93,6 +93,58 @@ class TestGetUniqueDest:
         )
 
 
+class _ExistsStubClient:
+    """最小 HTTP client 替身：仅回答 exists——get_unique_dest 唯一的外部依赖
+    （替网络边界回答问题，见 tests/README.md 原则三、七）。"""
+
+    def __init__(self, existing: set[str]) -> None:
+        self._existing = existing
+
+    def exists(self, path: str) -> bool:
+        return path in self._existing
+
+
+class TestRemoteGetUniqueDest:
+    """远端冲突副本编号：posixpath 语义，与 build_dest_path 的正斜杠规则同模型。"""
+
+    def test_missing_path_returned_as_is(self):
+        backend = RemoteDestBackend(_ExistsStubClient(set()), "/vol")
+        assert backend.get_unique_dest("/vol/f.txt") == "/vol/f.txt"
+
+    def test_existing_path_gets_number_one(self):
+        backend = RemoteDestBackend(_ExistsStubClient({"/vol/f.txt"}), "/vol")
+        assert backend.get_unique_dest("/vol/f.txt") == "/vol/f-1.txt"
+
+    def test_only_last_extension_is_numbered(self):
+        backend = RemoteDestBackend(_ExistsStubClient({"/vol/archive.tar.gz"}), "/vol")
+        assert backend.get_unique_dest("/vol/archive.tar.gz") == "/vol/archive.tar-1.gz"
+
+    def test_windows_drive_root_numbered_without_extra_slash(self):
+        """裸盘符根 D: 编号后还原为 D:/f-1.txt，不产生 D://。"""
+        backend = RemoteDestBackend(_ExistsStubClient({"D:/f.txt"}), "D:")
+        assert backend.get_unique_dest("D:/f.txt") == "D:/f-1.txt"
+
+
+class TestRelpath:
+    """完整目标路径 → 相对 root_path 的还原（日志展示用）。"""
+
+    def test_local_uses_os_path(self, tmp_path):
+        backend = LocalDestBackend(str(tmp_path))
+        assert backend.relpath(str(tmp_path / "sub" / "f.txt")) == os.path.join("sub", "f.txt")
+
+    def test_remote_strips_root_prefix(self):
+        backend = RemoteDestBackend(client=None, remote_root="/vol/data")
+        assert backend.relpath("/vol/data/sub/f.txt") == "sub/f.txt"
+
+    def test_remote_windows_drive_root(self):
+        backend = RemoteDestBackend(client=None, remote_root="D:/Backup")
+        assert backend.relpath("D:/Backup/a.txt") == "a.txt"
+
+    def test_remote_path_outside_root_returned_as_is(self):
+        backend = RemoteDestBackend(client=None, remote_root="/vol/data")
+        assert backend.relpath("/elsewhere/f.txt") == "/elsewhere/f.txt"
+
+
 class TestCreateDestBackend:
     """dest 字符串 → 后端实例的分派规则与命名空间隔离。"""
 
@@ -134,26 +186,25 @@ class TestCreateDestBackend:
         assert backend.root_path == "D:"
         assert backend.build_dest_path("f.txt") == "D:/f.txt"
 
-    def test_unknown_http_alias_falls_back_to_local(self, app_context, capture_log):
-        backend = create_dest_backend("{http:ghost}?/vol", {})
-        assert isinstance(backend, LocalDestBackend)
-        assert backend.root_path == "{http:ghost}?/vol"
+    def test_unknown_http_alias_returns_none(self, app_context, capture_log):
+        assert create_dest_backend("{http:ghost}?/vol", {}) is None
         assert capture_log.has("error", "ghost")
+        assert capture_log.has("error", "http_remotes")
 
     def test_ssh_alias_dispatches_to_ssh_backend(self):
         backend = create_dest_backend("{ssh:vps}?/var/data", {}, {"vps": object()})
         assert isinstance(backend, SshDestBackend)
         assert backend.root_path == "/var/data"
 
-    def test_unknown_ssh_alias_falls_back_to_local(self, app_context, capture_log):
-        backend = create_dest_backend("{ssh:ghost}?/var/data", {}, {})
-        assert isinstance(backend, LocalDestBackend)
+    def test_unknown_ssh_alias_returns_none(self, app_context, capture_log):
+        assert create_dest_backend("{ssh:ghost}?/var/data", {}, {}) is None
         assert capture_log.has("error", "ghost")
+        assert capture_log.has("error", "ssh_remotes")
 
-    def test_unknown_remote_type_falls_back_to_local(self, app_context, capture_log):
-        backend = create_dest_backend("{ftp:srv}?/path", {})
-        assert isinstance(backend, LocalDestBackend)
+    def test_unknown_remote_type_returns_none(self, app_context, capture_log):
+        assert create_dest_backend("{ftp:srv}?/path", {}) is None
         assert capture_log.has("error", "未知的远端类型")
+        assert capture_log.has("error", "任务跳过")
 
     def test_http_and_ssh_namespaces_are_isolated(self):
         """同名别名在两个命名空间互不干扰——http 优先取 http 的。"""

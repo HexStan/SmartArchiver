@@ -36,6 +36,8 @@ def validate_task_config(task: dict[str, Any], task_mode: str) -> bool:
             "remove_empty_dirs",
         ]
     else:
+        # move/copy 的 dest 选填：省略时任务合法但不执行传输，
+        # 由 ActionExecutor 的守卫逐文件跳过，其余规则照常评估
         required_fields = [
             "mode",
             "source",
@@ -107,7 +109,6 @@ class ActionExecutor:
 
     def __init__(self, task: dict[str, Any], dest_backend: DestBackend) -> None:
         self.source_root: str = task.get("source", "")
-        self.dest_root: str = task.get("dest", "")
         self.dest_backend = dest_backend
         self.conflict_policy: str = task.get("conflict_policy", "skip").lower()
         self._dest_checked = False
@@ -126,7 +127,10 @@ class ActionExecutor:
         ctx = AppContext.get()
 
         if action == FileAction.TRANSFER:
-            if not self.dest_root:
+            # dest 允许为空：为空时 TRANSFER 没有可写入的目标，逐文件
+            # warning 跳过，DELETE / SKIP 等其余动作不受影响。
+            # 此处不预设 dest 为空的用途，交由配置组合决定。
+            if not self.dest_backend.root_path:
                 ctx.logger.warning(f"跳过文件 (未配置目标目录): {rel_path}")
                 return True
 
@@ -196,7 +200,7 @@ class ActionExecutor:
             if file_exists and self.conflict_policy == "overwrite":
                 ctx.logger.success(f"覆盖同名文件: {rel_path} ({size_str})")
             elif file_exists and self.conflict_policy == "copy":
-                new_rel = os.path.relpath(new_dest_path, self.dest_backend.root_path)
+                new_rel = self.dest_backend.relpath(new_dest_path)
                 ctx.logger.success(f"目标存在，创建副本: {new_rel} ({size_str})")
             else:
                 ctx.logger.success(f"{action_name}文件: {rel_path} ({size_str})")
@@ -239,7 +243,6 @@ class BaseTaskHandler(ABC):
         self.now = now or time.time()
         self.stats = MoverStats()
         self.source_root: str = task.get("source", "")
-        self.dest_root: str = task.get("dest", "")
         self.dest_backend = dest_backend
         self.task_mode: str = task.get("mode", "").lower()
         self.remove_empty_dirs: bool = task.get("remove_empty_dirs", False)

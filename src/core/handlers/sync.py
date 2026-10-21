@@ -245,7 +245,9 @@ class SyncHandler(BaseTaskHandler):
             backup_dir = None
             if backup_enabled:
                 if tool.supports_backup_dir:
-                    backup_dir = self._setup_backup_dir(self.dest_root, max_backups, exclude_list)
+                    backup_dir = self._setup_backup_dir(
+                        self.dest_backend.root_path, max_backups, exclude_list
+                    )
                 else:
                     _warn_backup_unsupported()
 
@@ -255,7 +257,7 @@ class SyncHandler(BaseTaskHandler):
             }
             _sync_runners[tool.name](
                 self.source_root,
-                self.dest_root,
+                self.dest_backend.root_path,
                 exclude_list,
                 backup_dir,
                 tool.exec_path,
