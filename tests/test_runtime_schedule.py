@@ -116,6 +116,12 @@ class TestFirstRunDelay:
             assert wait_until(lambda: app_context.logger.has("info", "脚本开始执行……")), (
                 "first_run_delay=0 时首轮任务未立即执行"
             )
+            # "脚本开始执行……"打在任务执行之前：若此刻立即停止，调度线程
+            # 会有意跳过下轮预告直接退出（见 _run_cron 的循环前置检查）。
+            # 因此等预告出现后再停止，末尾的顺序断言才不受线程调度快慢影响
+            assert wait_until(lambda: app_context.logger.has("info", "下一次执行时间")), (
+                "首轮执行后未预告下一次执行时间"
+            )
         finally:
             stop_and_join(app_context, thread)
         assert not thread.is_alive()
