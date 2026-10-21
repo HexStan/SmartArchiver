@@ -8,9 +8,10 @@ services:
     volumes:
       - ./config:/app/config
       - ./logs:/app/logs
+      # - ./ssh/sa_sync:/root/.ssh/sa_sync
+      # - ./ssh/pass:/root/.ssh/pass
       - ./source:/app/source
       - ./dest:/app/dest
-      - ./ssh:/root/.ssh
 
 #  server:
 #    image: ghcr.io/hexstan/smartarchiver:latest
@@ -32,9 +33,9 @@ services:
 #    restart: unless-stopped
 #    ports:
 #      - "2222:22"
-#    environment:
-#      - ROOT_PASSWORD=your_secure_password
-#      # - AUTHORIZED_KEYS=ssh-rsa AAAA...
+#    # environment:
+#    #   - ROOT_PASSWORD=your_secure_password
+#    #   - AUTHORIZED_KEYS=ssh-rsa AAAA...
 #    volumes:
 #      - /path/to/data:/data
-#      # - ./ssh/authorized_keys:/root/.ssh/authorized_keys
+#      - ./ssh/authorized_keys:/root/.ssh/authorized_keys

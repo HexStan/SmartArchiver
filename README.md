@@ -153,10 +153,53 @@ docker run -d \
 
 #### SSH 远端服务器镜像
 
-为 SSH 同步模式提供即用的远端目标容器（Alpine + OpenSSH + rsync）。镜像发布到 `ghcr.io/hexstan/sa-ssh-server`。
+为 sync 模式提供开箱即用的 SSH 远端目标容器（Alpine + OpenSSH + rsync），镜像发布到 `ghcr.io/hexstan/sa-ssh-server`。内置 rsync 且启用 SFTP 子系统，客户端无论走 rsync-over-SSH 还是 rclone SFTP 都可直接对接。
+
+> 本章默认典型部署：**SmartArchiver（客户端）与 SSH 服务器分属两台主机**，服务器端以 Docker Compose 部署。两台主机为同一台时流程相同，可省去第 2 步中复制公钥的操作。
+
+##### 第 1 步：在客户端生成密钥对
+
+SSH 公钥认证的原理：**私钥只留在客户端，公钥登记到服务端**。连接时，服务端 sshd 用自己 `authorized_keys` 里登记的公钥验证客户端确实持有配对的私钥——私钥全程不出机，公钥本身是公开信息、可随意复制。
+
+在 **SmartArchiver 所在主机（客户端）**的 `docker-compose.yml` 同级目录中生成密钥对（客户端以 Docker 部署时的默认密钥位置）：
 
 ```bash
-# 在远端主机上运行
+mkdir -p ./ssh && ssh-keygen -t ed25519 -f ./ssh/sa_sync -N ""   # 生成私钥 ./ssh/sa_sync 和公钥 ./ssh/sa_sync.pub
+```
+
+##### 第 2 步：在服务器主机部署容器
+
+把客户端 `./ssh/sa_sync.pub` 的**文件内容**复制到服务器主机（scp、手动粘贴均可），保存为 `./ssh/authorized_keys` 文件——容器会把它挂载为 root 用户的 `/root/.ssh/authorized_keys`，即 sshd 校验公钥的位置。多个公钥每行一条。
+
+> ⚠️ 先创建文件再启动容器：若挂载源不存在，Docker 会自动创建同名**目录**而非文件，公钥认证会因此失效。
+
+创建 `docker-compose.yml` 并启动：
+
+```yaml
+services:
+  ssh-server:
+    image: ghcr.io/hexstan/sa-ssh-server:latest
+    container_name: sa-ssh-server
+    restart: unless-stopped
+    ports:
+      - "2222:22"
+    volumes:
+      - /path/to/data:/data
+      - ./ssh/authorized_keys:/root/.ssh/authorized_keys
+    # environment:
+    #   - ROOT_PASSWORD=your_password   # 密码认证备选，见下文
+```
+
+```bash
+docker compose up -d
+```
+
+此方式未设置 `ROOT_PASSWORD`，root 无密码、密码登录自然失效，只能通过私钥连接。
+
+**密码认证（备选）**：内网等可信环境想省去密钥步骤时，取消注释 `environment` 段设置 `ROOT_PASSWORD`（公钥挂载可保留，两种认证可并存）；或直接使用最简 docker run：
+
+```bash
+# 在服务器主机上运行
 docker run -d \
   --name sa-ssh-server \
   --restart unless-stopped \
@@ -164,18 +207,46 @@ docker run -d \
   -e ROOT_PASSWORD=your_password \
   -v /path/to/data:/data \
   ghcr.io/hexstan/sa-ssh-server:latest
+```
 
-# 或使用密钥认证
+**不使用 Docker Compose？** 公钥认证的等效 docker run（公钥文件已在服务器主机上）：
+
+```bash
 docker run -d \
   --name sa-ssh-server \
   --restart unless-stopped \
   -p 2222:22 \
-  -e AUTHORIZED_KEYS="ssh-rsa AAAA..." \
+  -e AUTHORIZED_KEYS="$(cat ./ssh/authorized_keys)" \
   -v /path/to/data:/data \
   ghcr.io/hexstan/sa-ssh-server:latest
 ```
 
-容器启动时自动生成 SSH 主机密钥，支持密码和公钥两种认证方式（通过 `ROOT_PASSWORD` 和 `AUTHORIZED_KEYS` 环境变量配置）。
+项目仓库自带的 `docker-compose.yml` 也预置了此服务（密码认证版），单机同仓库部署时取消注释即可使用。
+
+##### 参数说明
+
+| 参数 | 说明 |
+|------|------|
+| `-p 2222:22` | 服务器主机端口映射到容器内 22。客户端 `port` 必须填**映射后的主机端口**（本例 `2222`），而非 22 |
+| `-v /path/to/data:/data` | 数据目录挂载。客户端 `dest` 必须填**容器内路径**（本例 `/data` 或其子路径） |
+| `ROOT_PASSWORD` | 设置 root 用户密码，启用密码认证 |
+| `AUTHORIZED_KEYS` | 写入 root 用户公钥（换行分隔多个），启用公钥认证；与挂载 `authorized_keys` 文件二选一 |
+
+两种认证方式可同时启用。容器启动时会自动生成缺失的 SSH 主机密钥；重建容器会更换主机密钥，SmartArchiver 客户端连接时禁用了主机密钥校验，不会因此连接失败。
+
+##### 验证连接
+
+容器启动后，回到 **SmartArchiver 所在主机（客户端）**，手动测试到服务器主机的 SSH 连通性：
+
+```bash
+# 公钥认证（指定第 1 步生成的私钥）
+ssh -i ./ssh/sa_sync -p 2222 root@服务器IP
+
+# 密码认证
+ssh -p 2222 root@服务器IP
+```
+
+能登录且能看到 `/data` 目录后，按 [SSH 远端](#ssh-远端)一节配置客户端即可开始同步。
 
 ---
 
@@ -463,19 +534,42 @@ queue_time = 120      # 服务器繁忙时排队秒数，0 表示不排队直接
 
 #### SSH 远端
 
-仅 sync 模式支持。在 `config.toml` 中配置 `[[ssh_remotes]]`：
+仅 sync 模式支持。在 `config.toml` 中配置 `[[ssh_remotes]]`，再在任务的 `dest` 中以 `{ssh:别名}?路径` 引用（路径为远端 POSIX 绝对路径）：
 
 ```toml
 [[ssh_remotes]]
-alias = "my_vps"
-host = "192.168.1.100"
-user = "root"
-port = 22                                  # 选填，默认 22
-key_file = "/home/user/.ssh/id_rsa"        # 选填，私钥路径
-password_file = "/home/user/.ssh/pass"     # 选填，明文密码文件路径
+alias = "my_vps"                           # 必填，仅允许字母、数字、-、_
+host = "192.168.1.100"                     # 必填，SSH 服务器地址
+user = "root"                              # 必填，SSH 用户名
+port = 2222                                # 选填，默认 22；使用 sa-ssh-server 镜像（-p 2222:22）时填 2222
+key_file = "/root/.ssh/sa_sync"            # 选填，私钥路径（公钥认证）；示例为 Docker 客户端的容器内路径，见下方说明
+password_file = "/root/.ssh/pass"          # 选填，明文密码文件路径（密码认证，内容为单行密码），见下方说明
+
+[[tasks]]
+mode = "sync"
+source = "./data"
+dest = "{ssh:my_vps}?/data"                # 同步到远端 /data 目录
 ```
 
-底层通过 `rsync -e "ssh ..."` 或 `rclone :sftp:` 实现。
+没有现成的 SSH 服务器？可用官方 [SSH 远端服务器镜像](#ssh-远端服务器镜像)快速部署一个。
+
+**认证方式**（两者都未配置时回退 SSH 默认行为：`~/.ssh/id_rsa` 等默认密钥或 ssh-agent）：
+
+| 方式 | 配置 | 客户端依赖 |
+|------|------|-----------|
+| 公钥认证 | `key_file` 指向私钥，对应公钥需在远端的 `authorized_keys` 中 | 无额外依赖 |
+| 密码认证 | `password_file` 指向仅含一行密码的文本文件 | rsync 通道需安装 `sshpass`；rclone 通道无额外依赖 |
+
+底层通过 `rsync -e "ssh ..."` 或 `rclone :sftp:` 实现，密码传递方式随通道不同：
+
+- **rsync 通道**（Docker 应用镜像、未装 rclone 的 Linux/macOS）：密码经 `sshpass -f` 传递，客户端必须已安装 sshpass（Docker 应用镜像已内置）
+- **rclone 通道**（打包版内置 rclone、Windows、`tool = "rclone"`）：走 SFTP，密码经环境变量传给 rclone，不依赖 sshpass
+
+**安全提示**：
+- 客户端连接禁用了主机密钥校验（`StrictHostKeyChecking=no`），首次连接无需确认指纹，请确保网络环境可信
+- `password_file` 为明文，建议设置权限（如 `chmod 600`）并避免提交到版本库；公网环境优先使用公钥认证
+- 客户端跑在 Docker 中时，取消注释 client 服务中的 `./ssh/sa_sync:/root/.ssh/sa_sync`（密码认证再加 `./ssh/pass:/root/.ssh/pass`），`key_file` / `password_file` 填容器内路径——即上方示例；非 Docker 客户端直接填私钥与密码文件的宿主机路径
+- 挂载源文件必须已存在（否则 Docker 会创建同名**目录**，容器内拿到的是空目录），与服务器端 `authorized_keys` 的注意事项相同
 
 ---
 
