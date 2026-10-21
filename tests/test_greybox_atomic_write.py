@@ -2,7 +2,7 @@
 
 驱动方式与 test_greybox_move_copy 相同：run_task() + 临时目录树，
 断言真实文件系统终态——元数据保留、冲突覆盖的完整替换、无临时文件残留。
-快照断言天然覆盖"无残留"：`.smartarchiver-partial` 临时文件一旦残留
+快照断言天然覆盖"无残留"：`.sa-part` 临时文件一旦残留
 就会出现在 snapshot() 中。EXDEV 回退等 OS 边界行为在
 test_atomic_write.py 白盒侧覆盖。
 """
