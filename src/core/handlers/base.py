@@ -188,6 +188,15 @@ class ActionExecutor:
                 else:
                     return
 
+            size_str = _fmt_size(file_size, binary=True)
+            if file_exists and self.conflict_policy == "overwrite":
+                ctx.logger.info(f"正在覆盖同名文件: {rel_path} ({size_str})")
+            elif file_exists and self.conflict_policy == "copy":
+                new_rel = self.dest_backend.relpath(new_dest_path)
+                ctx.logger.info(f"目标存在，正在创建副本: {new_rel} ({size_str})")
+            else:
+                ctx.logger.info(f"正在{action_name}文件: {rel_path} ({size_str})")
+
             if is_copy:
                 self.dest_backend.copy_file(src_path, new_dest_path)
             else:
@@ -196,21 +205,12 @@ class ActionExecutor:
             stats.record_success(bytes_transferred=file_size)
             ctx.history_mgr.record_success(src_path)
 
-            size_str = _fmt_size(file_size, binary=True)
-            if file_exists and self.conflict_policy == "overwrite":
-                ctx.logger.success(f"覆盖同名文件: {rel_path} ({size_str})")
-            elif file_exists and self.conflict_policy == "copy":
-                new_rel = self.dest_backend.relpath(new_dest_path)
-                ctx.logger.success(f"目标存在，创建副本: {new_rel} ({size_str})")
-            else:
-                ctx.logger.success(f"{action_name}文件: {rel_path} ({size_str})")
-
         except TransferAbortedError:
             # stop --fast：任务被丢弃，不计入失败次数，向上传播以中止任务
             raise
         except Exception as e:  # noqa: BLE001
             count = ctx.history_mgr.record_failure(src_path)
-            ctx.logger.error(f"{action_name}文件失败 ({count} 次): {rel_path}\n{e}")
+            ctx.logger.error(f"{action_name}文件失败 ({count} 次): {e}")
             stats.record_error()
 
     def _delete(self, src_path: str, file_size: int, stats: MoverStats) -> None:

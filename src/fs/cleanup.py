@@ -26,7 +26,7 @@ def clean_empty_dirs(source_root: str) -> None:
             with os.scandir(root) as it:
                 if any(it):
                     continue
+            logger.info(f"正在删除空目录: {root}")
             os.rmdir(root)
-            logger.info(f"删除空目录: {root}")
         except OSError as e:
-            logger.info(f"跳过删除空目录 (出现错误): {root}\n{e}")
+            logger.info(f"跳过删除空目录 (出现错误): {e}")
