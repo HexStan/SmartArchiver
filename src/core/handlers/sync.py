@@ -156,7 +156,8 @@ def _consume_sync_process(
         coordinator.unregister_process(process)
 
     if coordinator.is_aborted():
-        ctx.logger.warning(f"{tool_name} 同步已被中止（stop --fast）。")
+        # stop --fast：外部进程已被整树终止，不做完成/失败定性
+        pass
     elif process.returncode != 0:
         ctx.logger.error(f"{tool_name} 同步失败，退出码: {process.returncode}")
     else:
@@ -207,7 +208,6 @@ class SyncHandler(BaseTaskHandler):
         ctx = AppContext.get()
 
         if ctx.shutdown.should_stop_before_file():
-            ctx.logger.info("收到停止指令，跳过该任务。")
             return
 
         print_task_header(self.task, ctx.logger)

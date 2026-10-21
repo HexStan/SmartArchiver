@@ -422,13 +422,12 @@ class TestStopControl:
     """sync 模式与停止指令的交互（tests/README.md 原则一/三）。"""
 
     def test_stop_preset_skips_task(
-        self, run_task, app_context, tmp_path, stub_procs, prepared_dirs, capture_log
+        self, run_task, app_context, tmp_path, stub_procs, prepared_dirs
     ):
         app_context.shutdown.request_stop_after_file()
         run_task(sync_task(tmp_path, tool="rclone"))
 
         assert stub_procs.calls == []
-        assert capture_log.has("info", "收到停止指令")
 
     def test_graceful_during_sync_lets_tool_finish(
         self, run_task, app_context, tmp_path, prepared_dirs, capture_log, monkeypatch
@@ -449,7 +448,6 @@ class TestStopControl:
         run_task(sync_task(tmp_path, tool="rclone"))
 
         assert capture_log.has("success", "同步完成")
-        assert not capture_log.has("warning", "已被中止")
         assert killed == []
 
     def test_fast_during_sync_terminates_process_tree(
@@ -472,4 +470,5 @@ class TestStopControl:
         run_task(sync_task(tmp_path, tool="rclone"))
 
         assert killed == [fake.pid]
-        assert capture_log.has("warning", "同步已被中止")
+        # 被终止的同步不得被定性为"同步失败"（外部进程结果不再有意义）
+        assert not capture_log.has("error", "同步失败")

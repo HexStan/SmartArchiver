@@ -365,9 +365,6 @@ def terminate_process_tree(
         targets = [parent]
     _terminate_and_kill(targets, term_timeout)
 
-    if logger:
-        logger.warning(f"已终止外部同步进程树 (PID {pid})。")
-
 
 class ControlWatcher(threading.Thread):
     """控制文件监视线程（守护线程）：轮询 ctl 指令并分发。

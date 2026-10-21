@@ -310,12 +310,10 @@ def _start_stop_watcher(
     """
 
     def _on_command(_mode: str) -> None:
-        logger.warning("收到停止指令：中止进行中的传输并停止服务器。")
         coordinator.request_abort(logger)
         deadline = time.time() + _STOP_DRAIN_TIMEOUT
         while gate.active_requests > 0 and time.time() < deadline:
             time.sleep(0.05)
-        logger.info("服务器已停止。")
         # os._exit 跳过 with 块的收尾，这里手动清理 PID / 控制文件
         # （锁由操作系统随进程退出释放，锁文件本身无需删除）
         paths = runtime_paths(instance_name)
@@ -324,6 +322,7 @@ def _start_stop_watcher(
                 os.remove(path)
             except OSError:
                 pass
+        logger.info("Smart Archiver 已退出。")
         os._exit(0)
 
     stop_watcher(instance_name, _on_command)

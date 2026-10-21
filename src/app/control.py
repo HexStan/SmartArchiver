@@ -128,7 +128,11 @@ def cmd_log(is_server: bool, lines: int) -> None:
 
 
 def cmd_stop(is_server: bool, fast: bool, slow: bool) -> None:
-    """stop 子命令：向运行实例发送停止指令并等待退出。"""
+    """stop 子命令：向运行实例发送停止指令并等待退出。
+
+    静默设计：发送与等待过程不播报，实例日志是唯一进度来源；
+    仅在无实例与出错时输出，退出确认统一为一行"实例已退出。"。
+    """
     if is_server and (fast or slow):
         print("server 模式的 stop 不支持 --fast/--slow：行为固定为中止传输并尽快停止。")
         sys.exit(2)
@@ -138,28 +142,19 @@ def cmd_stop(is_server: bool, fast: bool, slow: bool) -> None:
         print("没有正在运行的实例。")
         return
 
-    if is_server:
+    if is_server or fast:
         mode = instance.STOP_FAST
-        print("已发送停止指令，服务器将中止传输并尽快退出……")
-    elif fast:
-        mode = instance.STOP_FAST
-        print(
-            f"已发送停止指令 (fast)，等待实例退出（最多 {_FAST_STOP_TIMEOUT:g} 秒，超时将强制结束）……"
-        )
     elif slow:
         mode = instance.STOP_SLOW
-        print("已发送停止指令 (slow)，等待本轮任务结束后退出（Ctrl+C 放弃等待）……")
     else:
         mode = instance.STOP_GRACEFUL
-        print("已发送停止指令，等待当前文件传输完成后退出（Ctrl+C 放弃等待）……")
-
     instance.send_stop(instance_name, mode)
 
     timeout = _FAST_STOP_TIMEOUT if mode == instance.STOP_FAST else None
     try:
         exited = instance.wait_for_exit(instance_name, timeout=timeout)
     except KeyboardInterrupt:
-        print("\n已放弃等待；实例仍在后台执行停止流程，可用 log 查看进度。")
+        # 放弃等待：实例仍在后台执行停止流程，可用 log 查看进度
         return
 
     if exited:
@@ -172,7 +167,7 @@ def cmd_stop(is_server: bool, fast: bool, slow: bool) -> None:
         print("Error: 实例未按时退出且 PID 文件缺失，无法强制结束。", file=sys.stderr)
         sys.exit(1)
     if instance.force_kill_tree(pid):
-        print("实例未在时限内退出，已强制结束。")
+        print("实例已退出。")
     else:
         print(
             "Error: 强制结束失败：目标进程与当前程序不符，已放弃以避免误杀。",

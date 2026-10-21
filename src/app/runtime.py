@@ -22,7 +22,7 @@ from src.app.instance import SingleInstance
 from src.app.shutdown import install_abort_check, install_sigterm_fast_stop
 from src.core import process_task
 from src.core.history import HistoryManager
-from src.output.logger import setup_logger
+from src.output.logger import Logger, setup_logger
 from src.output.presentation import fmt_timespan
 
 
@@ -53,7 +53,6 @@ def run_tasks() -> None:
 
     for idx, task in enumerate(tasks):
         if coordinator.should_stop_before_task():
-            ctx.logger.info("收到停止指令，停止执行后续任务。")
             break
 
         ctx.logger.info(f"-----开始 {len(tasks)} 个任务中的第 {idx + 1} 个-----")
@@ -64,9 +63,7 @@ def run_tasks() -> None:
 
     end_time = time.time()
     exec_time = end_time - start_time
-    if coordinator.stop_requested():
-        ctx.logger.info(f"因停止指令提前结束本轮任务，总耗时: {fmt_timespan(exec_time)}。")
-    else:
+    if not coordinator.stop_requested():
         ctx.logger.info(f"所有任务执行完毕，总耗时: {fmt_timespan(exec_time)}。")
 
     ctx.logger.info(f"{'=' * 80}", raw=True)
@@ -80,9 +77,9 @@ def _execute_tasks(manager: ConfigManager) -> None:
         run_tasks()
         ctx.history_mgr.save()
     except fs.TransferAbortedError:
-        ctx = AppContext.get()
-        ctx.logger.warning("本轮任务已被中止（stop --fast）。")
-        ctx.history_mgr.save()
+        # stop --fast：任务被丢弃，不做完成/失败定性，仅落盘 history；
+        # 停止确认与退出日志由指令分发点与 run_client 的 finally 负责
+        AppContext.get().history_mgr.save()
     except Exception as e:  # noqa: BLE001
         ctx = AppContext.get()
         ctx.logger.error(f"发生未知错误: {e}")
@@ -204,6 +201,9 @@ def _run_cron(manager: ConfigManager, schedule_config: dict[str, Any]) -> None:
         return
 
     while True:
+        # 停止指令可能在上一轮任务执行期间到达：直接退出，不再预告下一轮
+        if ctx.shutdown.stop_requested():
+            return
         now = datetime.datetime.now()
         cron = croniter(cron_expr, now)
         next_run = cron.get_next(datetime.datetime)
@@ -211,7 +211,6 @@ def _run_cron(manager: ConfigManager, schedule_config: dict[str, Any]) -> None:
 
         ctx.logger.info(f"下一次执行时间: {next_run.strftime('%Y-%m-%d %H:%M:%S')}。\n")
         if _interruptible_sleep(sleep_seconds):
-            ctx.logger.info("收到停止指令，程序退出。")
             return
 
         _execute_tasks(manager)
@@ -234,13 +233,29 @@ def _run_interval(manager: ConfigManager, schedule_config: dict[str, Any]) -> No
         return
 
     while True:
+        # 停止指令可能在上一轮任务执行期间到达：直接退出，不再预告下一轮
+        if ctx.shutdown.stop_requested():
+            return
         next_run = datetime.datetime.now() + datetime.timedelta(seconds=interval_seconds)
         ctx.logger.info(f"下一次执行时间: {next_run.strftime('%Y-%m-%d %H:%M:%S')}。\n")
         if _interruptible_sleep(interval_seconds):
-            ctx.logger.info("收到停止指令，程序退出。")
             return
 
         _execute_tasks(manager)
+
+
+def _log_stop_received(logger: Logger, mode: str) -> None:
+    """停止指令接收的唯一确认日志（停止序列的第一条）。
+
+    三种模式共用一套句式，不区分日志级别；graceful 即 stop 默认的
+    中速停止。
+    """
+    if mode == instance.STOP_FAST:
+        logger.info("收到快速停止指令，正在退出……")
+    elif mode == instance.STOP_SLOW:
+        logger.info("收到慢速停止指令，正在退出……")
+    else:
+        logger.info("收到中速停止指令，正在退出……")
 
 
 def _make_stop_dispatcher(ctx: AppContext) -> Callable[[str], None]:
@@ -249,14 +264,12 @@ def _make_stop_dispatcher(ctx: AppContext) -> Callable[[str], None]:
     logger = ctx.logger
 
     def _dispatch(mode: str) -> None:
+        _log_stop_received(logger, mode)
         if mode == instance.STOP_FAST:
-            logger.warning("收到停止指令 (fast)：中止当前传输并退出。")
             coordinator.request_abort(logger)
         elif mode == instance.STOP_SLOW:
-            logger.info("收到停止指令 (slow)：本轮任务结束后退出。")
             coordinator.request_stop_after_round()
         else:
-            logger.info("收到停止指令：当前文件传输完成后退出。")
             coordinator.request_stop_after_file()
 
     return _dispatch
@@ -280,9 +293,11 @@ def run_client() -> None:
             instance.ControlWatcher(ctx.instance_name, dispatch).start()
             _run_schedule(manager)
     except fs.TransferAbortedError:
-        ctx.logger.warning("任务已被中止（stop --fast），程序退出。")
+        # stop --fast：一次性运行被中止即退出，无需额外处理
+        pass
     finally:
         ctx.history_mgr.save()
+        ctx.logger.info("Smart Archiver 已退出。")
 
 
 def _make_server_stop_watcher(
@@ -291,12 +306,16 @@ def _make_server_stop_watcher(
     """构造供 remote.server 注入的停止指令装配器。
 
     控制文件监视线程与 SIGTERM 两个指令来源都收敛在 app 层装配；
-    remote 层只提供 fast 停止回调，不感知实例控制与信号细节。
+    接收确认日志也在此统一输出，remote 层不感知停止文案。
     """
 
     def start(name: str, on_command: Callable[[str], None]) -> None:
-        instance.ControlWatcher(name, on_command).start()
-        install_sigterm_fast_stop(lambda: on_command(instance.STOP_FAST), ctx.logger)
+        def _dispatch(mode: str) -> None:
+            _log_stop_received(ctx.logger, mode)
+            on_command(mode)
+
+        instance.ControlWatcher(name, _dispatch).start()
+        install_sigterm_fast_stop(lambda: _dispatch(instance.STOP_FAST), ctx.logger)
 
     return start
 
@@ -310,14 +329,19 @@ def run_server() -> None:
 
     from src.remote.server import run_server as start_server
 
-    with SingleInstance(ctx.instance_name, ctx.logger):
-        ctx.logger.info("以服务器模式启动，请从客户端连接。")
-        start_server(
-            ctx.config,
-            ctx.logger,
-            ctx.shutdown,
-            ctx.instance_name,
-            # app 域能力注入:remote 层不感知实例控制与信号装配的实现
-            stop_watcher=_make_server_stop_watcher(ctx),
-            runtime_paths=instance.instance_paths,
-        )
+    try:
+        with SingleInstance(ctx.instance_name, ctx.logger):
+            ctx.logger.info("以服务器模式启动，请从客户端连接。")
+            start_server(
+                ctx.config,
+                ctx.logger,
+                ctx.shutdown,
+                ctx.instance_name,
+                # app 域能力注入:remote 层不感知实例控制与信号装配的实现
+                stop_watcher=_make_server_stop_watcher(ctx),
+                runtime_paths=instance.instance_paths,
+            )
+    finally:
+        # 正常的 stop 走 _on_command 的 os._exit 并自带退出日志，
+        # 此 finally 只覆盖异常退出路径
+        ctx.logger.info("Smart Archiver 已退出。")

@@ -164,7 +164,8 @@ def test_server_stop_command_aborts_and_exits(capture_log, monkeypatch):
 
     assert exited.wait(timeout=_WAIT_TIMEOUT)
     assert coordinator.is_aborted()
-    assert capture_log.has("warning", "停止")
+    # 退出日志位于 PID/控制文件清理之后，可证明收尾流程完整走完
+    assert capture_log.has("info", "已退出")
 
 
 @pytest.mark.skipif(os.name != "posix", reason="仅 POSIX 可向子进程投递真实 SIGTERM")
