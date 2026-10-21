@@ -31,6 +31,9 @@ config.backup.toml
 config.server.toml
 config.server.backup.toml
 
+# SSH 目录
+ssh/
+
 # 发布流程生成的文件
 release_notes.md
 
