@@ -218,13 +218,14 @@ class ActionExecutor:
         ctx = AppContext.get()
         rel_path = os.path.relpath(src_path, self.source_root)
         try:
+            size_str = _fmt_size(file_size, binary=True)
+            ctx.logger.info(f"正在删除文件: {rel_path}  ({size_str})")
             _fs_delete(src_path)
-            ctx.logger.success(f"删除文件: {rel_path}  ({_fmt_size(file_size, binary=True)})")
             ctx.history_mgr.record_success(src_path)
             stats.record_deleted()
         except OSError as e:
             count = ctx.history_mgr.record_failure(src_path)
-            ctx.logger.error(f"删除文件失败 ({count} 次): {rel_path}\nError: {e}")
+            ctx.logger.error(f"删除文件失败 ({count} 次): {e}")
 
 
 # ============================================================
