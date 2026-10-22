@@ -7,7 +7,7 @@
 ### 破坏性变更
 
 - 配置项 `lock_file` 更名为 `instance_name`（无后缀的实例标识名），旧键不再生效；锁/控制/PID 文件统一由程序存放在系统临时目录，仅接受纯名称、不再支持自定义路径。实例标识是同一份程序副本的身份证：锁文件（`<标识>.lock`）、控制文件（`<标识>.ctl`）、PID 文件（`<标识>.pid`）与日志文件前缀均由它派生，多副本部署时锁、控制通道与日志完全隔离。
-- 定时调度模式下实例锁的持有范围从"每轮任务执行期间"扩展为"整个进程生命周期"：调度空闲期同样阻止第二个实例运行，`stop` 子命令也能在此期间定位到实例。
+- 定时调度模式下实例锁的持有范围从“每轮任务执行期间”扩展为“整个进程生命周期”：调度空闲期同样阻止第二个实例运行，`stop` 子命令也能在此期间定位到实例。
 - 容量阈值解析遵循 IEC 80000-13 单位语义：`KB`/`MB`/`GB`/`TB` 按十进制（1 KB = 1000 B），`KiB`/`MiB`/`GiB`/`TiB` 按二进制（1 KiB = 1024 B）。
 - 配置项 `mtime_threshold_minutes` 重命名为 `mtime_threshold_seconds`，单位由分钟改为秒；旧键不再生效，未改名时任务会因缺少必填项被跳过。
 
@@ -119,7 +119,7 @@ mtime_threshold_seconds = 10800  # 10800 秒 = 3 小时，与升级前一致
 - 合并 `move` 和 `whitelist_move` 为 `move` 模式，合并 `copy` 和 `whitelist_copy` 为 `copy` 模式。`whitelist_move`/`whitelist_copy` 不再支持，工作方式现统一为原 whitelist 系列的行为。
 - 配置项 `keep_rules` 重命名为 `exclude_rules`，`whitelist_rules` 重命名为 `include_rules`。
 - 删去 `preferred_rule` 配置项。规则引擎现采用顺序流水线：`include_rules` → `exclude_rules` → `delete_rules` → TRANSFER，命中即停止，不再有并行检查和冲突消解。
-- `include_rules` 为选填：未配置时所有文件均视为"已纳入"（等价于旧 `move`/`copy` 的默认行为）；配置后仅匹配的文件被处理（等价于旧 whitelist 模式）。
+- `include_rules` 为选填：未配置时所有文件均视为“已纳入”（等价于旧 `move`/`copy` 的默认行为）；配置后仅匹配的文件被处理（等价于旧 whitelist 模式）。
 - 配置项 `run_immediately` 被 `first_run_delay` 取代：`-1` 表示等待至下个调度点（默认），`0` 表示立即执行，正数表示延迟指定秒数后执行首次任务。
 
 ### 修复
@@ -159,7 +159,7 @@ mtime_threshold_seconds = 10800  # 10800 秒 = 3 小时，与升级前一致
 ### 变更
 
 - 删除空目录与清理旧备份的日志级别从 `debug` 提升至 `info`，使操作记录在默认日志级别下即可见。
-- 日志中的 "CRUCIAL" 信息改为中文 "致命错误"，提升可读性。
+- 日志中的 “CRUCIAL” 信息改为中文 “致命错误”，提升可读性。
 
 ---
 
