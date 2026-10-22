@@ -17,7 +17,7 @@ import pytest
 
 from src.core.backend import SshDestBackend
 from src.ssh.remotes import SshRemote
-from tests.helpers import make_tree
+from tests.helpers import NOW, RECENT, make_tree, snapshot
 
 
 def sync_task(tmp_path, **overrides):
@@ -308,6 +308,27 @@ class TestSyncRejections:
 
         assert stub_procs.calls == []
         assert capture_log.has("critical", "目标目录不存在")
+
+
+class TestSourceQuietPeriod:
+    """source_quiet_seconds：源目录静默期内整任务跳过，连工具解析都
+    不会发生（rclone/rsync 缺失时静默跳过依旧成立）。"""
+
+    def test_source_in_quiet_period_skips_sync(self, run_task, tmp_path, stub_procs, capture_log):
+        make_tree(tmp_path / "src", {"a.txt": (b"x", RECENT)})
+        os.makedirs(tmp_path / "dest")
+
+        run_task(sync_task(tmp_path, source_quiet_seconds=300), now=NOW)
+
+        assert stub_procs.calls == []
+        assert snapshot(tmp_path / "src") == {"a.txt": 1}
+        assert capture_log.has("info", "源目录最近修改于")
+
+    def test_quiet_source_syncs_normally(self, run_task, tmp_path, stub_procs, prepared_dirs):
+        """源目录已静置超过阈值：同步照常发起。"""
+        run_task(sync_task(tmp_path, source_quiet_seconds=30), now=NOW)
+
+        assert len(stub_procs.calls) == 1
 
 
 class TestSshSyncCommands:

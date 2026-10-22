@@ -120,6 +120,51 @@ class TestMtimeThreshold:
         assert snapshot(task["dest"]) == {}
 
 
+class TestSourceQuietPeriod:
+    """source_quiet_seconds：源目录静默期内整任务跳过，一个文件都不处理。"""
+
+    def test_recent_file_skips_whole_task(self, run_task, tmp_path, capture_log):
+        """静默判定取源目录的递归最新 mtime：任一文件仍是新的，整个任务跳过。"""
+        task = move_task(tmp_path, source_quiet_seconds=300)
+        make_tree(task["source"], {"old.txt": b"o", "fresh.txt": (b"f", RECENT)})
+
+        run_task(task, now=NOW)
+
+        assert snapshot(task["source"]) == {"old.txt": 1, "fresh.txt": 1}
+        assert snapshot(task["dest"]) == {}
+        assert capture_log.has("info", "源目录最近修改于")
+
+    def test_quiet_source_runs_normally(self, run_task, tmp_path):
+        """源目录已静置超过阈值：任务照常执行，新配置不改变既有行为。"""
+        task = move_task(tmp_path, source_quiet_seconds=30)
+        make_tree(task["source"], {"a.txt": b"a"})
+
+        run_task(task, now=NOW)
+
+        assert snapshot(task["source"]) == {}
+        assert snapshot(task["dest"]) == {"a.txt": 1}
+
+    def test_source_quiet_exactly_at_threshold_skips(self, run_task, tmp_path):
+        """边界与 mtime_threshold_seconds 对齐：距今恰好等于阈值仍视为未静默足够久。"""
+        task = move_task(tmp_path, source_quiet_seconds=300)
+        make_tree(task["source"], {"edge.txt": (b"e", NOW - 300)})
+
+        run_task(task, now=NOW)
+
+        assert snapshot(task["source"]) == {"edge.txt": 1}
+        assert snapshot(task["dest"]) == {}
+
+    def test_zero_value_disables_the_check(self, run_task, tmp_path):
+        """0 显式禁用静默检查：刚修改过的文件也照常参与处理
+        （逐文件 mtime 阈值一并设 0 以排除其干扰）。"""
+        task = move_task(tmp_path, source_quiet_seconds=0, mtime_threshold_seconds=0)
+        make_tree(task["source"], {"fresh.txt": (b"f", RECENT)})
+
+        run_task(task, now=NOW)
+
+        assert snapshot(task["dest"]) == {"fresh.txt": 1}
+
+
 class TestRulesEndToEnd:
     """规则系统对目录树的最终影响——README 文档化行为的落地验证。"""
 
@@ -330,6 +375,18 @@ class TestErrorPaths:
         assert snapshot(task["source"]) == {"a.txt": 1, "b.tmp": 1}
         assert snapshot(task["dest"]) == {}
         assert capture_log.has("error", "规则 '*.tmp' 的容量值无效")
+
+    def test_invalid_source_quiet_value_skips_task(self, run_task, tmp_path, capture_log):
+        """source_quiet_seconds 非数值时配置校验报错跳过，而不是在比较时
+        抛 TypeError 中断整轮任务。"""
+        task = move_task(tmp_path, source_quiet_seconds="300")
+        make_tree(task["source"], {"a.txt": b"x"})
+
+        run_task(task, now=NOW)
+
+        assert snapshot(task["source"]) == {"a.txt": 1}
+        assert snapshot(task["dest"]) == {}
+        assert capture_log.has("error", "source_quiet_seconds")
 
     def test_unknown_remote_alias_skips_task(self, run_task, tmp_path, capture_log):
         """远端别名未配置时任务级报错跳过（不回退本地路径），目录树零变化。"""

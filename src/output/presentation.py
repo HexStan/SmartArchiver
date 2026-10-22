@@ -75,6 +75,10 @@ def print_task_header(task: dict[str, Any], logger: Logger) -> None:
         mtime_threshold_seconds = task.get("mtime_threshold_seconds", 0)
         logger.info(f" - 时间阈值: {fmt_timespan(mtime_threshold_seconds)}")
 
+    source_quiet_seconds = task.get("source_quiet_seconds", 0)
+    if source_quiet_seconds:
+        logger.info(f" - 静默阈值: {fmt_timespan(source_quiet_seconds)}")
+
     if task_mode == "rotate":
         # size_limit 已在 RotateHandler 构造期解析成功，此处解析保证成功
         from src.core.patterns import parse_size_string

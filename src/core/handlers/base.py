@@ -7,9 +7,10 @@ from src.app.context import AppContext
 from src.core.backend import DestBackend
 from src.core.filters import FileFilterPolicy
 from src.core.types import FileAction, MoverStats
-from src.fs import TransferAbortedError, is_file_locked
+from src.fs import TransferAbortedError, get_dir_size_and_mtime, is_file_locked
 from src.fs import delete_file as _fs_delete
 from src.output.presentation import fmt_size as _fmt_size
+from src.output.presentation import fmt_timespan, print_task_header
 
 # ============================================================
 # 配置验证
@@ -48,6 +49,20 @@ def validate_task_config(task: dict[str, Any], task_mode: str) -> bool:
     missing_fields = [field for field in required_fields if field not in task]
     if missing_fields:
         ctx.logger.error(f"任务配置缺少必填项: {'、'.join(missing_fields)}，跳过该任务。")
+        return False
+
+    # 全模式通用的选填数值项：类型不合法会在比较运算处引发 TypeError
+    # 中断整轮任务，故在配置校验期收口为"报错 + 跳过任务"
+    quiet_seconds = task.get("source_quiet_seconds", 0)
+    if (
+        isinstance(quiet_seconds, bool)
+        or not isinstance(quiet_seconds, (int, float))
+        or quiet_seconds < 0
+    ):
+        ctx.logger.error(
+            f"source_quiet_seconds 配置值无效: {quiet_seconds!r}"
+            "（应为不小于 0 的秒数），跳过该任务。"
+        )
         return False
 
     if task_mode in ("rotate", "sync") and task.get("include_rules"):
@@ -262,5 +277,44 @@ class BaseTaskHandler(ABC):
     def validate(self) -> bool:
         return validate_task_config(self.task, self.task_mode)
 
+    def execute(self) -> None:
+        """模板方法：配置校验 → 任务头 → 源目录静默期检查 → 子类执行。
+
+        三种处理器共有的前导步骤收敛于此，新增模式自动获得同一入口行为。
+        """
+        if not self.validate():
+            return
+
+        ctx = AppContext.get()
+
+        print_task_header(self.task, ctx.logger)
+
+        if self._source_in_quiet_period():
+            return
+
+        self._execute()
+
     @abstractmethod
-    def execute(self) -> None: ...
+    def _execute(self) -> None: ...
+
+    def _source_in_quiet_period(self) -> bool:
+        """source_quiet_seconds 检查：源目录仍在静默期内则整任务跳过。
+
+        以源目录的递归最新修改时间（get_dir_size_and_mtime，含目录自身
+        与全部普通文件）为基准，距 now 不超过静默秒数即视为"仍在写入中"，
+        本轮跳过；0 或缺省不启用，不产生额外遍历。源目录不存在时 mtime
+        为 0、age 远超阈值，自然落入既有的"源目录不存在"错误路径。
+        """
+        quiet_seconds = self.task.get("source_quiet_seconds", 0)
+        if not quiet_seconds:
+            return False
+
+        _total_size, latest_mtime = get_dir_size_and_mtime(self.source_root)
+        quiet_age = self.now - latest_mtime
+        # 边界与 FileChecker 的 mtime_threshold_seconds 对齐：恰好等于阈值
+        # 仍视为"未静默足够久"
+        if quiet_age > quiet_seconds:
+            return False
+
+        AppContext.get().logger.info(f"源目录最近修改于 {fmt_timespan(quiet_age)} 前，跳过该任务。")
+        return True

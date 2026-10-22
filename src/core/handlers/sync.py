@@ -13,7 +13,7 @@ from src.app.paths import bundled_rclone_path
 from src.core.backend import RemoteDestBackend, SshDestBackend
 from src.core.handlers.base import BaseTaskHandler
 from src.core.registry import register_handler
-from src.output.presentation import fmt_timespan, print_task_header
+from src.output.presentation import fmt_timespan
 from src.ssh.remotes import SshRemote
 
 # ============================================================
@@ -201,16 +201,11 @@ def _run_rsync_sync(
 @register_handler("sync")
 class SyncHandler(BaseTaskHandler):
     @override
-    def execute(self) -> None:
-        if not self.validate():
-            return
-
+    def _execute(self) -> None:
         ctx = AppContext.get()
 
         if ctx.shutdown.should_stop_before_file():
             return
-
-        print_task_header(self.task, ctx.logger)
 
         if isinstance(self.dest_backend, RemoteDestBackend):
             ctx.logger.error(

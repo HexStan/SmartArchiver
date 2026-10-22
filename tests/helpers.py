@@ -20,8 +20,9 @@ def make_tree(root, files, default_mtime=OLD):
         files: {相对路径: 内容} 映射。相对路径用正斜杠分隔（自动转换为本机分隔符）；
             内容为 bytes，或 (bytes, mtime) 元组以单独指定该文件的 mtime。
         default_mtime: 未单独指定时的文件 mtime（epoch 秒），默认 OLD；
-            所有中间目录的 mtime 也统一钉到该值（目录决策取内容物最新 mtime，
-            单独指定了更新 mtime 的文件仍然会让目录表现为"新"）。
+            所有目录（含根目录自身）的 mtime 也统一钉到该值（目录决策取内容物
+            最新 mtime，单独指定了更新 mtime 的文件仍然会让目录表现为"新"；
+            source_quiet_seconds 的静默判定会读取根目录 mtime，同样必须钉死）。
 
     Returns:
         str: root 的字符串形式。
@@ -42,10 +43,12 @@ def make_tree(root, files, default_mtime=OLD):
         os.utime(path, (mtime, mtime))
 
     # 写文件会刷新目录 mtime，目录的时间戳必须在所有文件写完后统一设置
+    # （根目录自身也参与 source_quiet_seconds 的静默判定，一并钉死）
     for dirpath, dirnames, _filenames in os.walk(root):
         for d in dirnames:
             p = os.path.join(dirpath, d)
             os.utime(p, (default_mtime, default_mtime))
+    os.utime(root, (default_mtime, default_mtime))
     return root
 
 

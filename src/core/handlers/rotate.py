@@ -8,7 +8,7 @@ from src.core.handlers.base import BaseTaskHandler
 from src.core.patterns import match_pattern, parse_size_string
 from src.core.registry import register_handler
 from src.fs import clean_empty_dirs
-from src.output.presentation import fmt_size, print_task_header, print_task_summary
+from src.output.presentation import fmt_size, print_task_summary
 
 # 分组 ID：全局组为 ("global", "global")，规则组为 (类型, "pattern", 模式)，
 # 元数不齐，故用 tuple[str, ...]
@@ -199,13 +199,8 @@ class RotateHandler(BaseTaskHandler):
         return True
 
     @override
-    def execute(self) -> None:
-        if not self.validate():
-            return
-
+    def _execute(self) -> None:
         ctx = AppContext.get()
-
-        print_task_header(self.task, ctx.logger)
 
         if not os.path.exists(self.source_root):
             ctx.logger.error(f"源目录不存在: {self.source_root}")

@@ -119,6 +119,35 @@ class TestGlobalLimits:
         assert snapshot(task["source"]) == {"b.txt": 1}
 
 
+class TestSourceQuietPeriod:
+    """source_quiet_seconds：源目录静默期内整任务跳过，连"无需轮转"的
+    限额评估都不做。"""
+
+    def test_source_in_quiet_period_skips_rotation(self, run_task, tmp_path, capture_log):
+        task = rotate_task(
+            tmp_path, dest=str(tmp_path / "dest"), count_limit=1, source_quiet_seconds=300
+        )
+        make_tree(task["source"], {"a.txt": (b"a", RECENT), "b.txt": (b"b", RECENT + 1)})
+
+        run_task(task, now=NOW)
+
+        assert snapshot(task["source"]) == {"a.txt": 1, "b.txt": 1}
+        assert snapshot(task["dest"]) == {}
+        assert capture_log.has("info", "源目录最近修改于")
+
+    def test_quiet_source_rotates_normally(self, run_task, tmp_path):
+        """源目录已静置超过阈值：轮转照常执行。"""
+        task = rotate_task(
+            tmp_path, dest=str(tmp_path / "dest"), count_limit=1, source_quiet_seconds=30
+        )
+        make_tree(task["source"], {"a.txt": b"a", "b.txt": b"b"})
+
+        run_task(task, now=NOW)
+
+        assert snapshot(task["dest"]) == {"a.txt": 1}
+        assert snapshot(task["source"]) == {"b.txt": 1}
+
+
 class TestRotationWithoutDest:
     def test_delete_rules_delete_in_place_of_transfer(self, run_task, tmp_path):
         """无 dest 时轮转产生的动作走 delete_rules 直接删除。"""

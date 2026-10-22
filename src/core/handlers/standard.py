@@ -8,21 +8,16 @@ from src.core.handlers.base import BaseTaskHandler
 from src.core.registry import register_handler
 from src.core.types import FileAction
 from src.fs import clean_empty_dirs, get_dir_size_and_mtime
-from src.output.presentation import fmt_size, print_task_header, print_task_summary
+from src.output.presentation import fmt_size, print_task_summary
 
 
 @register_handler("move", "copy")
 class StandardHandler(BaseTaskHandler):
     @override
-    def execute(self) -> None:
-        if not self.validate():
-            return
-
+    def _execute(self) -> None:
         mtime_threshold_seconds = self.task.get("mtime_threshold_seconds", 0)
 
         ctx = AppContext.get()
-
-        print_task_header(self.task, ctx.logger)
 
         if not os.path.exists(self.source_root):
             ctx.logger.error(f"源目录不存在: {self.source_root}")
