@@ -2,6 +2,10 @@ name: Docker Image Publish
 
 on:
   push:
+    # 仅响应分支 push：tag 与分支指向同一提交并一起推送时，tag push 会因
+    # 该提交包含 VERSION 变更而再次触发，导致同一镜像被重复构建两次。
+    branches:
+      - '**'
     paths:
       - 'VERSION'
   workflow_dispatch:
