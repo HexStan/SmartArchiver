@@ -290,7 +290,7 @@ SmartArchiver 的核心能力是**对源目录中的文件执行某种操作**�
 | `dest` | ○ | 目标目录路径；未配置时不传输文件，仅 `delete_rules` 删除可执行 |
 | `conflict_policy` | ○ | 同名文件冲突策略（默认 `"skip"`） |
 | `remove_empty_dirs` | ✓ | 任务结束后是否清理空目录 |
-| `mtime_threshold_minutes` | ✓ | 修改时间阈值（分钟），同时约束传输与删除 |
+| `mtime_threshold_seconds` | ✓ | 修改时间阈值（秒），同时约束传输与删除 |
 | `include_rules` | ○ | 纳入规则：仅命中的文件参与处理；未配置时视为全部纳入 |
 | `exclude_rules` | ○ | 排除规则：命中的文件/目录跳过，不处理 |
 | `delete_rules` | ○ | 删除规则：命中的文件/目录直接删除（同样受 mtime 阈值约束） |
@@ -337,9 +337,9 @@ SmartArchiver 的核心能力是**对源目录中的文件执行某种操作**�
 - `"skip"` — 跳过该文件，不传输
 - `"copy"` — 创建带编号的副本，如 `file.txt` → `file-1.txt`。「copy」在此处指「保留两份」，不是指任务模式为复制
 
-**`mtime_threshold_minutes`**（move / copy 模式必填）：
+**`mtime_threshold_seconds`**（move / copy 模式必填）：
 
-文件最近修改时间需超过该阈值（分钟）才会被处理。**该阈值同时约束传输和删除**——即便是被 `delete_rules` 匹配的文件，如果其 mtime 不满足阈值也不会被删除。建议至少设为几分钟，避免处理仍在写入的文件。
+文件最近修改时间需超过该阈值（秒）才会被处理。**该阈值同时约束传输和删除**——即便是被 `delete_rules` 匹配的文件，如果其 mtime 不满足阈值也不会被删除。
 
 设为 `0` 表示无时间限制，所有文件立即参与处理。
 
@@ -374,7 +374,7 @@ SmartArchiver 的核心能力是**对源目录中的文件执行某种操作**�
 mode = "move"
 source = "./my_files"
 dest = "./archive"
-mtime_threshold_minutes = 1440    # 1 天
+mtime_threshold_seconds = 86400   # 1 天
 remove_empty_dirs = false
 ```
 
@@ -658,7 +658,7 @@ max_log_files = 30                        # 保留的日志文件数量，0 表�
 
 ### 1. 为什么没有几十种模式和规则？
 
-如果为每种场景都创建一个专属模式，SmartArchiver 的配置将变成一份冗长的菜单——`move_logs_by_age`、`copy_videos_above_size`、`rotate_backups_by_count`、`sync_except_temp`……每种组合都需要一个名字，用户只能在预设的选项中挑选，稍有偏差就无从下手。SmartArchiver 选择了一条不同的路径：**提供少量正交的"动词"（move / copy / rotate / sync）和一套可组合的"条件表达式"（include_rules / exclude_rules / delete_rules / rotate_rules）**，让用户像搭积木一样，通过排列组合来表达任意文件管理逻辑。move 配上 `mtime_threshold_minutes` 就是"按时间归档"；rotate 配上 `delete_rules` 就是"纯清理"；move 配上 `include_rules` 就是"只搬运特定文件"。模式负责"要做什么"（传输/删除/同步），规则负责"对谁做"（命名、大小、时间的筛选条件），两者解耦后，4 种模式 + 4 类规则所能表达的组合远远超过为每种组合单独设计一个模式。工程上，这也意味着规则引擎只需实现一次，所有处理器共享同一套决策逻辑，新增模式时也无需在配置层引入破坏性变更——因为规则语法对任何模式都是统一的。
+如果为每种场景都创建一个专属模式，SmartArchiver 的配置将变成一份冗长的菜单——`move_logs_by_age`、`copy_videos_above_size`、`rotate_backups_by_count`、`sync_except_temp`……每种组合都需要一个名字，用户只能在预设的选项中挑选，稍有偏差就无从下手。SmartArchiver 选择了一条不同的路径：**提供少量正交的"动词"（move / copy / rotate / sync）和一套可组合的"条件表达式"（include_rules / exclude_rules / delete_rules / rotate_rules）**，让用户像搭积木一样，通过排列组合来表达任意文件管理逻辑。move 配上 `mtime_threshold_seconds` 就是"按时间归档"；rotate 配上 `delete_rules` 就是"纯清理"；move 配上 `include_rules` 就是"只搬运特定文件"。模式负责"要做什么"（传输/删除/同步），规则负责"对谁做"（命名、大小、时间的筛选条件），两者解耦后，4 种模式 + 4 类规则所能表达的组合远远超过为每种组合单独设计一个模式。工程上，这也意味着规则引擎只需实现一次，所有处理器共享同一套决策逻辑，新增模式时也无需在配置层引入破坏性变更——因为规则语法对任何模式都是统一的。
 
 ### 2. 为什么 `rotate_rules` 不支持匹配目录
 
