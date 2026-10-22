@@ -43,9 +43,9 @@ python scripts/smoke_test.py "dist/SmartArchiver-*.zip" # 对发行 zip 做冒�
 ## 架构速览
 
 - 入口 `main.py`：仅 CLI 解析与分发。运行路径在 `src/app/runtime.py`（`run_client()` 无 `[schedule]` 时一次性运行，否则 cron/interval 常驻；`run_server()` 为 HTTP 远端 API），控制子命令 start/log/stop 在 `src/app/control.py`。
-- 任务分派：`src/core/registry.py` 用 `@register_handler` 装饰器维护 mode → handler 映射，`process_task()` 负责创建后端、实例化并执行。新增模式在此注册。
+- 任务分派：`src/core/registry.py` 用 `@register_handler` 装饰器维护 mode → handler 映射，`process_task()` 负责校验 dest、实例化并执行。新增模式在此注册。
 - 处理器在 `src/core/handlers/`：`StandardHandler`（move/copy）、`RotateHandler`、`SyncHandler`，继承 `base.py` 的 `BaseTaskHandler`。
-- 目标后端抽象 `src/core/backend.py`：`LocalDestBackend` / `RemoteDestBackend`（HTTP）/ `SshDestBackend`，依据 dest 字符串前缀 `{http:别名}?` 或 `{ssh:别名}?` 选择。
+- 目标侧 I/O 转发层 `src/core/dest.py`：dest 串协议（`{http:别名}?` / `{ssh:别名}?` / 本地路径）的唯一解析处与目标读写的唯一入口，按前缀分派至 `fs` 或 `RemoteClient`；装配期 `ensure_dest` 做 fail-fast 校验。约定：目标目录的读写必须经 `core.dest`，`fs` 仅用于本地路径。SSH 远端目录操作与 rsync 连接参数在 `src/ssh/ops.py`。
 - 规则引擎 `src/core/filters.py` 的 `FileFilterPolicy`：顺序流水线 include → exclude → delete → TRANSFER，命中即停。模式匹配与容量解析在 `src/core/patterns.py`。
 - 本地文件 I/O 原语在 `src/fs/`（errors / abort / scan / atomic / transfer / cleanup），不依赖任何上层包；`fs.abort` 的中止检查由 `app/runtime.py` 组装时注入。
 - `AppContext`（`src/app/context.py`）是全局单例，logger / history 均经 `AppContext.get()` 获取；测试 fixture 用完会重置单例。

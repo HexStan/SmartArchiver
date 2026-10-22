@@ -29,14 +29,14 @@ SmartArchiver 的本质是一个"目录树 + 配置 → 新目录树"的变换�
 | 白盒·规则引擎 | `test_rule_engine.py` | FileFilterPolicy | 直接调用 `decide()` |
 | 白盒·轮转分组 | `test_rotate_groups.py` | RotateGroupManager | 直接调用分组统计接口 |
 | 白盒·纯函数 | `test_size_and_pattern.py` | parse_size_string / match_pattern | 直接调用 |
-| 白盒·路径与分派 | `test_dest_backend.py` | DestBackend 路径拼接、create_dest_backend | 直接调用（get_unique_dest 用真实文件） |
+| 白盒·路径与分派 | `test_dest.py` | dest 协议串解析、路径规则、ensure_dest 校验、转发分派 | 直接调用（unique_dest 用真实文件 / 替身 client） |
 | 白盒·HTTP 直写 | `test_server_direct_write.py` | 上传落盘位置（目标目录 vs 系统临时目录）与服务器选型 | create_app + test_client 探针流；make_server 真实回环；run_server 装配录制 |
 | 端到端·打包产物 | `test_e2e_packaged.py` | PyInstaller 产物（main 入口） | 子进程驱动；`SMARTARCHIVER_BIN` 未设置时整体跳过 |
 
 ## 编写原则
 
 **原则一：灰盒优先——能从入口测的，不从内部测。**
-新测试先问："能不能通过 `run_task()`（即 handler 的 `execute()` 入口）加一个临时目录树来驱动？"能，就写成灰盒测试：输入 = 目录树 + 任务配置，断言 = 输出目录树 + 日志。被测代码内部**不打桩**——Logger 用捕获型替身，HistoryManager 用真的，LocalDestBackend 用真的。任务的配置校验失败、源目录不存在等错误路径，也在这里以"错误日志 + 目录树无变化"的形式验证，不单独拆成校验函数的单测。
+新测试先问："能不能通过 `run_task()`（即 handler 的 `execute()` 入口）加一个临时目录树来驱动？"能，就写成灰盒测试：输入 = 目录树 + 任务配置，断言 = 输出目录树 + 日志。被测代码内部**不打桩**——Logger 用捕获型替身，HistoryManager 用真的，本地目标走真实 fs。任务的配置校验失败、源目录不存在等错误路径，也在这里以"错误日志 + 目录树无变化"的形式验证，不单独拆成校验函数的单测。
 
 **原则二：白盒只补外部不可见的契约。**
 只有当行为从 `execute()` 入口无法观察（或观察成本畸高）时，才写白盒单元测试。当前属于这一类的契约：
@@ -62,13 +62,13 @@ SmartArchiver 的本质是一个"目录树 + 配置 → 新目录树"的变换�
 测试名就是行为描述（`test_exclude_shields_file_from_delete`），读测试名应当能看懂它守护的契约。组合行为的验证交给灰盒场景测试，白盒测试保持单点。
 
 **原则七：真实组件优先于替身。**
-优先级：真实组件 > 捕获型替身（记录调用但不改变行为）> 行为型 mock（伪造返回值）。Logger 用捕获型（不改行为只记录）；HistoryManager、文件系统、LocalDestBackend 全部用真的。每引入一个行为型 mock，都要能回答"我在替谁做决定，依据是什么"。
+优先级：真实组件 > 捕获型替身（记录调用但不改变行为）> 行为型 mock（伪造返回值）。Logger 用捕获型（不改行为只记录）；HistoryManager、文件系统、本地目标（fs 路径）全部用真的。每引入一个行为型 mock，都要能回答"我在替谁做决定，依据是什么"。
 
 ## 基础设施
 
 **`conftest.py`**
 - `app_context`：初始化全局 AppContext——捕获型 `CaptureLogger` + **真实** `HistoryManager`（指向 tmp 目录）+ 默认配置；测试结束清理单例。
-- `run_task(task, now=None, remote_clients=None, ssh_remotes=None)`：灰盒测试统一入口。按任务的 `mode` 从注册表取处理器、创建目标后端、执行并返回 handler 实例（供补充断言）。
+- `run_task(task, now=None, remote_clients=None, ssh_remotes=None)`：灰盒测试统一入口。按任务的 `mode` 从注册表取处理器，经 `dest.ensure_dest` 装配期校验后构造并执行，返回 handler 实例（供补充断言）。`remote_clients` / `ssh_remotes` 写入 AppContext，供 dest 校验与 core.dest 转发层取用。
 
 **`helpers.py`**
 - `NOW / OLD / RECENT`：确定性时间常量（`OLD` 距 `NOW` 30 天，`RECENT` 距 60 秒）。
