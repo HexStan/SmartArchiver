@@ -9,7 +9,7 @@ import os
 # 禁止使用 time.time() 或依赖文件系统的默认时间戳。
 NOW = 1_700_000_000  # 测试中的"当前时刻"（epoch 秒）
 OLD = NOW - 30 * 86400  # 30 天前——足以通过任何常规时间阈值
-RECENT = NOW - 60  # 60 秒前——不足以通过分钟级时间阈值
+RECENT = NOW - 60  # 60 秒前——不足以通过常规秒级时间阈值
 
 
 def make_tree(root, files, default_mtime=OLD):

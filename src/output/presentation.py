@@ -72,7 +72,7 @@ def print_task_header(task: dict[str, Any], logger: Logger) -> None:
         logger.info(f" - 目标目录: {dest_root}")
 
     if task_mode not in ["rotate", "sync"]:
-        mtime_threshold_seconds = task.get("mtime_threshold_minutes", 0) * 60
+        mtime_threshold_seconds = task.get("mtime_threshold_seconds", 0)
         logger.info(f" - 时间阈值: {fmt_timespan(mtime_threshold_seconds)}")
 
     if task_mode == "rotate":

@@ -98,7 +98,7 @@ log_dir = "./logs"
 mode = "move"
 source = "{src}"
 dest = "{dest}"
-mtime_threshold_minutes = 60
+mtime_threshold_seconds = 3600
 remove_empty_dirs = true
 """,
         )
@@ -136,7 +136,7 @@ log_dir = "./logs"
 mode = "move"
 source = "{src}"
 dest = "{dest}"
-mtime_threshold_minutes = 60
+mtime_threshold_seconds = 3600
 remove_empty_dirs = false
 
 [tasks.include_rules]

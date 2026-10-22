@@ -22,7 +22,7 @@ def move_task(tmp_path, create_dest=True, **overrides):
         "mode": "move",
         "source": str(tmp_path / "src"),
         "dest": str(tmp_path / "dest"),
-        "mtime_threshold_minutes": 60,
+        "mtime_threshold_seconds": 3600,
         "remove_empty_dirs": False,
     }
     task.update(overrides)
@@ -72,7 +72,7 @@ class TestMtimeThreshold:
     """时间阈值同时约束传输和删除；边界为严格大于（now - mtime > 阈值才处理）。"""
 
     def test_recent_file_stays_old_file_moves(self, run_task, tmp_path):
-        task = move_task(tmp_path)  # 阈值 60 分钟
+        task = move_task(tmp_path)  # 阈值 3600 秒
         make_tree(
             task["source"],
             {"old.txt": b"o", "new.txt": (b"n", RECENT)},
@@ -101,7 +101,7 @@ class TestMtimeThreshold:
         assert snapshot(task["dest"]) == {"edge.txt": 1}
 
     def test_zero_threshold_processes_everything(self, run_task, tmp_path):
-        task = move_task(tmp_path, mtime_threshold_minutes=0)
+        task = move_task(tmp_path, mtime_threshold_seconds=0)
         make_tree(task["source"], {"fresh.txt": (b"f", NOW - 1)})
 
         run_task(task, now=NOW)
@@ -310,14 +310,14 @@ class TestErrorPaths:
     def test_invalid_task_config_skips_everything(self, run_task, tmp_path, capture_log):
         """缺少必填项的任务被整体跳过：错误日志 + 目录树零变化。"""
         task = move_task(tmp_path)
-        del task["mtime_threshold_minutes"]
+        del task["mtime_threshold_seconds"]
         make_tree(task["source"], {"a.txt": b"x"})
 
         run_task(task, now=NOW)
 
         assert snapshot(task["source"]) == {"a.txt": 1}
         assert snapshot(task["dest"]) == {}
-        assert capture_log.has("error", "mtime_threshold_minutes")
+        assert capture_log.has("error", "mtime_threshold_seconds")
 
     def test_invalid_rule_size_skips_everything(self, run_task, tmp_path, capture_log):
         """规则容量值无法解析时任务在构造阶段被跳过：错误日志带规则键

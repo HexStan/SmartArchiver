@@ -37,7 +37,7 @@ def move_task(tmp_path):
         "mode": "move",
         "source": str(tmp_path / "src"),
         "dest": str(tmp_path / "dest"),
-        "mtime_threshold_minutes": 0,
+        "mtime_threshold_seconds": 0,
         "remove_empty_dirs": False,
     }
     os.makedirs(task["dest"], exist_ok=True)

@@ -42,7 +42,7 @@ def make_task(src, dest, mode):
         "mode": mode,
         "source": str(src),
         "dest": str(dest),
-        "mtime_threshold_minutes": 0,
+        "mtime_threshold_seconds": 0,
         "remove_empty_dirs": False,
     }
 

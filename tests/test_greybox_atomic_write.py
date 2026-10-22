@@ -19,7 +19,7 @@ def transfer_task(tmp_path, create_dest=True, **overrides):
         "mode": "copy",
         "source": str(tmp_path / "src"),
         "dest": str(tmp_path / "dest"),
-        "mtime_threshold_minutes": 60,
+        "mtime_threshold_seconds": 3600,
         "remove_empty_dirs": False,
     }
     task.update(overrides)

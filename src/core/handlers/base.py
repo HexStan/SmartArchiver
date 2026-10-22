@@ -41,7 +41,7 @@ def validate_task_config(task: dict[str, Any], task_mode: str) -> bool:
         required_fields = [
             "mode",
             "source",
-            "mtime_threshold_minutes",
+            "mtime_threshold_seconds",
             "remove_empty_dirs",
         ]
 

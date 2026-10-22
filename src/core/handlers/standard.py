@@ -18,8 +18,7 @@ class StandardHandler(BaseTaskHandler):
         if not self.validate():
             return
 
-        mtime_threshold_minutes = self.task.get("mtime_threshold_minutes", 0)
-        mtime_threshold_seconds = mtime_threshold_minutes * 60
+        mtime_threshold_seconds = self.task.get("mtime_threshold_seconds", 0)
 
         ctx = AppContext.get()
 
