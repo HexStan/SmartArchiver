@@ -10,10 +10,11 @@ from typing import Any, NamedTuple, override
 from src import fs
 from src.app.context import AppContext
 from src.app.paths import bundled_rclone_path
-from src.core.backend import RemoteDestBackend, SshDestBackend
+from src.core import dest
 from src.core.handlers.base import BaseTaskHandler
 from src.core.registry import register_handler
 from src.output.presentation import fmt_timespan
+from src.ssh import ops
 from src.ssh.remotes import SshRemote
 
 # ============================================================
@@ -207,18 +208,28 @@ class SyncHandler(BaseTaskHandler):
         if ctx.shutdown.should_stop_before_file():
             return
 
-        if isinstance(self.dest_backend, RemoteDestBackend):
-            ctx.logger.error(
-                "sync 模式不支持 HTTP 远程目标目录，请改用 move/copy 模式，"
-                "或在远程服务器上直接运行 sync，跳过该任务。"
-            )
-            return
-
         if not os.path.exists(self.source_root):
             ctx.logger.error(f"源目录不存在: {self.source_root}")
             return
 
-        if not self.dest_backend.is_dir(self.dest_backend.root_path):
+        # 装配期 ensure_dest 已保证 kind 组合合法（sync：本地或 SSH），
+        # 此处解析只为取得 SSH 连接参数与远端根路径
+        parsed = dest.parse_dest(self.dest_root)
+
+        if parsed.kind == dest.SSH:
+            remote = ctx.ssh_remotes.get(parsed.alias)
+            if remote is None:
+                # 防御：装配期已校验别名存在，正常不会到达
+                ctx.logger.error(
+                    f"SSH 远端别名 '{parsed.alias}' 未在 ssh_remotes 中配置，跳过该任务。"
+                )
+                return
+            dest_ready = ops.is_remote_dir(remote, parsed.path)
+        else:
+            remote = None
+            dest_ready = dest.is_dir(self.dest_root)
+
+        if not dest_ready:
             ctx.logger.critical("!!! 致命错误: 目标目录不存在 !!!")
             return
 
@@ -232,31 +243,30 @@ class SyncHandler(BaseTaskHandler):
         backup_enabled = self.task.get("create_backups", False)
         max_backups = self.task.get("max_backups", 0)
 
-        if isinstance(self.dest_backend, SshDestBackend):
+        if remote is not None:
             self._execute_ssh_sync(
-                self.dest_backend, tool, exclude_list, backup_enabled, max_backups
+                remote, parsed.path, tool, exclude_list, backup_enabled, max_backups
             )
-        else:
-            backup_dir = None
-            if backup_enabled:
-                if tool.supports_backup_dir:
-                    backup_dir = self._setup_backup_dir(
-                        self.dest_backend.root_path, max_backups, exclude_list
-                    )
-                else:
-                    _warn_backup_unsupported()
+            return
 
-            _sync_runners = {
-                "rclone": _run_rclone_sync,
-                "rsync": _run_rsync_sync,
-            }
-            _sync_runners[tool.name](
-                self.source_root,
-                self.dest_backend.root_path,
-                exclude_list,
-                backup_dir,
-                tool.exec_path,
-            )
+        backup_dir = None
+        if backup_enabled:
+            if tool.supports_backup_dir:
+                backup_dir = self._setup_backup_dir(self.dest_root, max_backups, exclude_list)
+            else:
+                _warn_backup_unsupported()
+
+        _sync_runners = {
+            "rclone": _run_rclone_sync,
+            "rsync": _run_rsync_sync,
+        }
+        _sync_runners[tool.name](
+            self.source_root,
+            self.dest_root,
+            exclude_list,
+            backup_dir,
+            tool.exec_path,
+        )
 
     # ============================================================
     # SSH 远端同步
@@ -264,59 +274,43 @@ class SyncHandler(BaseTaskHandler):
 
     def _execute_ssh_sync(
         self,
-        backend: SshDestBackend,
+        remote: SshRemote,
+        remote_root: str,
         tool: SyncTool,
         exclude_list: list[str],
         backup_enabled: bool,
         max_backups: int,
     ) -> None:
         """执行 SSH 远端同步（rsync 或 rclone）。"""
-        remote = backend.remote
-
         backup_dir = None
         if backup_enabled:
             if tool.supports_backup_dir:
-                backup_dir = self._setup_ssh_backup_dir(backend, max_backups, exclude_list)
+                backup_dir = self._setup_ssh_backup_dir(
+                    remote, remote_root, max_backups, exclude_list
+                )
             else:
                 _warn_backup_unsupported()
 
         if tool.name == "rsync":
-            self._run_ssh_rsync(tool, remote, exclude_list, backup_dir)
+            self._run_ssh_rsync(tool, remote, remote_root, exclude_list, backup_dir)
         else:
-            self._run_ssh_rclone(tool, remote, exclude_list, backup_dir)
-
-    def _build_rsync_ssh_rsh(self, remote: SshRemote) -> str:
-        """构建 rsync 的 -e 参数值（SSH 远程 shell 命令字符串）。"""
-        opts = [
-            "ssh",
-            "-o",
-            "StrictHostKeyChecking=no",
-            "-o",
-            "UserKnownHostsFile=/dev/null",
-            "-o",
-            "LogLevel=ERROR",
-        ]
-        if remote.port != 22:
-            opts.extend(["-p", str(remote.port)])
-        if remote.key_file:
-            opts.extend(["-i", remote.key_file])
-
-        rsh = " ".join(opts)
-        if remote.password_file:
-            rsh = f"sshpass -f {remote.password_file} {rsh}"
-
-        return rsh
+            self._run_ssh_rclone(tool, remote, remote_root, exclude_list, backup_dir)
 
     def _run_ssh_rsync(
-        self, tool: SyncTool, remote: SshRemote, exclude_list: list[str], backup_dir: str | None
+        self,
+        tool: SyncTool,
+        remote: SshRemote,
+        remote_root: str,
+        exclude_list: list[str],
+        backup_dir: str | None,
     ) -> None:
         """通过 rsync + SSH 同步到远端主机。"""
         src = self.source_root
         src = src if src.endswith("/") else src + "/"
-        dest = f"{remote.user}@{remote.host}:{self.dest_backend.root_path}"
+        dest_target = f"{remote.user}@{remote.host}:{remote_root}"
 
         cmd = [tool.exec_path, "-av", "--delete"]
-        rsh = self._build_rsync_ssh_rsh(remote)
+        rsh = ops.build_rsync_ssh_rsh(remote)
         cmd.extend(["-e", rsh])
 
         for ex in exclude_list:
@@ -327,23 +321,28 @@ class SyncHandler(BaseTaskHandler):
             # rsync 已经知道备份放在接收端（远端主机），直接传绝对路径即可。
             cmd.extend(["--backup", f"--backup-dir={backup_dir}"])
 
-        cmd.extend([src, dest])
+        cmd.extend([src, dest_target])
         _run_sync_command(cmd, "rsync", prepend_timestamp=True)
 
     def _run_ssh_rclone(
-        self, tool: SyncTool, remote: SshRemote, exclude_list: list[str], backup_dir: str | None
+        self,
+        tool: SyncTool,
+        remote: SshRemote,
+        remote_root: str,
+        exclude_list: list[str],
+        backup_dir: str | None,
     ) -> None:
         """通过 rclone SFTP 同步到远端主机。"""
         ctx = AppContext.get()
 
         # 使用 :sftp: 后端，通过命令行参数指定连接信息，无需预配置
-        dest = f":sftp:{self.dest_backend.root_path}"
+        dest_target = f":sftp:{remote_root}"
 
         cmd = [
             tool.exec_path,
             "sync",
             self.source_root,
-            dest,
+            dest_target,
             "--sftp-host",
             remote.host,
             "--sftp-user",
@@ -391,7 +390,7 @@ class SyncHandler(BaseTaskHandler):
         _consume_sync_process(process, "rclone")
 
     def _setup_ssh_backup_dir(
-        self, backend: SshDestBackend, max_backups: int, exclude_list: list[str]
+        self, remote: SshRemote, remote_root: str, max_backups: int, exclude_list: list[str]
     ) -> str:
         """为 SSH 远端目标设置备份目录。
 
@@ -399,7 +398,7 @@ class SyncHandler(BaseTaskHandler):
         """
         ctx = AppContext.get()
 
-        backup_base = posixpath.join(backend.root_path, ".smart-archiver.backups")
+        backup_base = posixpath.join(remote_root, ".smart-archiver.backups")
         timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
         backup_dir = posixpath.join(backup_base, timestamp)
 
@@ -407,13 +406,13 @@ class SyncHandler(BaseTaskHandler):
 
         if max_backups > 0:
             try:
-                all_dirs = backend.remote_list_dir(backup_base)
+                all_dirs = ops.list_remote_dirs(remote, backup_base)
                 if all_dirs and len(all_dirs) >= max_backups:
                     num_to_delete = len(all_dirs) - max_backups + 1
                     for d in all_dirs[:num_to_delete]:
                         remote_path = posixpath.join(backup_base, d)
                         ctx.logger.info(f"正在删除远端旧备份: {d}")
-                        ok = backend.remote_rmdir(remote_path)
+                        ok = ops.remove_remote_tree(remote, remote_path)
                         if not ok:
                             ctx.logger.warning("删除远端旧备份失败")
             except Exception as e:  # noqa: BLE001

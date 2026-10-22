@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 from typing import Any
 
 from src.app.context import AppContext
-from src.core.backend import DestBackend
+from src.core import dest
 from src.core.filters import FileFilterPolicy
 from src.core.types import FileAction, MoverStats
 from src.fs import TransferAbortedError, get_dir_size_and_mtime, is_file_locked
@@ -120,11 +120,12 @@ class ActionExecutor:
     """动作执行器：负责目标目录验证、冲突处理和动作分发。
 
     整合了原 actions.py 中 transfer_file 和 delete_file 的业务逻辑。
+    目标侧 I/O 一律经由 core.dest 转发层（dest_root 为原始 dest 协议串）。
     """
 
-    def __init__(self, task: dict[str, Any], dest_backend: DestBackend) -> None:
+    def __init__(self, task: dict[str, Any], dest_root: str) -> None:
         self.source_root: str = task.get("source", "")
-        self.dest_backend = dest_backend
+        self.dest_root = dest_root
         self.conflict_policy: str = task.get("conflict_policy", "skip").lower()
         self._dest_checked = False
         self._dest_valid = False
@@ -145,13 +146,13 @@ class ActionExecutor:
             # dest 允许为空：为空时 TRANSFER 没有可写入的目标，逐文件
             # warning 跳过，DELETE / SKIP 等其余动作不受影响。
             # 此处不预设 dest 为空的用途，交由配置组合决定。
-            if not self.dest_backend.root_path:
+            if not self.dest_root:
                 ctx.logger.warning(f"跳过文件 (未配置目标目录): {rel_path}")
                 return True
 
             if not self._dest_checked:
                 self._dest_checked = True
-                if not self.dest_backend.is_dir(self.dest_backend.root_path):
+                if not dest.is_dir(self.dest_root):
                     ctx.logger.critical("!!! 致命错误: 目标目录不存在 !!!")
                     self._dest_valid = False
                     return False
@@ -179,11 +180,11 @@ class ActionExecutor:
     ) -> None:
         """执行文件传输（复制或移动），处理冲突策略。"""
         ctx = AppContext.get()
-        dest_path = self.dest_backend.build_dest_path(rel_path)
+        dest_path = dest.build_dest_path(self.dest_root, rel_path)
         action_name = "复制" if is_copy else "移动"
 
         try:
-            file_exists = self.dest_backend.exists(dest_path)
+            file_exists = dest.exists(dest_path)
             new_dest_path = dest_path
 
             if file_exists:
@@ -193,7 +194,7 @@ class ActionExecutor:
                     return
 
                 elif self.conflict_policy == "copy":
-                    new_dest_path = self.dest_backend.get_unique_dest(dest_path)
+                    new_dest_path = dest.unique_dest(dest_path)
 
                 elif self.conflict_policy == "overwrite":
                     # 目标由后端原子替换（os.replace / 服务端 rename），
@@ -207,15 +208,15 @@ class ActionExecutor:
             if file_exists and self.conflict_policy == "overwrite":
                 ctx.logger.info(f"正在覆盖同名文件: {rel_path} ({size_str})")
             elif file_exists and self.conflict_policy == "copy":
-                new_rel = self.dest_backend.relpath(new_dest_path)
+                new_rel = dest.relpath(self.dest_root, new_dest_path)
                 ctx.logger.info(f"目标存在，正在创建副本: {new_rel} ({size_str})")
             else:
                 ctx.logger.info(f"正在{action_name}文件: {rel_path} ({size_str})")
 
             if is_copy:
-                self.dest_backend.copy_file(src_path, new_dest_path)
+                dest.copy_file(src_path, new_dest_path)
             else:
-                self.dest_backend.move_file(src_path, new_dest_path)
+                dest.move_file(src_path, new_dest_path)
 
             stats.record_success(bytes_transferred=file_size)
             ctx.history_mgr.record_success(src_path)
@@ -252,14 +253,14 @@ class BaseTaskHandler(ABC):
     def __init__(
         self,
         task: dict[str, Any],
-        dest_backend: DestBackend,
         now: float | None = None,
     ) -> None:
         self.task = task
         self.now = now or time.time()
         self.stats = MoverStats()
         self.source_root: str = task.get("source", "")
-        self.dest_backend = dest_backend
+        # 原始 dest 协议串（可能带 {类型:别名}? 前缀），目标侧 I/O 经 core.dest
+        self.dest_root: str = task.get("dest", "") or ""
         self.task_mode: str = task.get("mode", "").lower()
         self.remove_empty_dirs: bool = task.get("remove_empty_dirs", False)
 
@@ -272,7 +273,7 @@ class BaseTaskHandler(ABC):
         }
         self.policy = FileFilterPolicy(merged_config)
         self.checker = FileChecker(task, now)
-        self.executor = ActionExecutor(task, dest_backend)
+        self.executor = ActionExecutor(task, self.dest_root)
 
     def validate(self) -> bool:
         return validate_task_config(self.task, self.task_mode)

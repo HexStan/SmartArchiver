@@ -70,17 +70,22 @@ def run_task(app_context):
 
         handler = run_task({"mode": "move", "source": ..., ...}, now=NOW)
 
-    返回 handler 实例，可读取 stats 做补充断言；任务在构造期被跳过
-    （如容量规则配置错误）时返回 None。主断言应落在目录树快照上。
-    远程后端测试通过 remote_clients / ssh_remotes 注入（见 test_greybox_sync.py）。
+    返回 handler 实例，可读取 stats 做补充断言；任务在装配/构造期被跳过
+    （如 dest 校验失败、容量规则配置错误）时返回 None。主断言应落在
+    目录树快照上。远端连接参数通过 remote_clients / ssh_remotes 注入
+    （写入 AppContext，供 dest.ensure_dest 校验与 core.dest 转发层取用，
+    见 test_greybox_sync.py）。
     """
 
     def _run(task, now=None, remote_clients=None, ssh_remotes=None):
-        # 与生产 process_task 共用同一条装配路径（含构造期配置错误的
+        ctx = AppContext.get()
+        if remote_clients is not None:
+            ctx.remote_clients = remote_clients
+        if ssh_remotes is not None:
+            ctx.ssh_remotes = ssh_remotes
+        # 与生产 process_task 共用同一条装配路径（含装配/构造期配置错误的
         # 捕获语义），错误路径测试才是在测生产行为而不是测试替身。
-        handler = create_handler(
-            task, now=now, remote_clients=remote_clients, ssh_remotes=ssh_remotes
-        )
+        handler = create_handler(task, now=now)
         if handler is None:
             return None
         handler.execute()

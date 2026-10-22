@@ -3,7 +3,12 @@
 本地文件 I/O 原语按职责拆分为六个模块：errors（异常）、abort（中止信号）、
 scan（路径查询与目录枚举）、atomic（原子写入）、transfer（传输与删除）、
 cleanup（空目录清理）。对外提供一致的日志、错误处理和返回类型，
-供 LocalDestBackend、remote.server 以及其他需要直接操作文件系统的模块使用。
+供 core.dest 转发层、remote.server 以及其他需要直接操作本地文件系统的
+模块使用。
+
+**约定（DocStrings 契约）**：本包是本地路径专用原语——所有针对目标目录
+（dest）的读写行为必须经由 src/core/dest.py 转发层；对带 {类型:别名}?
+前缀的目标协议串调用本包函数会得到静默的错误结果。
 
 原则：
 - 不依赖 AppContext，不记录 history，不更新 stats

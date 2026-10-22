@@ -15,7 +15,6 @@ from types import SimpleNamespace
 
 import pytest
 
-from src.core.backend import SshDestBackend
 from src.ssh.remotes import SshRemote
 from tests.helpers import NOW, RECENT, make_tree, snapshot
 
@@ -333,13 +332,13 @@ class TestSourceQuietPeriod:
 
 class TestSshSyncCommands:
     """SSH 远端同步：只验证传给外部工具的命令行与凭据处理，
-    SSH 连接本身（SshDestBackend.is_dir 的远端探测）打桩跳过。"""
+    SSH 连接本身（ops.is_remote_dir 的远端探测）打桩跳过。"""
 
     SSH_REMOTE = SshRemote(alias="vps", host="192.168.1.100", user="root")
 
     @pytest.fixture
     def ssh_ready(self, monkeypatch):
-        monkeypatch.setattr(SshDestBackend, "is_dir", lambda self, path: True)
+        monkeypatch.setattr("src.ssh.ops.is_remote_dir", lambda remote, path: True)
 
     def test_rsync_ssh_command_with_port_and_key(self, run_task, tmp_path, stub_procs, ssh_ready):
         src = make_tree(tmp_path / "src", {"a.txt": b"x"})

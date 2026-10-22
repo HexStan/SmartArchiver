@@ -3,7 +3,6 @@ import time
 from typing import Any, TypedDict, override
 
 from src.app.context import AppContext
-from src.core.backend import DestBackend
 from src.core.handlers.base import BaseTaskHandler
 from src.core.patterns import match_pattern, parse_size_string
 from src.core.registry import register_handler
@@ -161,10 +160,8 @@ def _parse_count(label: str, value: Any) -> int:
 @register_handler("rotate")
 class RotateHandler(BaseTaskHandler):
     @override
-    def __init__(
-        self, task: dict[str, Any], dest_backend: DestBackend, now: float | None = None
-    ) -> None:
-        super().__init__(task, dest_backend, now)
+    def __init__(self, task: dict[str, Any], now: float | None = None) -> None:
+        super().__init__(task, now)
 
         # 限额在构造期一次解析并存储：容量值解析失败抛 InvalidSizeError、
         # 数量值强转失败抛 ValueError，均由 registry.create_handler 统一
