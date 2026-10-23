@@ -1,6 +1,9 @@
-"""SSH 远端主机配置解析与 SSH 命令构建辅助函数。"""
+"""SSH 远端主机配置解析与 SSH 命令构建辅助函数。
 
-import subprocess
+本模块为纯逻辑（无 I/O）：只解析配置与构建命令参数；远端命令的
+实际执行见 ops.run_ssh_command。
+"""
+
 from typing import TYPE_CHECKING, Annotated, Any
 
 from pydantic import BaseModel, Field, StringConstraints, ValidationError, field_validator
@@ -139,35 +142,3 @@ def build_ssh_shell_args(remote: SshRemote, remote_command: str) -> list[str]:
     cmd.append(build_ssh_target(remote))
     cmd.append(remote_command)
     return cmd
-
-
-def run_ssh_command(
-    remote: SshRemote, remote_command: str, timeout: int = 30
-) -> tuple[int, str, str]:
-    """在远端主机上执行 shell 命令并返回结果。
-
-    Args:
-        remote: SSH 远端配置。
-        remote_command: 要在远端执行的命令。
-        timeout: 超时秒数。
-
-    Returns:
-        tuple[int, str, str]: (returncode, stdout, stderr)
-    """
-    cmd = build_ssh_shell_args(remote, remote_command)
-
-    try:
-        proc = subprocess.run(
-            cmd,
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-        )
-        return proc.returncode, proc.stdout.strip(), proc.stderr.strip()
-    except subprocess.TimeoutExpired:
-        return -1, "", "SSH command timed out"
-    except FileNotFoundError:
-        return -1, "", f"SSH command not found: {cmd[0]}"
-    except Exception as e:  # noqa: BLE001
-        return -1, "", str(e)
