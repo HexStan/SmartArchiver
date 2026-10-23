@@ -31,7 +31,6 @@ class HistoryManager:
 
     def record_failure(self, path: str) -> int:
         """增加某文件的失败计数"""
-        path = str(path)
         if path not in self.history:
             self.history[path] = 0
         self.history[path] += 1
@@ -39,12 +38,10 @@ class HistoryManager:
 
     def record_success(self, path: str) -> None:
         """成功处理后，清除失败记录"""
-        path = str(path)
         if path in self.history:
             del self.history[path]
 
     def should_skip(self, path: str, max_retries: int) -> tuple[bool, int]:
         """判断是否应该跳过该文件"""
-        path = str(path)
         count = self.history.get(path, 0)
         return count >= max_retries, count
