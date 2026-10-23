@@ -93,8 +93,8 @@ class ConfigManager:
         self._validate_structure(config)
         self._warn_task_structure(config)
 
-        remote_clients = parse_remote_config(config)
-        ssh_remotes = parse_ssh_remote_config(config)
+        remote_clients = parse_remote_config(config, self._logger)
+        ssh_remotes = parse_ssh_remote_config(config, self._logger)
 
         if save_backup:
             self._save_backup()

@@ -1,10 +1,12 @@
 import os
+import sys
 import time
 import urllib.parse
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 from flask import Flask, jsonify, request
+from pydantic import BaseModel, Field, ValidationError
 
 from src import fs
 from src.remote.concurrency import (
@@ -14,6 +16,7 @@ from src.remote.concurrency import (
     QueueTimeoutError,
 )
 from src.remote.protocol import UPLOAD_CHUNK_SIZE, UPLOAD_PATH, RemoteAction
+from src.validation import format_validation_error
 
 if TYPE_CHECKING:
     from src.app.instance import InstancePaths
@@ -22,6 +25,20 @@ if TYPE_CHECKING:
 
 # 收到停止指令后，等待在途请求收尾的最长时间（临时文件由 atomic_writer 清理）
 _STOP_DRAIN_TIMEOUT = 3.0
+
+
+class ServerConfig(BaseModel):
+    """config.server.toml 中服务器模式消费的配置项（其余配置键忽略）。
+
+    port 限 1-65535；并发数至少为 1；队列长度允许 0（满即拒绝，不排队）。
+    """
+
+    api_key: str = ""
+    port: int = Field(default=13579, ge=1, le=65535)
+    max_concurrent_metadata: int = Field(default=1, ge=1)
+    max_concurrent_uploads: int = Field(default=1, ge=1)
+    max_queue_metadata: int = Field(default=32, ge=0)
+    max_queue_uploads: int = Field(default=32, ge=0)
 
 
 def _parse_queue_timeout() -> float:
@@ -337,6 +354,9 @@ def run_server(
 ) -> None:
     """启动 HTTP 远端 API 服务器。
 
+    配置经 ServerConfig 模型校验：非法时记 critical 日志并以退出码 1
+    终止（数值越界在此 fail-fast，而非推迟到监听/建门时暴露）。
+
     Args:
         stop_watcher: 停止指令装配器 ``stop_watcher(instance_name, on_command)``
             ——启动控制文件监视线程并接入 SIGTERM，由组合根注入（app 层），
@@ -344,23 +364,21 @@ def run_server(
         runtime_paths: 实例运行时文件路径函数 ``runtime_paths(instance_name)``，
             供 stop 后清理 PID / 控制文件。
     """
-    api_key = config.get("api_key", "")
-    port = int(config.get("port", "13579"))
-
-    max_meta = int(config.get("max_concurrent_metadata", "1"))
-    max_up = int(config.get("max_concurrent_uploads", "1"))
-    max_q_meta = int(config.get("max_queue_metadata", "32"))
-    max_q_up = int(config.get("max_queue_uploads", "32"))
+    try:
+        server_config = ServerConfig.model_validate(config)
+    except ValidationError as e:
+        logger.critical(f"服务器配置无效：{format_validation_error(e)}")
+        sys.exit(1)
 
     gate = ConcurrencyGate(
-        max_concurrent_metadata=max_meta,
-        max_concurrent_uploads=max_up,
-        max_queue_metadata=max_q_meta,
-        max_queue_uploads=max_q_up,
+        max_concurrent_metadata=server_config.max_concurrent_metadata,
+        max_concurrent_uploads=server_config.max_concurrent_uploads,
+        max_queue_metadata=server_config.max_queue_metadata,
+        max_queue_uploads=server_config.max_queue_uploads,
     )
 
-    logger.info(f"监听端口: {port}")
+    logger.info(f"监听端口: {server_config.port}")
 
-    app = create_app(api_key, logger, gate)
+    app = create_app(server_config.api_key, logger, gate)
     _start_stop_watcher(logger, coordinator, gate, instance_name, stop_watcher, runtime_paths)
-    app.run(host="0.0.0.0", port=port, debug=False, threaded=True)
+    app.run(host="0.0.0.0", port=server_config.port, debug=False, threaded=True)

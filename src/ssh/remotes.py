@@ -1,103 +1,77 @@
 """SSH 远端主机配置解析与 SSH 命令构建辅助函数。"""
 
-import os
-import re
 import subprocess
-from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Annotated, Any
 
-_ALIAS_PATTERN = re.compile(r"^[a-zA-Z0-9\-_]+$")
+from pydantic import BaseModel, Field, StringConstraints, ValidationError, field_validator
 
+from src.validation import RemoteAlias, format_validation_error
 
-def _validate_alias(alias: str) -> bool:
-    """验证别名是否仅包含字母、数字、连字符和下划线。"""
-    return bool(_ALIAS_PATTERN.match(alias))
-
-
-# ============================================================
-# 数据类
-# ============================================================
+if TYPE_CHECKING:
+    from src.output.logger import Logger
 
 
-@dataclass
-class SshRemote:
-    """SSH 远端主机配置。"""
+class SshRemote(BaseModel):
+    """SSH 远端主机配置。
 
-    alias: str
-    host: str
-    user: str
-    port: int = 22
+    alias/host/user 必填并自动去除首尾空白；port 限 1-65535（默认 22）；
+    凭据文件路径去除首尾空白，空串视为未配置（None）。
+    """
+
+    alias: RemoteAlias
+    host: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+    user: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+    port: int = Field(default=22, ge=1, le=65535)
     key_file: str | None = None
     password_file: str | None = None
 
+    @field_validator("key_file", "password_file", mode="before")
+    @classmethod
+    def _strip_credential_path(cls, value: object) -> object:
+        """凭据文件路径去空白；空串归 None（未配置）。非字符串交由字段类型校验报错。"""
+        if isinstance(value, str):
+            value = value.strip()
+            return value or None
+        return value
 
-# ============================================================
-# 配置解析
-# ============================================================
 
-
-def parse_ssh_remote_config(config: dict[str, Any]) -> dict[str, SshRemote]:
+def parse_ssh_remote_config(config: dict[str, Any], logger: Logger) -> dict[str, SshRemote]:
     """从顶级配置字典中解析 [[ssh_remotes]] 配置块。
 
     与 `parse_remote_config`（http_remotes）完全隔离，
     允许两个命名空间中存在同名 alias。
 
+    逐条目容错与重复 alias 语义同 http_remotes（warning 日志 + 跳过、
+    先到先得）。
+
     Returns:
         dict[str, SshRemote]: alias → SshRemote 映射。
     """
     remotes: dict[str, SshRemote] = {}
-    ssh_remotes = config.get("ssh_remotes", [])
-    if not ssh_remotes:
+    entries = config.get("ssh_remotes", [])
+    if not entries:
+        return remotes
+    if not isinstance(entries, list):
+        logger.warning("ssh_remotes 配置应为条目数组，已忽略全部条目。")
         return remotes
 
-    for entry in ssh_remotes:
-        alias = str(entry.get("alias", "")).strip()
-        host = str(entry.get("host", "")).strip()
-        user = str(entry.get("user", "")).strip()
-
-        # 必填字段校验
-        if not alias or not host or not user:
+    for index, entry in enumerate(entries):
+        try:
+            item = SshRemote.model_validate(entry)
+        except ValidationError as e:
+            logger.warning(
+                f"ssh_remotes 第 {index + 1} 个条目无效，已忽略：{format_validation_error(e)}"
+            )
             continue
 
-        if not _validate_alias(alias):
+        if item.alias in remotes:
+            logger.warning(
+                f"ssh_remotes 中别名 '{item.alias}' 重复"
+                f"（第 {index + 1} 个条目），保留先出现的条目。"
+            )
             continue
 
-        # 端口：选填，默认 22
-        port = 22
-        raw_port = entry.get("port")
-        if raw_port is not None:
-            try:
-                port = int(raw_port)
-            except TypeError, ValueError:
-                port = 22
-
-        # 凭据文件：选填
-        key_file = entry.get("key_file")
-        if key_file is not None:
-            key_file = str(key_file).strip()
-            if not key_file:
-                key_file = None
-            elif not os.path.isfile(key_file):
-                # 文件不存在则忽略，后续操作时会由 SSH 自行报错
-                pass
-
-        # 明文密码文件：选填
-        password_file = entry.get("password_file")
-        if password_file is not None:
-            password_file = str(password_file).strip()
-            if not password_file:
-                password_file = None
-            elif not os.path.isfile(password_file):
-                pass
-
-        remotes[alias] = SshRemote(
-            alias=alias,
-            host=host,
-            user=user,
-            port=port,
-            key_file=key_file,
-            password_file=password_file,
-        )
+        remotes[item.alias] = item
 
     return remotes
 

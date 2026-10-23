@@ -10,9 +10,10 @@ import os
 import sys
 import time
 from collections.abc import Callable
-from typing import Any
+from typing import Self
 
 from croniter import croniter
+from pydantic import BaseModel, ValidationError, field_validator, model_validator
 
 from src import fs
 from src.app import instance, paths
@@ -26,6 +27,39 @@ from src.core.history import HistoryManager
 from src.core.types import TaskOutcome
 from src.output.logger import Logger, setup_logger
 from src.output.presentation import fmt_timespan
+from src.validation import format_validation_error
+
+
+class ScheduleConfig(BaseModel):
+    """[schedule] 配置块模型；仅客户端调度路径消费（_run_schedule）。
+
+    mode 不用 Literal：非法值需逐字保留既有中文错误消息，validator
+    抛出的 ValueError 经 format_validation_error 原样透出。同理，
+    interval_seconds 的"大于 0"约束由模型级校验承担而非字段级 gt，
+    以复用既有错误文案。
+    """
+
+    mode: str | None = None
+    cron_expr: str | None = None
+    interval_seconds: float | None = None
+    first_run_delay: float = -1
+
+    @field_validator("mode")
+    @classmethod
+    def _validate_mode(cls, value: str | None) -> str | None:
+        if value is not None and value not in ("cron", "interval"):
+            raise ValueError(f"不支持的定时模式: {value}")
+        return value
+
+    @model_validator(mode="after")
+    def _check_mode_requirements(self) -> Self:
+        if self.mode == "cron" and not self.cron_expr:
+            raise ValueError("cron 模式需要配置 cron_expr。")
+        if self.mode == "interval" and (
+            self.interval_seconds is None or self.interval_seconds <= 0
+        ):
+            raise ValueError("interval 模式需要配置有效的 interval_seconds (大于0的数字)。")
+        return self
 
 
 def _reload_config_if_changed(manager: ConfigManager) -> None:
@@ -176,21 +210,22 @@ def _interruptible_sleep(seconds: float) -> bool:
 def _run_schedule(manager: ConfigManager) -> None:
     """按 [schedule] 配置驱动任务；未配置则一次性运行。"""
     ctx = AppContext.get()
-    schedule_config = ctx.config.get("schedule", {})
-    mode = schedule_config.get("mode")
-
-    if not mode:
-        run_tasks()
-    elif mode == "cron":
-        _run_cron(manager, schedule_config)
-    elif mode == "interval":
-        _run_interval(manager, schedule_config)
-    else:
-        print(f"不支持的定时模式: {mode}")
+    try:
+        schedule = ScheduleConfig.model_validate(ctx.config.get("schedule", {}))
+    except ValidationError as e:
+        # 调度配置错误为启动期致命问题，与既有行为同通道（print + exit 1）
+        print(f"[schedule] 配置无效：{format_validation_error(e)}")
         sys.exit(1)
 
+    if schedule.mode is None:
+        run_tasks()
+    elif schedule.mode == "cron":
+        _run_cron(manager, schedule)
+    else:
+        _run_interval(manager, schedule)
 
-def _run_first_round(manager: ConfigManager, schedule_config: dict[str, Any]) -> bool:
+
+def _run_first_round(manager: ConfigManager, schedule: ScheduleConfig) -> bool:
     """按 first_run_delay 执行首轮任务；返回 False 表示调度应退出。
 
     -1（默认）不在此执行——等待至下个调度时间点的语义由调度主循环
@@ -198,7 +233,7 @@ def _run_first_round(manager: ConfigManager, schedule_config: dict[str, Any]) ->
     之后的轮次仍按调度周期进行。
     """
     ctx = AppContext.get()
-    first_run_delay = schedule_config.get("first_run_delay", -1)
+    first_run_delay = schedule.first_run_delay
     if first_run_delay < 0:
         return True
 
@@ -210,16 +245,17 @@ def _run_first_round(manager: ConfigManager, schedule_config: dict[str, Any]) ->
     return True
 
 
-def _run_cron(manager: ConfigManager, schedule_config: dict[str, Any]) -> None:
+def _run_cron(manager: ConfigManager, schedule: ScheduleConfig) -> None:
     ctx = AppContext.get()
-    cron_expr = schedule_config.get("cron_expr")
+    cron_expr = schedule.cron_expr
     if not cron_expr:
+        # 模型校验已拦截缺失/空串；此守卫仅作类型收窄的防御（同 sync 的 SSH 别名防御）
         print("cron 模式需要配置 cron_expr。")
         sys.exit(1)
 
     ctx.logger.info(f"已设置定时任务 (cron 模式): {cron_expr}。")
 
-    if not _run_first_round(manager, schedule_config):
+    if not _run_first_round(manager, schedule):
         return
 
     while True:
@@ -238,20 +274,17 @@ def _run_cron(manager: ConfigManager, schedule_config: dict[str, Any]) -> None:
         _execute_tasks(manager)
 
 
-def _run_interval(manager: ConfigManager, schedule_config: dict[str, Any]) -> None:
-    interval_seconds = schedule_config.get("interval_seconds")
-    if (
-        not interval_seconds
-        or not isinstance(interval_seconds, (int, float))
-        or interval_seconds <= 0
-    ):
+def _run_interval(manager: ConfigManager, schedule: ScheduleConfig) -> None:
+    interval_seconds = schedule.interval_seconds
+    if interval_seconds is None or interval_seconds <= 0:
+        # 模型校验已拦截；此守卫仅作类型收窄的防御（同 _run_cron）
         print("interval 模式需要配置有效的 interval_seconds (大于0的数字)。")
         sys.exit(1)
 
     ctx = AppContext.get()
     ctx.logger.info(f"已设置定时任务 (interval 模式): 每 {interval_seconds} 秒执行一次。")
 
-    if not _run_first_round(manager, schedule_config):
+    if not _run_first_round(manager, schedule):
         return
 
     while True:

@@ -18,12 +18,10 @@ depends_on 规则：
   报错并跳过该任务（配置顺序即执行顺序，依赖只是门禁）。
 """
 
-import re
 from typing import Any, NamedTuple
 
 from src.output.logger import Logger
-
-TASK_ID_PATTERN = re.compile(r"^[a-zA-Z0-9_-]+$")
+from src.validation import ALIAS_PATTERN
 
 
 class TaskSpec(NamedTuple):
@@ -54,7 +52,7 @@ def _normalize_id(task: dict[str, Any], index: int, logger: Logger) -> str | Non
     if not isinstance(raw_id, str):
         logger.warning(f"任务 #{index + 1} 的 id 配置值非法（应为字符串），视为无 id。")
         return None
-    if not TASK_ID_PATTERN.match(raw_id):
+    if not ALIAS_PATTERN.match(raw_id):
         logger.warning(
             f"任务 #{index + 1} 的 id '{raw_id}' 含非法字符"
             "（仅允许 a-z、A-Z、0-9、-、_），视为无 id。"

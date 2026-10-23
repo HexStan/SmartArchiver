@@ -11,8 +11,13 @@ import os
 import threading
 import time
 
+import pytest
+from pydantic import ValidationError
+
 from src.app import runtime
 from src.app.config import ConfigManager
+from src.app.runtime import ScheduleConfig
+from src.validation import format_validation_error
 from tests.helpers import make_tree, snapshot
 
 # 首轮任务应在此时间内出现结果；修复后的正常路径在 1 秒内完成，
@@ -64,7 +69,9 @@ def start_schedule(app_context, tmp_path, task, schedule_config):
     manager = ConfigManager(str(config_path), app_context.logger)
 
     target = runtime._run_interval if mode == "interval" else runtime._run_cron
-    thread = threading.Thread(target=target, args=(manager, schedule_config), daemon=True)
+    # 与生产装配一致：调度函数接收模型（生产路径在 _run_schedule 校验后传入）
+    schedule = ScheduleConfig.model_validate(schedule_config)
+    thread = threading.Thread(target=target, args=(manager, schedule), daemon=True)
     thread.start()
     return thread, manager, schedule_config
 
@@ -145,3 +152,44 @@ class TestFirstRunDelay:
         stop_and_join(app_context, thread)
         assert not thread.is_alive()
         assert snapshot(task["dest"]) == {}
+
+
+class TestScheduleConfig:
+    """[schedule] 块的校验契约：合法形态 + 既有中文错误消息逐字保留。"""
+
+    def test_absent_block_defaults_to_one_shot(self):
+        schedule = ScheduleConfig.model_validate({})
+
+        assert schedule.mode is None
+        assert schedule.first_run_delay == -1
+
+    def test_valid_cron(self):
+        schedule = ScheduleConfig.model_validate(
+            {"mode": "cron", "cron_expr": "0 * * * *", "first_run_delay": 0}
+        )
+
+        assert schedule.mode == "cron"
+        assert schedule.cron_expr == "0 * * * *"
+
+    def test_invalid_mode_keeps_legacy_message(self):
+        with pytest.raises(ValidationError, match="不支持的定时模式: weekly"):
+            ScheduleConfig.model_validate({"mode": "weekly"})
+
+    def test_cron_requires_expr_keeps_legacy_message(self):
+        with pytest.raises(ValidationError, match="cron 模式需要配置 cron_expr"):
+            ScheduleConfig.model_validate({"mode": "cron"})
+
+    def test_interval_requires_seconds_keeps_legacy_message(self):
+        with pytest.raises(ValidationError, match="interval 模式需要配置有效的 interval_seconds"):
+            ScheduleConfig.model_validate({"mode": "interval"})
+
+    def test_interval_rejects_non_positive_seconds(self):
+        with pytest.raises(ValidationError, match="interval 模式需要配置有效的 interval_seconds"):
+            ScheduleConfig.model_validate({"mode": "interval", "interval_seconds": 0})
+
+    def test_interval_seconds_type_error_translated_to_chinese(self):
+        """数值类型错误经 format_validation_error 产出中文摘要，而非 pydantic 原文。"""
+        with pytest.raises(ValidationError) as exc_info:
+            ScheduleConfig.model_validate({"mode": "interval", "interval_seconds": "abc"})
+
+        assert "数值格式无效" in format_validation_error(exc_info.value)
