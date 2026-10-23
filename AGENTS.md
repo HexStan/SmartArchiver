@@ -54,8 +54,9 @@ python scripts/smoke_test.py "dist/SmartArchiver-*.zip" # 对发行 zip 做冒�
 - 目标侧 I/O 转发层 `src/core/dest.py`：dest 串协议（`{http:别名}?` / `{ssh:别名}?` / 本地路径）的唯一解析处与目标读写的唯一入口，按前缀分派至 `fs` 或 `RemoteClient`；装配期 `ensure_dest` 做 fail-fast 校验。约定：目标目录的读写必须经 `core.dest`，`fs` 仅用于本地路径。SSH 远端目录操作与 rsync 连接参数在 `src/ssh/ops.py`。
 - 规则引擎 `src/core/filters.py` 的 `FileFilterPolicy`：顺序流水线 include → exclude → delete → TRANSFER，命中即停。模式匹配与容量解析在 `src/core/patterns.py`。
 - 本地文件 I/O 原语在 `src/fs/`（errors / abort / scan / atomic / transfer / cleanup），不依赖任何上层包；`fs.abort` 的中止检查由 `app/runtime.py` 组装时注入。
+- 共享校验基建 `src/validation.py`：远端别名类型（`RemoteAlias`）、别名/任务 id 共用正则（`ALIAS_PATTERN`）与校验错误中文格式化（`format_validation_error`）；与 `fs/` 平级的叶子模块，仅依赖 pydantic，所有包可导入。
 - `AppContext`（`src/app/context.py`）是全局单例，logger / history 均经 `AppContext.get()` 获取；测试 fixture 用完会重置单例。
-- 包分层依赖方向：`app/` 装配层可依赖全部；`core/` → `fs/`、`output/`、`remote/`、`ssh/`；`remote/`、`ssh/` → `fs/`；`output/` → `fs/`、`core/patterns`；`fs/` 仅标准库。领域包不得依赖 `app/` 的装配模块（runtime/control），需要 app 层能力时由组合根注入参数，依赖必须无环；唯一例外是文档化的 `AppContext` 服务定位与 `app.paths` 等叶子助手。`TYPE_CHECKING` 下的类型级 import（注解专用，运行时零导入）不构成违规，如 `remote/`、`app/context.py` 引用 `output.logger.Logger` 协议。
+- 包分层依赖方向：`app/` 装配层可依赖全部；`core/` → `fs/`、`output/`、`remote/`、`ssh/`；`remote/`、`ssh/` → `fs/`；`output/` → `fs/`、`core/patterns`；`fs/` 仅标准库；`src/validation.py` 为仅依赖 pydantic 的共享叶子模块（所有包可导入）。领域包不得依赖 `app/` 的装配模块（runtime/control），需要 app 层能力时由组合根注入参数，依赖必须无环；唯一例外是文档化的 `AppContext` 服务定位与 `app.paths` 等叶子助手。`TYPE_CHECKING` 下的类型级 import（注解专用，运行时零导入）不构成违规，如 `remote/`、`app/context.py` 引用 `output.logger.Logger` 协议。
 
 ## 测试约定（权威文档：tests/README.md）
 

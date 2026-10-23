@@ -24,14 +24,15 @@ SmartArchiver 的本质是一个“目录树 + 配置 → 新目录树”的变�
 | 白盒·实例锁 | `test_instance_lock.py` | SingleInstance 跨进程互斥、instance_name 解析 | 子进程边界 + 纯函数 |
 | 白盒·日志跟随 | `test_logtail.py` | LogFollower（尾部回读/增量/切换） | 真实日志文件 + 手动步进 |
 | 白盒·状态栏 | `test_statusbar.py` | StatusBar（滚动区域/反色绘制/降级） | 注入输出流、尺寸查询与 VT 开关 |
-| 白盒·调度循环 | `test_runtime_schedule.py` | 首次执行语义（first_run_delay） | 线程驱动 _run_interval/_run_cron + 真实文件系统 |
+| 白盒·调度循环 | `test_runtime_schedule.py` | 首次执行语义（first_run_delay）+ [schedule] 配置模型（ScheduleConfig） | 线程驱动 _run_interval/_run_cron + 真实文件系统；模型校验直接调用 |
 | 白盒+灰盒·任务依赖 | `test_task_dependencies.py` | id/depends_on 解析校验 + run_tasks 依赖编排 | 直接调用 prepare_run_plan + 同步驱动 run_tasks（真实文件系统） |
 | 白盒·传输中止 | `test_fs_ops_abort.py` | chunk 边界取消与临时文件清理 | 注入中止检查钩子 |
 | 白盒·规则引擎 | `test_rule_engine.py` | FileFilterPolicy | 直接调用 `decide()` |
 | 白盒·轮转分组 | `test_rotate_groups.py` | RotateGroupManager | 直接调用分组统计接口 |
 | 白盒·纯函数 | `test_size_and_pattern.py` | parse_size_string / match_pattern | 直接调用 |
 | 白盒·路径与分派 | `test_dest.py` | dest 协议串解析、路径规则、ensure_dest 校验、转发分派 | 直接调用（unique_dest 用真实文件 / 替身 client） |
-| 白盒·HTTP 直写 | `test_server_direct_write.py` | 上传落盘位置（目标目录 vs 系统临时目录）与服务器选型 | create_app + test_client 探针流；make_server 真实回环；run_server 装配录制 |
+| 白盒·HTTP 直写 | `test_server_direct_write.py` | 上传落盘位置（目标目录 vs 系统临时目录）与服务器选型；服务器配置模型（ServerConfig）数值边界 | create_app + test_client 探针流；make_server 真实回环；run_server 装配录制；模型校验直接调用 |
+| 白盒·配置解析边界 | `test_config_parsing.py` | http/ssh 远端条目解析容错、重复 alias 先到先得、密钥不落日志 | 直接调用解析函数 + 捕获日志 |
 | 白盒·客户端上传分块 | `test_remote_client_chunk.py` | 上传流式发送按 UPLOAD_CHUNK_SIZE（1MB）分块 | 装配断言：会话适配器 + 真实连接的 blocksize |
 | 端到端·打包产物 | `test_e2e_packaged.py` | PyInstaller 产物（main 入口） | 子进程驱动；`SMARTARCHIVER_BIN` 未设置时整体跳过 |
 
