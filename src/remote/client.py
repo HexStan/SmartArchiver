@@ -3,14 +3,15 @@ import os
 import time
 import urllib.parse
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any, BinaryIO
+from typing import TYPE_CHECKING, Any, BinaryIO, override
 
 import requests
 import urllib3.exceptions
+from requests.adapters import HTTPAdapter
 
 from src import fs
 from src.fs import TransferAbortedError
-from src.remote.protocol import API_PATH, UPLOAD_PATH, RemoteAction
+from src.remote.protocol import API_PATH, UPLOAD_CHUNK_SIZE, UPLOAD_PATH, RemoteAction
 
 if TYPE_CHECKING:
     from src.output.logger import Logger
@@ -37,7 +38,9 @@ class _AbortingReader:
     保持文件对象形态（提供 len 属性），使 requests/urllib3 仍以
     Content-Length 身份编码流式发送，与直接传入文件对象的旧路径一致；
     若传入无长度的生成器，urllib3 会退回 chunked 传输编码，与显式
-    Content-Length 头冲突。
+    Content-Length 头冲突。urllib3 以连接的 blocksize 为粒度调用
+    read（装配见 _UploadBlocksizeAdapter，即 UPLOAD_CHUNK_SIZE），
+    故中止检查与网络发送的分块同为 1MB。
     """
 
     def __init__(self, fileobj: BinaryIO, size: int, local_path: str, remote_path: str) -> None:
@@ -50,6 +53,27 @@ class _AbortingReader:
         if fs.abort_requested():
             raise TransferAbortedError(f"上传被中止: {self._local_path} -> {self._remote_path}")
         return self._fileobj.read(size)
+
+
+class _UploadBlocksizeAdapter(HTTPAdapter):
+    """把 urllib3 连接的 blocksize 提升为 UPLOAD_CHUNK_SIZE 的适配器。
+
+    urllib3 对文件型请求体按连接的 blocksize 分块读取并 sendall，
+    默认 16KB 太细，syscall 与 Python 层循环开销显著；流式上传统一
+    以 UPLOAD_CHUNK_SIZE 为读取与发送粒度，与服务端接收分块一致。
+    """
+
+    @override
+    def init_poolmanager(
+        self, connections: int, maxsize: int, block: bool = False, **pool_kwargs: Any
+    ) -> None:
+        pool_kwargs["blocksize"] = UPLOAD_CHUNK_SIZE
+        super().init_poolmanager(connections, maxsize, block=block, **pool_kwargs)
+
+    @override
+    def proxy_manager_for(self, proxy: str, **proxy_kwargs: Any) -> Any:
+        proxy_kwargs["blocksize"] = UPLOAD_CHUNK_SIZE
+        return super().proxy_manager_for(proxy, **proxy_kwargs)
 
 
 class RemoteClient:
@@ -73,6 +97,9 @@ class RemoteClient:
         self._endpoint = f"{self.address}{API_PATH}"
         self._upload_endpoint = f"{self.address}{UPLOAD_PATH}"
         self._session = requests.Session()
+        adapter = _UploadBlocksizeAdapter()
+        self._session.mount("https://", adapter)
+        self._session.mount("http://", adapter)
 
     def _log(self, level: str, msg: str) -> None:
         if self.logger:

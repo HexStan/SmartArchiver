@@ -13,7 +13,7 @@ from src.remote.concurrency import (
     QueueFullError,
     QueueTimeoutError,
 )
-from src.remote.protocol import UPLOAD_PATH, RemoteAction
+from src.remote.protocol import UPLOAD_CHUNK_SIZE, UPLOAD_PATH, RemoteAction
 
 if TYPE_CHECKING:
     from src.app.instance import InstancePaths
@@ -85,13 +85,12 @@ def _receive_upload(path: str, mtime: float | None) -> None:
 
     with fs.atomic_writer(path, _finalize) as f:
         received = 0
-        chunk_size = 65536  # 64KB
         while True:
             # chunk 边界响应停止指令；中止时 atomic_writer 的收尾
             # 逻辑会清理已写入的临时文件，最终路径不受影响
             if fs.abort_requested():
                 raise fs.TransferAbortedError("接收被停止指令中止")
-            chunk = request.stream.read(chunk_size)
+            chunk = request.stream.read(UPLOAD_CHUNK_SIZE)
             if not chunk:
                 break
             received += len(chunk)

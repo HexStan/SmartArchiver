@@ -43,13 +43,14 @@ from src.app.shutdown import ShutdownCoordinator
 from src.fs.atomic import _PARTIAL_SUFFIX
 from src.remote.client import RemoteClient
 from src.remote.concurrency import ConcurrencyGate
-from src.remote.protocol import UPLOAD_PATH
+from src.remote.protocol import UPLOAD_CHUNK_SIZE, UPLOAD_PATH
 from src.remote.server import create_app, run_server
 
 API_KEY = "test-key"
-# 与 src/remote/server.py::_receive_upload 的读取块一致；BODY 恰好横跨两个块
-CHUNK_SIZE = 65536
-BODY = bytes(range(256)) * 256 + b"tail-of-body"
+# 服务端 _receive_upload 的读取块（src/remote/protocol.py::UPLOAD_CHUNK_SIZE）；
+# BODY 恰好横跨两个块（一整块 + 尾块）
+CHUNK_SIZE = UPLOAD_CHUNK_SIZE
+BODY = bytes(range(256)) * (CHUNK_SIZE // 256) + b"tail-of-body"
 PARTIAL_NAME = ".a.txt" + _PARTIAL_SUFFIX
 SOURCE_MTIME = 1000000000.0
 
