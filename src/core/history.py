@@ -1,6 +1,8 @@
 import json
 import os
 
+from src.fs import atomic_writer
+
 
 class HistoryManager:
     def __init__(self, log_dir: str, filename: str = "failure_history.json") -> None:
@@ -20,12 +22,11 @@ class HistoryManager:
             self.history = {}
 
     def save(self) -> None:
-        """保存历史记录到磁盘"""
+        """保存历史记录到磁盘（原子写入：同目录临时文件 + fsync + os.replace）。"""
         try:
-            temp_file = self.file_path + ".tmp"
-            with open(temp_file, "w", encoding="utf-8", errors="surrogateescape") as f:
-                json.dump(self.history, f, indent=2, ensure_ascii=False)
-            os.replace(temp_file, self.file_path)
+            payload = json.dumps(self.history, indent=2, ensure_ascii=False)
+            with atomic_writer(self.file_path) as f:
+                f.write(payload.encode("utf-8", "surrogateescape"))
         except OSError:
             pass
 

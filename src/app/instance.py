@@ -24,6 +24,7 @@ from typing import Any, Self, TextIO, override
 
 import psutil
 
+from src.fs import atomic_writer
 from src.output.logger import Logger
 
 try:
@@ -246,22 +247,13 @@ def read_pid(instance_name: str) -> int | None:
 
 
 def send_stop(instance_name: str, mode: str) -> None:
-    """原子写入停止指令到控制文件（临时文件 + os.replace）。"""
+    """原子写入停止指令到控制文件。"""
     if mode not in _STOP_MODES:
         raise ValueError(f"未知的停止模式: {mode}")
     path = instance_paths(instance_name).ctl
     payload = json.dumps({"cmd": _CMD_STOP, "mode": mode, "ts": time.time()})
-    tmp_path = f"{path}.{os.getpid()}.tmp"
-    try:
-        with open(tmp_path, "w", encoding="utf-8") as f:
-            f.write(payload)
-        os.replace(tmp_path, path)
-    except OSError:
-        try:
-            os.remove(tmp_path)
-        except OSError:
-            pass
-        raise
+    with atomic_writer(path) as f:
+        f.write(payload.encode("utf-8"))
 
 
 def wait_for_exit(

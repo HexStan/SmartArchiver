@@ -68,7 +68,7 @@ class TestPersistence:
         hm.record_failure("/f.txt")
         hm.save()
 
-        assert not (tmp_path / "h" / "failure_history.json.tmp").exists()
+        assert not (tmp_path / "h" / ".failure_history.json.sa-part").exists()
         # 保存的是合法 JSON
         data = json.loads((tmp_path / "h" / "failure_history.json").read_text(encoding="utf-8"))
         assert data == {"/f.txt": 1}
