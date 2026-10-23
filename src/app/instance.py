@@ -32,7 +32,7 @@ except ImportError:
     fcntl = None
 
 try:
-    # pyrefly 按 Linux 语义检查（见 pyrefly.toml），msvcrt 是 Windows 专属
+    # pyrefly 按 Linux 语义检查（见 pyproject.toml 的 [tool.pyrefly]），msvcrt 是 Windows 专属
     # 模块，其属性在 Linux 语义下不可见；此处运行时由 ImportError 守卫
     import msvcrt
 except ImportError:

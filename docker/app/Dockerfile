@@ -11,9 +11,9 @@ RUN apt-get update && \
 # 设置工作目录
 WORKDIR /app
 
-# 复制依赖文件并安装
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# 先复制依赖清单并安装依赖层（源码变更时此层缓存仍可复用）
+COPY pyproject.toml .
+RUN pip install --no-cache-dir --group runtime
 
 # 复制项目文件
 COPY . .

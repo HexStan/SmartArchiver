@@ -38,7 +38,7 @@ def _enable_windows_vt() -> bool:
     """
     if os.name != "nt":
         return True
-    # pyrefly 按 Linux 语义检查（见 pyrefly.toml），ctypes.windll 是
+    # pyrefly 按 Linux 语义检查（见 pyproject.toml 的 [tool.pyrefly]），ctypes.windll 是
     # Windows 专属属性，此处运行时已被 os.name 判定守卫
     kernel32 = ctypes.windll.kernel32  # type: ignore[pyrefly:missing-attribute]
     handle = kernel32.GetStdHandle(_STD_OUTPUT_HANDLE)

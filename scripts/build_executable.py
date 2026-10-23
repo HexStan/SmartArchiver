@@ -20,6 +20,7 @@ import platform
 import shutil
 import subprocess
 import sys
+import tomllib
 import urllib.request
 import zipfile
 
@@ -56,8 +57,9 @@ def detect_target():
 
 
 def read_version():
-    with open(os.path.join(REPO_ROOT, "VERSION"), encoding="utf-8") as f:
-        return f.read().strip()
+    """从 pyproject.toml 的 [project].version 读取版本号（版本号唯一出处）。"""
+    with open(os.path.join(REPO_ROOT, "pyproject.toml"), "rb") as f:
+        return tomllib.load(f)["project"]["version"]
 
 
 def download(url, dest, retries=3):
