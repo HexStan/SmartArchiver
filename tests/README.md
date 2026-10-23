@@ -25,6 +25,7 @@ SmartArchiver 的本质是一个“目录树 + 配置 → 新目录树”的变�
 | 白盒·日志跟随 | `test_logtail.py` | LogFollower（尾部回读/增量/切换） | 真实日志文件 + 手动步进 |
 | 白盒·状态栏 | `test_statusbar.py` | StatusBar（滚动区域/反色绘制/降级） | 注入输出流、尺寸查询与 VT 开关 |
 | 白盒·调度循环 | `test_runtime_schedule.py` | 首次执行语义（first_run_delay） | 线程驱动 _run_interval/_run_cron + 真实文件系统 |
+| 白盒+灰盒·任务依赖 | `test_task_dependencies.py` | id/depends_on 解析校验 + run_tasks 依赖编排 | 直接调用 prepare_run_plan + 同步驱动 run_tasks（真实文件系统） |
 | 白盒·传输中止 | `test_fs_ops_abort.py` | chunk 边界取消与临时文件清理 | 注入中止检查钩子 |
 | 白盒·规则引擎 | `test_rule_engine.py` | FileFilterPolicy | 直接调用 `decide()` |
 | 白盒·轮转分组 | `test_rotate_groups.py` | RotateGroupManager | 直接调用分组统计接口 |
