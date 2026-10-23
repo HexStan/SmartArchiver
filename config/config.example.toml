@@ -158,42 +158,42 @@ remove_empty_dirs = true
 # 大小阈值:
 #   - 仅当文件/目录大小【小于/大于等于】设定的阈值时，规则才会生效。lt 为小于，ge 为大于等于。
 #   - 如果希望匹配所有大小，请使用 ge 规则并设置为 -1（例如: "*.log" = -1）。
-#   - 支持单位: B、KB、MB、GB、TB，-1 表示不限制。
+#   - 支持单位: B、KB/MB/GB/TB（十进制）、KiB/MiB/GiB/TiB（二进制），-1 表示不限制。
 
 # 【选填】纳入规则：仅命中的文件会被处理，未命中则跳过
 # 不配置此项（或删除整个 [tasks.include_rules] 块）则所有文件均纳入处理
 [tasks.include_rules]
 # 激活的示例（取消注释即生效）：
-# lt."*.mp4" = "10GB"                 # 纳入小于 10GB 的 .mp4 文件
-# ge."*.doc" = "1MB"                  # 纳入大于等于 1MB 的 .doc 文件
+# lt."*.mp4" = "10GiB"                 # 纳入小于 10GiB 的 .mp4 文件
+# ge."*.doc" = "1MiB"                  # 纳入大于等于 1MiB 的 .doc 文件
 
 # 更多模式示例：
-# lt."*.log" = "10MB"               # 后缀匹配：匹配 .log 后缀且小于 10MB 的文件
-# ge."beta*" = "100MB"              # 前缀匹配：匹配 beta 开头且大于等于 100MB 的文件
-# ge."*charlie*" = "1GB"             # 部分匹配：匹配名称中包含 charlie 且大于等于 1GB 的文件
+# lt."*.log" = "10MiB"               # 后缀匹配：匹配 .log 后缀且小于 10MiB 的文件
+# ge."beta*" = "100MiB"              # 前缀匹配：匹配 beta 开头且大于等于 100MiB 的文件
+# ge."*charlie*" = "1GiB"             # 部分匹配：匹配名称中包含 charlie 且大于等于 1GiB 的文件
 # ge."delta.db" = -1                # 匹配所有名称为 delta.db 的文件
 
 # 目录匹配示例（末尾有`/`时匹配目录，目录内的子项自动继承纳入状态）：
 # ge."videos/" = -1                 # 纳入 videos 目录及其所有子项
-# lt."*echo*/" = "500MB"            # 匹配名称中包含 echo 且小于 500MB 的目录
+# lt."*echo*/" = "500MiB"            # 匹配名称中包含 echo 且小于 500MiB 的目录
 
 # 多级路径匹配示例：
-# lt."hotel/india/juliett/" = "5GB" # 匹配 hotel/india/ 下小于 5GB 的 juliett 目录
-# lt."kilo/*.pdf" = "100MB"          # 匹配 kilo 目录下 .pdf 后缀且小于 100MB 的文件
-# lt."lima/*/mike*" = "50MB"         # 匹配 lima 下一级子目录中 mike 开头且小于 50MB 的文件
+# lt."hotel/india/juliett/" = "5GiB" # 匹配 hotel/india/ 下小于 5GiB 的 juliett 目录
+# lt."kilo/*.pdf" = "100MiB"          # 匹配 kilo 目录下 .pdf 后缀且小于 100MiB 的文件
+# lt."lima/*/mike*" = "50MiB"         # 匹配 lima 下一级子目录中 mike 开头且小于 50MiB 的文件
 
 # 【选填】排除规则：命中的文件/目录将被跳过
 [tasks.exclude_rules]
 # 示例：
-# lt."*.log" = "10MB"               # 跳过小于 10MB 的 .log 文件
+# lt."*.log" = "10MiB"               # 跳过小于 10MiB 的 .log 文件
 # ge."important.tmp" = -1            # 跳过所有 important.tmp 文件
 # ge."backup/" = -1                 # 跳过所有 backup 目录（不遍历）
 
 # 【选填】删除规则：命中的文件/目录将被直接删除，不移动到目标目录
 [tasks.delete_rules]
 # 示例：
-# lt."*.tmp" = "1KB"                # 删除小于 1KB 的 .tmp 文件
-# ge."cache/" = "1GB"               # 删除大于等于 1GB 的 cache 目录
+# lt."*.tmp" = "1KiB"                # 删除小于 1KiB 的 .tmp 文件
+# ge."cache/" = "1GiB"               # 删除大于等于 1GiB 的 cache 目录
 # ge."*" = -1                       # 删除所有文件（仅删除，不传输）
 
 # --------------------------------------------------
@@ -229,7 +229,7 @@ remove_empty_dirs = true
 #【以下四项必填至少一项】
 # 容量单位遵循 IEC 80000-13：KB/MB/GB/TB 按十进制（1KB = 1000B），
 # KiB/MiB/GiB/TiB 按二进制（1KiB = 1024B）；无法解析的容量值会导致任务被跳过。
-size_limit = "1GB"    # 全局目录总体积限制，0 表示不限制。
+size_limit = "1GiB"    # 全局目录总体积限制，0 表示不限制。
 count_limit = 20    # 全局目录文件总数量限制，0 表示不限制。
 
 # 细粒度轮转规则：
@@ -241,8 +241,8 @@ count_limit = 20    # 全局目录文件总数量限制，0 表示不限制。
 "charlie.zip" = 20    # 轮转阈值为一共有 20 个 charlie.zip 文件
 
 [tasks.rotate_rules.size]
-"logs/*" = "10MB"           # 轮转阈值为 logs 目录达到 10MB
-"backup.iso" = "100MB"      # 轮转阈值为 backup.iso 文件达到 100MB
+"logs/*" = "10MiB"           # 轮转阈值为 logs 目录达到 10MiB
+"backup.iso" = "100MiB"      # 轮转阈值为 backup.iso 文件达到 100MiB
 
 # 符合轮转要求的文件会继续匹配以下规则：
 [tasks.exclude_rules]
