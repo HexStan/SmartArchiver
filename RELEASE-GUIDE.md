@@ -5,7 +5,7 @@
 ## 通用约定
 
 - 提交信息遵循 Conventional Commits + 中文描述，可带 scope，如 `fix: 修复规则匹配对于目录的逻辑缺陷`、`feat(config): 将 conflict_policy 改为选填并默认 "skip"`。常用类型：`feat` / `fix` / `docs` / `refactor` / `test` / `chore` / `ci`；拿不准时参考 `git log` 近期风格。
-- 版本号只写在根目录 `VERSION` 文件（单行）：`[x].[y].[z]` 为正式版，带 `-dev` 后缀为开发版。
+- 版本号只写在根目录 `pyproject.toml` 的 `[project].version` 字段（单值）：`[x].[y].[z]` 为正式版，带 `-dev` 后缀为开发版。
 - `gh` CLI 已认证（HexStan），创建 Release 与触发工作流均通过 `gh` 完成。
 - 流程开始前先同步与验证：
 
@@ -25,20 +25,20 @@
 
 本流程仅提交到本地，不推送；推送仅出现在发布流程中，或由维护者明确要求时执行。
 
-> 作为发布流程第 1 步调用时，排除 `VERSION` 与 `CHANGELOG.md`——这两个文件固定由发布流程第 3 步合并提交。
+> 作为发布流程第 1 步调用时，排除 `pyproject.toml` 与 `CHANGELOG.md`——这两个文件固定由发布流程第 3 步合并提交。
 
 ## 发布流程
 
-前置条件：`VERSION` 文件存在未提交的变更。若无，先与维护者确认目标版本号（例如将当前开发版号去掉 `-dev` 后缀），修改 `VERSION` 后继续（该修改即成为未提交变更）。
+前置条件：`pyproject.toml` 的 version 字段存在未提交的变更。若无，先与维护者确认目标版本号（例如将当前开发版号去掉 `-dev` 后缀），修改 `pyproject.toml` 后继续（该修改即成为未提交变更）。
 
-发布路径由 `VERSION` 是否带 `-dev` 后缀决定：
+发布路径由版本号是否带 `-dev` 后缀决定：
 
-- `VERSION` 带 `-dev` 后缀 → 开发版路径：第 1–4、6 步。
-- `VERSION` 不带 `-dev` 后缀 → 正式版路径：第 1–6 步。
+- 版本号带 `-dev` 后缀 → 开发版路径：第 1–4、6 步。
+- 版本号不带 `-dev` 后缀 → 正式版路径：第 1–6 步。
 
 ### 第 1 步：提交变更
 
-执行[提交流程](#提交流程)，但排除 `VERSION` 与 `CHANGELOG.md`。
+执行[提交流程](#提交流程)，但排除 `pyproject.toml` 与 `CHANGELOG.md`。
 
 ### 第 2 步：更新 CHANGELOG.md
 
@@ -46,19 +46,19 @@
 
 本步编写完成后停下，提示维护者查看编写完成的 `CHANGELOG.md`，**得到许可后**方可进入第 3 步提交。维护者要求调整时，修改后再次请其确认。
 
-#### 开发版（`VERSION` 带 `-dev` 后缀）
+#### 开发版（版本号带 `-dev` 后缀）
 
 1. 确定上个 tag（`git describe --abbrev=0 --match='v*'`，不排除 `-dev` tag——上个 tag 是开发版或正式版均可作为分界），分析 `git log --oneline <tag>..HEAD` 及相关提交内容。
 2. 将结果**合并**进 `## 未发布` 段落：与现有条目去重；发现此前遗漏的用户可感知变更一并补充。最终以「`未发布` 段落完整覆盖自上个正式版以来的全部用户可感知变更、且无重复条目」为准。
 
-#### 正式版（`VERSION` 不带 `-dev` 后缀）
+#### 正式版（版本号不带 `-dev` 后缀）
 
 1. 确定上个正式版 tag（`git describe --abbrev=0 --match='v*' --exclude='*-dev'`），分析 `git log --oneline <tag>..HEAD`，以 `## 未发布` 段落为底稿核对、补全。
 2. 将发布内容写入新段落 `## [x.y.z] - YYYY-MM-DD`（日期为发布当日），置于 `## 未发布` 之后、上一个正式版段落之前；仅包含用户可感知的变更。
 3. 清空 `## 未发布` 段落的条目（保留标题），供下个开发周期累积。
 4. 在文件底部链接区最上方追加一行：`[x.y.z]: https://github.com/HexStan/SmartArchiver/releases/tag/vx.y.z`。
 
-### 第 3 步：合并提交 VERSION 与 CHANGELOG.md
+### 第 3 步：合并提交 pyproject.toml 与 CHANGELOG.md
 
 前置条件：第 2 步的 CHANGELOG 已获维护者许可。
 
@@ -66,10 +66,10 @@
 
 ### 第 4 步：打 tag 并推送
 
-1. 打附注 tag，指向第 3 步的提交；tag 名为 `v` + `VERSION` 内容。tag 已存在时停止并报告维护者：
+1. 打附注 tag，指向第 3 步的提交；tag 名为 `v` + 版本号（`pyproject.toml` 的 version 字段）。tag 已存在时停止并报告维护者：
 
-   - 开发版（`VERSION` 为 `x.y.z-dev`）：`git tag -a vX.Y.Z-dev -m "Release vX.Y.Z-dev"`。
-   - 正式版（`VERSION` 为 `x.y.z`）：`git tag -a vX.Y.Z -m "Release vX.Y.Z"`。
+   - 开发版（版本号为 `x.y.z-dev`）：`git tag -a vX.Y.Z-dev -m "Release vX.Y.Z-dev"`。
+   - 正式版（版本号为 `x.y.z`）：`git tag -a vX.Y.Z -m "Release vX.Y.Z"`。
 
 2. `git push origin <分支名> <tag>`（分支与 tag 一起推送）。
 
@@ -91,12 +91,12 @@ gh release create vX.Y.Z --title "vX.Y.Z" --notes-file release_notes.md
 Docker 镜像的构建与推送由 CI（`.github/workflows/docker-publish.yml`）完成，Agent 只需保证提交已推送：
 
 - 分支与版本 tag 均已在第 4 步一并推送，本步无需再推送。
-- CI 触发条件：推送且 `VERSION` 有变更（任意分支均触发）。若本次推送未变更 `VERSION`（补发场景），手动触发：`gh workflow run docker-publish.yml --ref <分支名>`。
+- CI 触发条件：推送且 `pyproject.toml` 的 version 字段相对上次推送有变更（任意分支均触发；`pyproject.toml` 的其他变更——如 Dependabot 依赖更新——不会触发）。若本次推送未变更 version（补发场景），手动触发：`gh workflow run docker-publish.yml --ref <分支名>`。
 - 确认构建成功：`gh run list --workflow=docker-publish.yml --limit 1`（或 `gh run watch`）；失败时报告维护者。
 
 构建以仓库根为 context（`docker build -f docker/app/Dockerfile .`），产物推送至 GHCR（镜像名 = 仓库名全小写）：
 
-| VERSION | 镜像标签 |
+| 版本号 | 镜像标签 |
 | --- | --- |
 | `x.y.z-dev` | `x.y.z-dev`、`dev` |
 | `x.y.z`（正式版） | `x.y.z`、`latest` |
@@ -106,7 +106,7 @@ Docker 镜像的构建与推送由 CI（`.github/workflows/docker-publish.yml`�
 打包版可执行文件由 CI 自动构建，Agent 只需保证第 4–5 步完成：
 
 - 正式版：Release 创建（第 5 步）后，`.github/workflows/executable-release.yml` 自动构建 Windows/macOS × AMD64/ARM64 四个平台的 zip（内置 rclone）并附加至该 Release 的 Assets。
-- 开发版：任意分支推送带 `-dev` 后缀的 `VERSION` 变更时，`.github/workflows/executable-dev.yml` 自动构建，产物仅输出至工作流 Artifacts（不发布）。
+- 开发版：任意分支推送带 `-dev` 后缀的 version 变更时，`.github/workflows/executable-dev.yml` 自动构建，产物仅输出至工作流 Artifacts（不发布）。
 - 确认构建成功：`gh run list --workflow=executable-release.yml --limit 1`（或 `executable-dev.yml`）；失败时报告维护者。
 
 ## 附录 A：CHANGELOG.md 格式

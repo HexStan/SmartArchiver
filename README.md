@@ -31,8 +31,8 @@ SmartArchiver 解决的核心问题是：**“磁盘上有一堆文件，我想�
 git clone https://github.com/hexstan/smartarchiver.git
 cd smartarchiver
 
-# 2. 安装依赖
-pip install -r requirements.txt
+# 2. 安装依赖（需 pip ≥ 25.1，Python 3.14 自带的 pip 已满足）
+pip install --group runtime
 
 # 3. 创建并编辑配置文件
 cp config/config.example.toml config/config.toml
@@ -89,8 +89,8 @@ python main.py stop           # 停止运行中的实例
 说明：
 - 配置文件、日志等均位于可执行文件同级目录（`config/`、`logs/`），不写入系统目录。
 - 打包版运行 `--server` 参数同样支持服务器模式（需配置 `config/config.server.toml`）。
-- 开发版（`VERSION` 带 `-dev` 后缀）的构建产物不发布到 Release，可在 GitHub Actions 对应 run 的 **Artifacts** 中下载。
-- 自行构建：`pip install -r requirements.txt -r requirements-build.txt && python scripts/build_executable.py`。
+- 开发版（`pyproject.toml` 的 version 带 `-dev` 后缀）的构建产物不发布到 Release，可在 GitHub Actions 对应 run 的 **Artifacts** 中下载。
+- 自行构建：`pip install --group build && python scripts/build_executable.py`。
 
 ### 服务器模式（HTTP Server）
 
