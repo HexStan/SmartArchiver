@@ -7,14 +7,10 @@ rsync/rclone 整树完成。
 """
 
 import os
+import shlex
 import subprocess
 
 from src.ssh.remotes import SshRemote, build_ssh_command, build_ssh_target
-
-
-def _shell_quote(s: str) -> str:
-    """用单引号包裹字符串，安全地用于 shell 命令参数。"""
-    return "'" + s.replace("'", "'\\''") + "'"
 
 
 def _run_remote(
@@ -40,13 +36,13 @@ def is_remote_dir(remote: SshRemote, path: str) -> bool:
 
     进程启动失败或超时视为否。
     """
-    result = _run_remote(remote, f"test -d {_shell_quote(path)}", timeout=30)
+    result = _run_remote(remote, f"test -d {shlex.quote(path)}", timeout=30)
     return result is not None and result.returncode == 0
 
 
 def list_remote_dirs(remote: SshRemote, path: str) -> list[str]:
     """列出远端目录的一级子目录名，按字母排序；失败返回空列表。"""
-    result = _run_remote(remote, f"ls -1d {_shell_quote(path)}/*/ 2>/dev/null", timeout=30)
+    result = _run_remote(remote, f"ls -1d {shlex.quote(path)}/*/ 2>/dev/null", timeout=30)
     if result is None or result.returncode != 0:
         return []
     entries = []
@@ -60,7 +56,7 @@ def list_remote_dirs(remote: SshRemote, path: str) -> list[str]:
 
 def remove_remote_tree(remote: SshRemote, path: str) -> bool:
     """递归删除远端目录（rm -rf），返回是否成功。"""
-    result = _run_remote(remote, f"rm -rf {_shell_quote(path)}", timeout=60)
+    result = _run_remote(remote, f"rm -rf {shlex.quote(path)}", timeout=60)
     return result is not None and result.returncode == 0
 
 
