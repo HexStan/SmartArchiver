@@ -111,7 +111,7 @@ def _warn_backup_unsupported():
     )
 
 
-def _run_sync_command(cmd: list[str], tool_name: str, prepend_timestamp: bool = False) -> None:
+def _run_sync_command(cmd: list[str], tool_name: str, prepend_timestamp: bool = False) -> bool:
     ctx = AppContext.get()
     ctx.logger.info(f"正在使用 {tool_name} 进行同步……")
     try:
@@ -125,14 +125,14 @@ def _run_sync_command(cmd: list[str], tool_name: str, prepend_timestamp: bool = 
         )
     except Exception as e:  # noqa: BLE001
         ctx.logger.error(f"执行 {tool_name} 时发生错误: {e}")
-        return
-    _consume_sync_process(process, tool_name, prepend_timestamp)
+        return False
+    return _consume_sync_process(process, tool_name, prepend_timestamp)
 
 
 def _consume_sync_process(
     process: subprocess.Popen[str], tool_name: str, prepend_timestamp: bool = False
-) -> None:
-    """读取同步工具的输出直至其退出。
+) -> bool:
+    """读取同步工具的输出直至其退出；返回本轮同步是否正常完成。
 
     进程在停止协调器登记，``stop --fast`` 时由协调器终止整棵进程树
     （rsync/rclone 可能派生子进程，只杀直接子进程会留下孤儿）。
@@ -157,13 +157,14 @@ def _consume_sync_process(
         coordinator.unregister_process(process)
 
     if coordinator.is_aborted():
-        # stop --fast：外部进程已被整树终止，不做完成/失败定性
-        pass
-    elif process.returncode != 0:
+        # stop --fast：外部进程已被整树终止，按"中断 = 未完成"定性
+        return False
+    if process.returncode != 0:
         ctx.logger.error(f"{tool_name} 同步失败，退出码: {process.returncode}")
-    else:
-        exec_time = time.time() - start_time
-        ctx.logger.success(f"{tool_name} 同步完成，耗时: {fmt_timespan(exec_time)}。")
+        return False
+    exec_time = time.time() - start_time
+    ctx.logger.success(f"{tool_name} 同步完成，耗时: {fmt_timespan(exec_time)}。")
+    return True
 
 
 def _run_rclone_sync(
@@ -172,14 +173,14 @@ def _run_rclone_sync(
     exclude_list: list[str],
     backup_dir: str | None,
     rclone_cmd: str,
-) -> None:
+) -> bool:
     cmd = [rclone_cmd, "sync", source_root, dest_root]
     for ex in exclude_list:
         cmd.extend(["--exclude", ex])
     if backup_dir:
         cmd.extend(["--backup-dir", backup_dir])
 
-    _run_sync_command(cmd, "rclone")
+    return _run_sync_command(cmd, "rclone")
 
 
 def _run_rsync_sync(
@@ -188,7 +189,7 @@ def _run_rsync_sync(
     exclude_list: list[str],
     backup_dir: str | None,
     rsync_cmd: str,
-) -> None:
+) -> bool:
     src = source_root if source_root.endswith("/") else source_root + "/"
     cmd = [rsync_cmd, "-av", "--delete", src, dest_root]
     for ex in exclude_list:
@@ -196,21 +197,21 @@ def _run_rsync_sync(
     if backup_dir:
         cmd.extend(["--backup", f"--backup-dir={backup_dir}"])
 
-    _run_sync_command(cmd, "rsync", prepend_timestamp=True)
+    return _run_sync_command(cmd, "rsync", prepend_timestamp=True)
 
 
 @register_handler("sync")
 class SyncHandler(BaseTaskHandler):
     @override
-    def _execute(self) -> None:
+    def _execute(self) -> bool:
         ctx = AppContext.get()
 
         if ctx.shutdown.should_stop_before_file():
-            return
+            return False
 
         if not os.path.exists(self.source_root):
             ctx.logger.error(f"源目录不存在: {self.source_root}")
-            return
+            return False
 
         # 装配期 ensure_dest 已保证 kind 组合合法（sync：本地或 SSH），
         # 此处解析只为取得 SSH 连接参数与远端根路径
@@ -223,7 +224,7 @@ class SyncHandler(BaseTaskHandler):
                 ctx.logger.error(
                     f"SSH 远端别名 '{parsed.alias}' 未在 ssh_remotes 中配置，跳过该任务。"
                 )
-                return
+                return False
             dest_ready = ops.is_remote_dir(remote, parsed.path)
         else:
             remote = None
@@ -231,11 +232,11 @@ class SyncHandler(BaseTaskHandler):
 
         if not dest_ready:
             ctx.logger.critical("!!! 致命错误: 目标目录不存在 !!!")
-            return
+            return False
 
         tool = _resolve_sync_tool(self.task)
         if tool is None:
-            return
+            return False
 
         exclude = self.task.get("exclude", [])
         exclude_list: list[str] = [exclude] if isinstance(exclude, str) else exclude
@@ -244,10 +245,9 @@ class SyncHandler(BaseTaskHandler):
         max_backups = self.task.get("max_backups", 0)
 
         if remote is not None:
-            self._execute_ssh_sync(
+            return self._execute_ssh_sync(
                 remote, parsed.path, tool, exclude_list, backup_enabled, max_backups
             )
-            return
 
         backup_dir = None
         if backup_enabled:
@@ -260,7 +260,7 @@ class SyncHandler(BaseTaskHandler):
             "rclone": _run_rclone_sync,
             "rsync": _run_rsync_sync,
         }
-        _sync_runners[tool.name](
+        return _sync_runners[tool.name](
             self.source_root,
             self.dest_root,
             exclude_list,
@@ -280,7 +280,7 @@ class SyncHandler(BaseTaskHandler):
         exclude_list: list[str],
         backup_enabled: bool,
         max_backups: int,
-    ) -> None:
+    ) -> bool:
         """执行 SSH 远端同步（rsync 或 rclone）。"""
         backup_dir = None
         if backup_enabled:
@@ -292,9 +292,8 @@ class SyncHandler(BaseTaskHandler):
                 _warn_backup_unsupported()
 
         if tool.name == "rsync":
-            self._run_ssh_rsync(tool, remote, remote_root, exclude_list, backup_dir)
-        else:
-            self._run_ssh_rclone(tool, remote, remote_root, exclude_list, backup_dir)
+            return self._run_ssh_rsync(tool, remote, remote_root, exclude_list, backup_dir)
+        return self._run_ssh_rclone(tool, remote, remote_root, exclude_list, backup_dir)
 
     def _run_ssh_rsync(
         self,
@@ -303,7 +302,7 @@ class SyncHandler(BaseTaskHandler):
         remote_root: str,
         exclude_list: list[str],
         backup_dir: str | None,
-    ) -> None:
+    ) -> bool:
         """通过 rsync + SSH 同步到远端主机。"""
         src = self.source_root
         src = src if src.endswith("/") else src + "/"
@@ -322,7 +321,7 @@ class SyncHandler(BaseTaskHandler):
             cmd.extend(["--backup", f"--backup-dir={backup_dir}"])
 
         cmd.extend([src, dest_target])
-        _run_sync_command(cmd, "rsync", prepend_timestamp=True)
+        return _run_sync_command(cmd, "rsync", prepend_timestamp=True)
 
     def _run_ssh_rclone(
         self,
@@ -331,7 +330,7 @@ class SyncHandler(BaseTaskHandler):
         remote_root: str,
         exclude_list: list[str],
         backup_dir: str | None,
-    ) -> None:
+    ) -> bool:
         """通过 rclone SFTP 同步到远端主机。"""
         ctx = AppContext.get()
 
@@ -371,7 +370,7 @@ class SyncHandler(BaseTaskHandler):
                 env["RCLONE_SFTP_PASS"] = password
             except OSError as e:
                 ctx.logger.error(f"读取密码文件失败: {e}，跳过该任务。")
-                return
+                return False
 
         ctx.logger.info("正在使用 rclone (SFTP) 进行同步……")
         try:
@@ -386,8 +385,8 @@ class SyncHandler(BaseTaskHandler):
             )
         except Exception as e:  # noqa: BLE001
             ctx.logger.error(f"执行 rclone 时发生错误: {e}")
-            return
-        _consume_sync_process(process, "rclone")
+            return False
+        return _consume_sync_process(process, "rclone")
 
     def _setup_ssh_backup_dir(
         self, remote: SshRemote, remote_root: str, max_backups: int, exclude_list: list[str]

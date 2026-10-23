@@ -196,12 +196,12 @@ class RotateHandler(BaseTaskHandler):
         return True
 
     @override
-    def _execute(self) -> None:
+    def _execute(self) -> bool:
         ctx = AppContext.get()
 
         if not os.path.exists(self.source_root):
             ctx.logger.error(f"源目录不存在: {self.source_root}")
-            return
+            return False
 
         rotate_mgr = RotateGroupManager(
             self.size_limit, self.count_limit, self.rotate_size_rules, self.rotate_count_rules
@@ -250,15 +250,17 @@ class RotateHandler(BaseTaskHandler):
                 self.stats.total_bytes,
                 ctx.logger,
             )
-            return
+            return True
 
         all_files.sort(key=lambda x: x["mtime"])
 
+        completed = True
         for f in all_files:
             if not rotate_mgr.is_any_group_exceeded():
                 break
 
             if ctx.shutdown.should_stop_before_file():
+                completed = False
                 break
 
             if not rotate_mgr.is_file_needs_rotation(f["groups"]):
@@ -278,6 +280,8 @@ class RotateHandler(BaseTaskHandler):
                 is_copy=False,
             )
             if not success:
+                # 目标目录致命错误导致的中断
+                completed = False
                 break
 
             if not os.path.exists(f["path"]):
@@ -295,3 +299,4 @@ class RotateHandler(BaseTaskHandler):
             self.stats.total_bytes,
             ctx.logger,
         )
+        return completed

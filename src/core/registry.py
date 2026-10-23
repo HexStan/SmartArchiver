@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any
 from src.app.context import AppContext
 from src.core import dest
 from src.core.patterns import InvalidSizeError
+from src.core.types import TaskOutcome
 
 if TYPE_CHECKING:
     from src.core.handlers.base import BaseTaskHandler
@@ -74,7 +75,13 @@ def create_handler(
         return None
 
 
-def process_task(task: dict[str, Any], now: float | None = None) -> None:
+def process_task(task: dict[str, Any], now: float | None = None) -> TaskOutcome:
+    """执行单个任务并返回定性结果，供任务编排（依赖判定）消费。
+
+    装配/构造失败记 SKIPPED（任务未执行）；执行结果由 handler.execute()
+    给出（COMPLETED / FAILED / SKIPPED，语义见 TaskOutcome）。
+    """
     handler = create_handler(task, now=now)
-    if handler is not None:
-        handler.execute()
+    if handler is None:
+        return TaskOutcome.SKIPPED
+    return handler.execute()

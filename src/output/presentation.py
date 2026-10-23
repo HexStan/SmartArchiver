@@ -51,10 +51,19 @@ def print_task_header(task: dict[str, Any], logger: Logger) -> None:
     source_root = task.get("source")
     dest_root = task.get("dest")
     task_mode = task.get("mode", "").lower()
+    task_id = task.get("id")
     task_name = task.get("name")
+    depends_on = task.get("depends_on")
+
+    if task_id:
+        logger.info(f" - 标识: {task_id}")
 
     if task_name:
         logger.info(f" - 名称：{task_name}")
+
+    if depends_on:
+        deps = [depends_on] if isinstance(depends_on, str) else depends_on
+        logger.info(f" - 依赖: {'、'.join(deps)}")
 
     mode_labels = {
         "move": "移动",

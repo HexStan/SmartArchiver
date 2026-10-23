@@ -21,7 +21,9 @@ from src.app.context import AppContext
 from src.app.instance import SingleInstance
 from src.app.shutdown import install_abort_check, install_sigterm_fast_stop
 from src.core import process_task
+from src.core.dependencies import prepare_run_plan
 from src.core.history import HistoryManager
+from src.core.types import TaskOutcome
 from src.output.logger import Logger, setup_logger
 from src.output.presentation import fmt_timespan
 
@@ -51,15 +53,35 @@ def run_tasks() -> None:
         ctx.logger.error("配置文件没有任务可以执行。")
         sys.exit(1)
 
+    # 解析期：id 规范化与依赖静态校验（错误日志在此给出）；运行期只做
+    # 依赖满足判定。finished 每轮重置——依赖语义为"同一轮内"，与
+    # cron/interval 每轮全量重跑的调度语义一致。
+    specs = prepare_run_plan(tasks, ctx.logger)
+    finished: set[str] = set()
+
     for idx, task in enumerate(tasks):
         if coordinator.should_stop_before_task():
             break
 
+        spec = specs[idx]
+
+        if spec.blocked:
+            # 具体错误日志已在解析期给出，此处静默跳过
+            continue
+
+        unmet = [dep for dep in spec.depends_on if dep not in finished]
+        if unmet:
+            ctx.logger.error(f"前置任务 {'、'.join(unmet)} 未完成，跳过该任务。")
+            continue
+
         ctx.logger.info(f"-----开始 {len(tasks)} 个任务中的第 {idx + 1} 个-----")
 
-        process_task(task, now=start_time)
+        outcome = process_task(task, now=start_time)
 
         ctx.logger.info("当前任务结束。")
+
+        if spec.task_id and outcome is TaskOutcome.COMPLETED:
+            finished.add(spec.task_id)
 
     end_time = time.time()
     exec_time = end_time - start_time

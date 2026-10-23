@@ -7,6 +7,19 @@ class FileAction(Enum):
     SKIP = "skip"
 
 
+class TaskOutcome(Enum):
+    """任务单轮执行的定性结果，供依赖编排判定"前置任务是否完成"。
+
+    COMPLETED —— 本轮正常跑完（含静默期跳过这类"无事可做"的结束）；
+    FAILED —— 本轮执行中断（源/目标目录缺失、外部工具失败、停止指令等）；
+    SKIPPED —— 本轮未执行（配置校验失败、装配失败等）。
+    """
+
+    COMPLETED = "completed"
+    FAILED = "failed"
+    SKIPPED = "skipped"
+
+
 class MoverStats:
     def __init__(self) -> None:
         self._success = 0

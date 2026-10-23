@@ -14,23 +14,26 @@ from src.output.presentation import fmt_size, print_task_summary
 @register_handler("move", "copy")
 class StandardHandler(BaseTaskHandler):
     @override
-    def _execute(self) -> None:
+    def _execute(self) -> bool:
         mtime_threshold_seconds = self.task.get("mtime_threshold_seconds", 0)
 
         ctx = AppContext.get()
 
         if not os.path.exists(self.source_root):
             ctx.logger.error(f"源目录不存在: {self.source_root}")
-            return
+            return False
 
         is_copy = self.task_mode == "copy"
 
         start_time = time.time()
 
+        completed = True
         for root, dirs, files in os.walk(self.source_root):
             self._process_directories(dirs, root, mtime_threshold_seconds)
             success = self._process_files(files, root, mtime_threshold_seconds, is_copy)
             if not success:
+                # 目标目录致命错误或停止指令导致的中断
+                completed = False
                 break
 
         if self.remove_empty_dirs and not is_copy:
@@ -43,6 +46,7 @@ class StandardHandler(BaseTaskHandler):
             self.stats.total_bytes,
             ctx.logger,
         )
+        return completed
 
     def _process_directories(
         self, dirs: list[str], root: str, mtime_threshold_seconds: float

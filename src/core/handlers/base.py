@@ -6,7 +6,7 @@ from typing import Any
 from src.app.context import AppContext
 from src.core import dest
 from src.core.filters import FileFilterPolicy
-from src.core.types import FileAction, MoverStats
+from src.core.types import FileAction, MoverStats, TaskOutcome
 from src.fs import TransferAbortedError, get_dir_size_and_mtime, is_file_locked
 from src.fs import delete_file as _fs_delete
 from src.output.presentation import fmt_size as _fmt_size
@@ -278,25 +278,35 @@ class BaseTaskHandler(ABC):
     def validate(self) -> bool:
         return validate_task_config(self.task, self.task_mode)
 
-    def execute(self) -> None:
+    def execute(self) -> TaskOutcome:
         """模板方法：配置校验 → 任务头 → 源目录静默期检查 → 子类执行。
 
         三种处理器共有的前导步骤收敛于此，新增模式自动获得同一入口行为。
+        返回本轮执行的定性结果（TaskOutcome）：校验失败为 SKIPPED（未
+        执行）；静默期跳过只是"本轮无事可做"，记 COMPLETED（依赖方照常
+        执行）；子类执行是否完整跑完由 _execute() 的布尔结果定性。
         """
         if not self.validate():
-            return
+            return TaskOutcome.SKIPPED
 
         ctx = AppContext.get()
 
         print_task_header(self.task, ctx.logger)
 
         if self._source_in_quiet_period():
-            return
+            return TaskOutcome.COMPLETED
 
-        self._execute()
+        return TaskOutcome.COMPLETED if self._execute() else TaskOutcome.FAILED
 
     @abstractmethod
-    def _execute(self) -> None: ...
+    def _execute(self) -> bool:
+        """子类执行体；返回 False 表示本轮执行被致命中断（记 FAILED）。
+
+        文件级错误不在此列——单文件失败由重试/历史机制兜底，任务完整
+        跑完仍算 COMPLETED。停止指令导致的中断同样返回 False，此后任务
+        循环会因停止检查整体退出，结果仅保持"中断 = 未完成"的一致性。
+        """
+        ...
 
     def _source_in_quiet_period(self) -> bool:
         """source_quiet_seconds 检查：源目录仍在静默期内则整任务跳过。
