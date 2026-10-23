@@ -24,10 +24,13 @@ jobs:
           python-version: '3.14'
 
       - name: Install dependencies
-        run: pip install -r requirements.txt -r requirements-dev.txt
+        run: pip install --group dev
 
       - name: Type check (Pyrefly)
         run: pyrefly check
+
+      - name: Lint (Ruff)
+        run: ruff check .
 
   test:
     runs-on: ${{ matrix.os }}
@@ -51,10 +54,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
-
-      - name: Install pytest
-        run: pip install pytest
+        run: pip install --group dev
 
       - name: Run tests
         run: python -m pytest

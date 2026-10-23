@@ -5,24 +5,33 @@ on:
     branches:
       - '**'
     paths:
-      - 'VERSION'
+      - 'pyproject.toml'
   workflow_dispatch:
 
 jobs:
+  # pyproject.toml 同时承载依赖与工具配置（Dependabot 每周更新）：
+  # 仅当 version 字段相对上次推送实际变化且带 -dev 后缀时才构建
   check:
     runs-on: ubuntu-latest
     outputs:
-      is_dev: ${{ steps.version.outputs.is_dev }}
+      is_dev: ${{ steps.gate.outputs.is_dev }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
+        with:
+          # version 比较需读取 before 提交的文件内容，fetch-depth: 0 见复合 action 说明
+          fetch-depth: 0
 
-      - name: Check VERSION suffix
+      - name: Detect version change
         id: version
+        uses: ./.github/actions/version-changed
+
+      - name: Gate dev build
+        id: gate
         run: |
-          VERSION=$(head -1 VERSION | tr -d '[:space:]')
-          echo "VERSION=${VERSION}"
-          if [[ "$VERSION" == *-dev ]]; then
+          VERSION="${{ steps.version.outputs.version }}"
+          CHANGED="${{ steps.version.outputs.changed }}"
+          if [[ "$CHANGED" == "true" && "$VERSION" == *-dev ]]; then
             echo "is_dev=true" >> "$GITHUB_OUTPUT"
           else
             echo "is_dev=false" >> "$GITHUB_OUTPUT"

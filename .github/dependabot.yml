@@ -9,7 +9,7 @@ updates:
     commit-message:
       prefix: ci
 
-  # Python 依赖（requirements*.txt）
+  # Python 依赖（pyproject.toml：PEP 735 依赖组 runtime / dev / build）
   - package-ecosystem: pip
     directory: /
     schedule:

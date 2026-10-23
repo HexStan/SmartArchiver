@@ -30,7 +30,7 @@ jobs:
           python-version: '3.14'
 
       - name: Install dependencies
-        run: pip install -r requirements.txt -r requirements-build.txt
+        run: pip install --group build
 
       - name: Build executable
         run: python scripts/build_executable.py --target ${{ matrix.target }}
