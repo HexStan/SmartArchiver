@@ -69,7 +69,7 @@ class GlobalConfig(BaseModel):
 
     客户端消费 max_retries 与 schedule；服务器消费 api_key/port/并发段
     （run_server 由 runtime 注入具体值）。数值约束在加载期收口——
-    非法值致命（ConfigError），不再推迟到监听/建门时暴露。
+    非法值致命（ConfigError）。
     """
 
     model_config = ConfigDict(extra="ignore")
@@ -77,7 +77,7 @@ class GlobalConfig(BaseModel):
     # 客户端全局
     max_retries: int = Field(default=3, ge=0)
     schedule: ScheduleConfig | None = None
-    # 服务器段（原 ServerConfig 并入；服务器模式启动期经 run_server 消费）
+    # 服务器段（服务器模式启动期经 run_server 消费）
     api_key: str = ""
     port: int = Field(default=13579, ge=1, le=65535)
     max_concurrent_metadata: int = Field(default=1, ge=1)

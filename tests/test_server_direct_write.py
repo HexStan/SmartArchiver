@@ -6,7 +6,7 @@
 的文件系统状态）、落盘边界（改名调用及其瞬间的临时文件内容）与服务器
 选型（启动装配）上观察。该契约是 ROADMAP「已放弃·迁移至生产服务器」
 条目的核心：waitress 会把请求体先缓冲到系统分区再移动，造成写放大并
-威胁系统分区空间，cd11a3a 为此回滚为 Flask 内置服务器。
+威胁系统分区空间，因此服务器选用 Flask 内置服务器而非 waitress。
 
 打桩全部落在 OS / 系统临时目录 / 网络边界（原则三）：
 - 探针流占据网络边界（wsgi.input），每次消费请求体前对目录结构做快照；
@@ -418,6 +418,5 @@ class TestServerAssembly:
         }
 
 
-# 服务器配置模型（原 ServerConfig，现并入 GlobalConfig）的数值边界契约
-# 迁至 tests/test_config_parsing.py——模型已随配置段归属 app.config，
-# 与 run_server 装配不再同属一个被测对象。
+# GlobalConfig 服务器数值段的边界契约由 tests/test_config_parsing.py
+# 覆盖：模型归属 app.config，与 run_server 装配分属不同被测对象。

@@ -98,7 +98,7 @@ def print_task_header(
     if source_quiet_seconds:
         logger.info(f" - 静默阈值: {fmt_timespan(source_quiet_seconds)}")
 
-    # 限额展示用解析后的数值格式化（配置串本身不再透传到展示层）
+    # 限额展示用解析后的数值格式化（配置串不透传到展示层）
     if size_limit > 0:
         logger.info(f" - 大小限制: {fmt_size(size_limit)}")
     if count_limit > 0:

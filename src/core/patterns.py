@@ -22,7 +22,7 @@ class InvalidSizeError(ValueError):
 
     由 parse_size_string 的严格模式抛出。调用方应在校验边界
     （registry.create_handler，构造期统一捕获）记日志跳过任务；
-    构造完成后的下游（validate / execute / 展示）不再解析。
+    构造完成后的下游（validate / execute / 展示）不做解析。
     """
 
 

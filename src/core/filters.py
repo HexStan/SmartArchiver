@@ -1,8 +1,7 @@
 """规则引擎：决策流水线 include → exclude → delete → TRANSFER。
 
 规则表（RuleSetConfig）在配置加载期完成容量解析与目录/文件拆分，
-本模块运行期只做匹配与决策，不再解析任何配置值。被 core.handlers
-的各模式处理器消费。
+本模块运行期只做匹配与决策。被 core.handlers 的各模式处理器消费。
 """
 
 import os

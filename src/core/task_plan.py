@@ -124,9 +124,8 @@ def _has_unresolvable_reference(
 def _dispatch_mode(entry: dict[str, Any], index: int, logger: Logger) -> type[TaskConfig] | None:
     """按 mode 分派配置模型；mode 缺失/不支持时记错误并返回 None。
 
-    mode 大小写不敏感（既有行为），归一化后写回 entry 供模型校验。
-    缺失与不支持各记一条错误（旧实现为 warning + 后续 error 两条，
-    现合并为加载期单条）。
+    mode 大小写不敏感，归一化后写回 entry 供模型校验；
+    缺失与不支持各记一条 error。
     """
     raw_mode = entry.get("mode")
     if raw_mode is None:

@@ -35,8 +35,8 @@ class RemoteClientError(Exception):
 class _AbortingReader:
     """只读文件的包装器：每次 read 的边界响应 fast 停止指令。
 
-    保持文件对象形态（提供 len 属性），使 requests/urllib3 仍以
-    Content-Length 身份编码流式发送，与直接传入文件对象的旧路径一致；
+    保持文件对象形态（提供 len 属性），使 requests/urllib3 以
+    Content-Length 身份编码流式发送；
     若传入无长度的生成器，urllib3 会退回 chunked 传输编码，与显式
     Content-Length 头冲突。urllib3 以连接的 blocksize 为粒度调用
     read（装配见 _UploadBlocksizeAdapter，即 UPLOAD_CHUNK_SIZE），
