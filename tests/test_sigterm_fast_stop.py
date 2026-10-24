@@ -19,7 +19,7 @@ from pathlib import Path
 import pytest
 
 from src.app import instance, runtime
-from src.app.shutdown import ShutdownCoordinator, install_sigterm_fast_stop
+from src.app.lifecycle import LifecycleCoordinator, install_sigterm_fast_stop
 from src.remote import server as remote_server
 from src.remote.concurrency import ConcurrencyGate
 
@@ -30,7 +30,7 @@ _WAIT_TIMEOUT = 5.0
 _CHILD_CODE = """
 import sys, time
 sys.path.insert(0, sys.argv[1])
-from src.app.shutdown import install_sigterm_fast_stop
+from src.app.lifecycle import install_sigterm_fast_stop
 
 
 class _NullLogger:
@@ -86,36 +86,56 @@ def test_install_off_main_thread_degrades_to_warning(restore_sigterm, capture_lo
     assert signal.getsignal(signal.SIGTERM) is restore_sigterm
 
 
-def test_stop_dispatcher_maps_three_modes(app_context):
+def test_stop_action_maps_three_modes(app_context):
     """停止模式到协调器请求的映射：graceful / slow / fast 各归其位。"""
-    dispatch = runtime._make_stop_dispatcher(app_context)
+    stop_action = runtime._make_stop_action(app_context)
 
-    dispatch(instance.STOP_GRACEFUL)
-    assert app_context.shutdown.stop_after_file
-    assert not app_context.shutdown.stop_after_round
-    assert not app_context.shutdown.is_aborted()
+    stop_action(instance.STOP_GRACEFUL)
+    assert app_context.lifecycle.stop_after_file
+    assert not app_context.lifecycle.stop_after_round
+    assert not app_context.lifecycle.is_aborted()
 
-    dispatch(instance.STOP_SLOW)
-    assert app_context.shutdown.stop_after_round
-    assert not app_context.shutdown.is_aborted()
+    stop_action(instance.STOP_SLOW)
+    assert app_context.lifecycle.stop_after_round
+    assert not app_context.lifecycle.is_aborted()
 
-    dispatch(instance.STOP_FAST)
-    assert app_context.shutdown.is_aborted()
-    assert app_context.shutdown.stop_requested()
+    stop_action(instance.STOP_FAST)
+    assert app_context.lifecycle.is_aborted()
+    assert app_context.lifecycle.stop_requested()
+
+
+def test_command_dispatcher_routes_stop_and_run_once(app_context):
+    """控制指令分发：stop 各模式走停止动作；run-once 仅休眠期受理且不设停止标志。"""
+    lifecycle = app_context.lifecycle
+    stop_action = runtime._make_stop_action(app_context)
+    dispatch = runtime._make_command_dispatcher(app_context, stop_action)
+
+    # 默认 starting 相位：run-once 静默不受理
+    dispatch(instance.CMD_RUN_ONCE, {"cmd": instance.CMD_RUN_ONCE, "ts": time.time()})
+    assert not lifecycle.stop_requested()
+
+    # 休眠期受理 run-once：只唤醒调度循环，不设置任何停止标志
+    lifecycle.set_phase(instance.PHASE_SLEEPING)
+    dispatch(instance.CMD_RUN_ONCE, {"cmd": instance.CMD_RUN_ONCE, "ts": time.time()})
+    assert not lifecycle.stop_requested()
+
+    # stop 各模式走停止动作
+    dispatch(instance.CMD_STOP, {"mode": instance.STOP_GRACEFUL})
+    assert lifecycle.stop_after_file
 
 
 def test_sigterm_action_triggers_client_abort(app_context, restore_sigterm):
-    """客户端装配：SIGTERM 处理器经由共享分发器触发 fast 中止。"""
-    dispatch = runtime._make_stop_dispatcher(app_context)
-    install_sigterm_fast_stop(lambda: dispatch(instance.STOP_FAST), app_context.logger)
+    """客户端装配：SIGTERM 处理器经由共享停止动作触发 fast 中止。"""
+    stop_action = runtime._make_stop_action(app_context)
+    install_sigterm_fast_stop(lambda: stop_action(instance.STOP_FAST), app_context.logger)
 
     handler = signal.getsignal(signal.SIGTERM)
     handler(signal.SIGTERM, None)
 
     deadline = time.monotonic() + _WAIT_TIMEOUT
-    while not app_context.shutdown.is_aborted() and time.monotonic() < deadline:
+    while not app_context.lifecycle.is_aborted() and time.monotonic() < deadline:
         time.sleep(0.01)
-    assert app_context.shutdown.is_aborted()
+    assert app_context.lifecycle.is_aborted()
 
 
 def test_server_stop_watcher_wires_sigterm_to_fast_mode(app_context, restore_sigterm):
@@ -143,7 +163,7 @@ def test_server_stop_command_aborts_and_exits(capture_log, monkeypatch):
     ``os._exit`` 是真实的进程退出，只能在进程边界打桩（改为记录调用
     后返回），由此验证停止动作走完整个收尾流程。
     """
-    coordinator = ShutdownCoordinator()
+    coordinator = LifecycleCoordinator()
     gate = ConcurrencyGate(
         max_concurrent_metadata=1,
         max_concurrent_uploads=1,

@@ -132,7 +132,7 @@ def _consume_sync_process(
     （rsync/rclone 可能派生子进程，只杀直接子进程会留下孤儿）。
     """
     ctx = AppContext.get()
-    coordinator = ctx.shutdown
+    coordinator = ctx.lifecycle
     coordinator.register_process(process)
     try:
         start_time = time.time()
@@ -207,7 +207,7 @@ class SyncHandler(BaseTaskHandler):
     def _execute(self) -> bool:
         ctx = AppContext.get()
 
-        if ctx.shutdown.should_stop_before_file():
+        if ctx.lifecycle.should_stop_before_file():
             return False
 
         if not os.path.exists(self.source_root):

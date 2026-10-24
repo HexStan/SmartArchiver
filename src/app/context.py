@@ -2,7 +2,7 @@
 
 from typing import TYPE_CHECKING
 
-from src.app.shutdown import ShutdownCoordinator
+from src.app.lifecycle import LifecycleCoordinator
 
 if TYPE_CHECKING:
     # 类型级依赖（运行时零导入）：core 包的 __init__ 会级联注册 handlers，
@@ -59,8 +59,9 @@ class AppContext:
         self.ssh_remotes = ssh_remotes or {}
         # 实例标识名：锁文件 / 控制文件 / PID 文件 / 日志前缀的公共基名
         self.instance_name = instance_name
-        # 停止指令协调器：ControlWatcher 注入信号，业务循环在边界查询
-        self.shutdown = ShutdownCoordinator()
+        # 生命周期协调器：ControlWatcher 注入停止与 run-once 指令，
+        # 业务循环在边界查询
+        self.lifecycle = LifecycleCoordinator()
 
     def update_config(
         self,

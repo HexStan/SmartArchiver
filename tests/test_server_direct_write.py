@@ -39,7 +39,7 @@ import pytest
 from flask import Flask
 from werkzeug.serving import make_server
 
-from src.app.shutdown import ShutdownCoordinator
+from src.app.lifecycle import LifecycleCoordinator
 from src.fs.atomic import _PARTIAL_SUFFIX
 from src.remote.client import RemoteClient
 from src.remote.concurrency import ConcurrencyGate
@@ -403,7 +403,7 @@ class TestServerAssembly:
             max_queue_metadata=32,
             max_queue_uploads=32,
             logger=capture_log,
-            coordinator=ShutdownCoordinator(),
+            coordinator=LifecycleCoordinator(),
             instance_name="smartarchiver-test-assembly",
             stop_watcher=lambda *args: None,
             runtime_paths=lambda *args: None,

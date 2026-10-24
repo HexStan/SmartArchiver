@@ -1,13 +1,15 @@
-"""控制子命令 start / log / stop。
+"""控制子命令 start / log / stop / run-once。
 
 一次性 CLI：只从配置解析实例标识与日志目录（宽松模式，配置异常时
-回退默认值，保证 log/stop 始终可用），不初始化运行环境。start 以
-分离式子进程拉起运行路径（src.app.runtime）。
+回退默认值，保证 log/stop/run-once 始终可用），不初始化运行环境。
+start 以分离式子进程拉起运行路径（src.app.runtime）；run-once 向
+处于调度休眠期的运行实例投递立即执行指令，随后进入日志跟随。
 """
 
 import os
 import subprocess
 import sys
+import time
 from typing import Any
 
 from src.app import instance, paths
@@ -16,6 +18,9 @@ from src.output.logtail import LogFollower
 
 # stop --fast 发出指令后等待实例自行退出的时限，超时则强杀
 _FAST_STOP_TIMEOUT = 5.0
+
+# run-once 发出指令后等待受理回执（last_run_once）落盘的时限，超时判定为未受理
+_RUN_ONCE_ACCEPT_TIMEOUT = 2.0
 
 
 def _load_control_context(is_server: bool, strict: bool = False) -> tuple[str, str]:
@@ -89,7 +94,7 @@ def _spawn_detached(is_server: bool) -> int:
             **kwargs,
         )
     except OSError as e:
-        print(f"Error: 无法启动分离式实例: {e}")
+        print(f"Error: 无法以后台形式启动: {e}")
         sys.exit(1)
     return proc.pid
 
@@ -117,13 +122,14 @@ def cmd_start(is_server: bool) -> None:
     if instance.is_running(instance_name):
         pid = instance.read_pid(instance_name)
         where = f" (PID {pid})" if pid else ""
-        print(f"已有实例正在运行{where}，无需重复启动。")
+        print(f"已有同名实例正在运行{where}，无需重复启动。")
         sys.exit(1)
 
     pid = _spawn_detached(is_server)
-    print(f"实例已启动 (PID {pid})，已脱离终端，本窗口可随时关闭。")
-    print(f"停止运行: {_command_hint(is_server)} stop")
-    print("正在滚动显示运行日志（底部状态栏显示实例状态，Ctrl+C 退出跟随，不影响实例运行）……\n")
+    print(
+        f"实例已在后台启动，本终端可随时退出。如要停止运行请执行 {_command_hint(is_server)} stop。"
+    )
+    print("正在滚动显示运行日志……\n")
     _follow_logs(is_server)
 
 
@@ -138,7 +144,7 @@ def cmd_stop(is_server: bool, fast: bool, slow: bool) -> None:
     仅在无实例与出错时输出，退出确认统一为一行"实例已退出。"。
     """
     if is_server and (fast or slow):
-        print("server 模式的 stop 不支持 --fast/--slow：行为固定为中止传输并尽快停止。")
+        print("server 模式的 stop 命令不支持 --fast 和 --slow。")
         sys.exit(2)
 
     instance_name, _log_dir = _load_control_context(is_server)
@@ -178,3 +184,65 @@ def cmd_stop(is_server: bool, fast: bool, slow: bool) -> None:
             file=sys.stderr,
         )
         sys.exit(1)
+
+
+def _run_once_blocker(instance_name: str) -> str | None:
+    """run-once 前置判定，返回拒绝原因；None 表示可以执行。
+
+    实例存活以锁探测为准（崩溃残留的状态文件不会误判），休眠期以
+    状态文件中的调度相位投影为准。
+    """
+    if not instance.is_running(instance_name):
+        return "没有正在运行的实例。"
+    state = instance.read_state(instance_name)
+    if state is None:
+        return "无法读取实例运行状态，无法确认实例是否处于调度休眠期。"
+    if state.get("phase") != instance.PHASE_SLEEPING:
+        return "实例不在调度休眠期，无法立即执行。可能正在执行任务、未配置 [schedule] 或尚未就绪。"
+    return None
+
+
+def _wait_run_once_accepted(
+    instance_name: str, sent_ts: float, timeout: float = _RUN_ONCE_ACCEPT_TIMEOUT
+) -> bool:
+    """轮询状态文件，等待受理回执（``last_run_once >= sent_ts``）。
+
+    受理回执由实例记账后随每次状态写入持久化，不存在瞬时窗口——
+    执行轮次再快（哪怕短于轮询间隔）也不会漏报。实例中途退出同样
+    终止等待。
+    """
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if not instance.is_running(instance_name):
+            return False
+        state = instance.read_state(instance_name)
+        if state is not None:
+            ack = state.get("last_run_once")
+            if isinstance(ack, (int, float)) and ack >= sent_ts:
+                return True
+        time.sleep(0.1)
+    return False
+
+
+def cmd_run_once(is_server: bool) -> None:
+    """run-once 子命令：让处于调度休眠期的实例立即执行一轮任务。
+
+    预检（存活 + 休眠期）通过后投递指令并等待受理回执，随后进入
+    日志跟随（同 start）。实例正处于执行期的竞态窗口内到达的指令
+    会被静默忽略，等待超时给出提示后仍进入跟随。
+    """
+    if is_server:
+        print("run-once 命令不支持服务器实例。")
+        sys.exit(2)
+
+    instance_name, _log_dir = _load_control_context(is_server)
+    if (reason := _run_once_blocker(instance_name)) is not None:
+        print(reason)
+        sys.exit(1)
+
+    sent_ts = time.time()
+    instance.send_run_once(instance_name)
+    if not _wait_run_once_accepted(instance_name, sent_ts):
+        print("提示: 实例未确认受理，指令可能已被忽略。实例可能恰好在指令送达前开始执行。")
+    print("正在滚动显示运行日志……\n")
+    _follow_logs(is_server)

@@ -17,7 +17,7 @@ from src.remote.protocol import UPLOAD_CHUNK_SIZE, UPLOAD_PATH, RemoteAction
 
 if TYPE_CHECKING:
     from src.app.instance import InstancePaths
-    from src.app.shutdown import ShutdownCoordinator
+    from src.app.lifecycle import LifecycleCoordinator
     from src.output.logger import Logger
 
 # 收到停止指令后，等待在途请求收尾的最长时间（临时文件由 atomic_writer 清理）
@@ -291,7 +291,7 @@ def create_app(api_key: str, logger: Logger, gate: ConcurrencyGate) -> Flask:
 
 def _start_stop_watcher(
     logger: Logger,
-    coordinator: ShutdownCoordinator,
+    coordinator: LifecycleCoordinator,
     gate: ConcurrencyGate,
     instance_name: str,
     stop_watcher: Callable[[str, Callable[[str], None]], None],
@@ -313,10 +313,10 @@ def _start_stop_watcher(
         deadline = time.time() + _STOP_DRAIN_TIMEOUT
         while gate.active_requests > 0 and time.time() < deadline:
             time.sleep(0.05)
-        # os._exit 跳过 with 块的收尾，这里手动清理 PID / 控制文件
+        # os._exit 跳过 with 块的收尾，这里手动清理 PID / 控制 / 状态文件
         # （锁由操作系统随进程退出释放，锁文件本身无需删除）
         paths = runtime_paths(instance_name)
-        for path in (paths.pid, paths.ctl):
+        for path in (paths.pid, paths.ctl, paths.state):
             try:
                 os.remove(path)
             except OSError:
@@ -336,7 +336,7 @@ def run_server(
     max_queue_metadata: int,
     max_queue_uploads: int,
     logger: Logger,
-    coordinator: ShutdownCoordinator,
+    coordinator: LifecycleCoordinator,
     instance_name: str,
     stop_watcher: Callable[[str, Callable[[str], None]], None],
     runtime_paths: Callable[[str], InstancePaths],

@@ -1,6 +1,6 @@
 """传输中止测试（stop --fast 的文件系统侧契约）。
 
-中止检查钩子是 fs.abort 提供的注入缝（生产环境由 ShutdownCoordinator
+中止检查钩子是 fs.abort 提供的注入缝（生产环境由 LifecycleCoordinator
 注入），测试借助它在 chunk 边界精确触发中止，从外部断言三个不变量：
 最终路径不受影响、已写入的临时文件被清理、异常不被改写成操作失败。
 """

@@ -1,6 +1,6 @@
 """传输中止信号：进程级注入缝，供 fast 停止即时响应。
 
-由组合根（app.runtime 装配阶段）注入 ``ShutdownCoordinator.is_aborted``；
+由组合根（app.runtime 装配阶段）注入 ``LifecycleCoordinator.is_aborted``；
 ``fs.transfer`` 与 ``remote`` 的复制循环在每个 chunk 边界查询。
 """
 
@@ -15,7 +15,7 @@ class TransferAbortedError(Exception):
     """
 
 
-# 传输中止检查钩子：由运行入口注入（ShutdownCoordinator.is_aborted），
+# 传输中止检查钩子：由运行入口注入（LifecycleCoordinator.is_aborted），
 # 复制循环在每个 chunk 边界查询，实现 fast 停止的即时响应。
 AbortCheck = Callable[[], bool]
 _abort_check: AbortCheck | None = None

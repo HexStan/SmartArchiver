@@ -1,9 +1,9 @@
-"""实例控制通道测试：存活探测、PID 文件、控制指令协议与进程树终止。
+"""实例控制通道测试：存活探测、PID 文件、控制指令协议、运行状态文件与进程树终止。
 
-锁探测与 PID/控制文件的本质是跨进程协作——存活探测以真实锁原语为边界
+锁探测与 PID/控制/状态文件的本质是跨进程协作——存活探测以真实锁原语为边界
 （复用 test_instance_lock.py 的子进程范式），进程树终止以真实子进程为边界。
-控制文件协议（写 → 轮询 → 分发 → 删除）与时间戳门限是纯文件行为，
-用临时目录真实文件驱动。
+控制文件协议（写 → 轮询 → 分发 → 删除）、时间戳门限与状态文件读写是纯文件
+行为，用临时目录真实文件驱动。
 """
 
 import json
@@ -18,8 +18,12 @@ import psutil
 import pytest
 
 from src.app.instance import (
+    CMD_RUN_ONCE,
+    CMD_STOP,
     DEFAULT_INSTANCE_NAME,
     DEFAULT_SERVER_INSTANCE_NAME,
+    PHASE_RUNNING,
+    PHASE_SLEEPING,
     STOP_FAST,
     STOP_GRACEFUL,
     STOP_SLOW,
@@ -29,10 +33,13 @@ from src.app.instance import (
     instance_paths,
     is_running,
     read_pid,
+    read_state,
     resolve_identity,
+    send_run_once,
     send_stop,
     terminate_process_tree,
     wait_for_exit,
+    write_state,
 )
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -48,7 +55,7 @@ def _paths(name):
 
 
 def _cleanup_files(name):
-    for attr in ("lock", "pid", "ctl"):
+    for attr in ("lock", "pid", "ctl", "state"):
         Path(getattr(_paths(name), attr)).unlink(missing_ok=True)
 
 
@@ -149,29 +156,48 @@ def test_send_stop_rejects_unknown_mode(unique_name):
         send_stop(unique_name, "immediately")
 
 
+def _collect(received):
+    """watcher 回调适配：把分发到的 (cmd, payload) 追加到 received。"""
+    return lambda cmd, payload: received.append((cmd, payload))
+
+
 def test_watcher_dispatches_valid_command(unique_name):
-    ctl = Path(_paths(unique_name).ctl)
     received = []
-    watcher = ControlWatcher(unique_name, received.append)
+    watcher = ControlWatcher(unique_name, _collect(received))
 
     send_stop(unique_name, STOP_FAST)
-    assert ctl.exists()
+    assert Path(_paths(unique_name).ctl).exists()
 
     watcher.poll_once()
 
-    assert received == [STOP_FAST]
-    assert not ctl.exists()  # 指令消费后删除
+    assert [(cmd, payload["mode"]) for cmd, payload in received] == [(CMD_STOP, STOP_FAST)]
+    assert not Path(_paths(unique_name).ctl).exists()  # 指令消费后删除
 
 
 def test_watcher_polls_all_modes(unique_name):
     received = []
-    watcher = ControlWatcher(unique_name, received.append)
+    watcher = ControlWatcher(unique_name, _collect(received))
 
     for mode in (STOP_GRACEFUL, STOP_SLOW, STOP_FAST):
         send_stop(unique_name, mode)
         watcher.poll_once()
 
-    assert received == [STOP_GRACEFUL, STOP_SLOW, STOP_FAST]
+    assert [(cmd, payload["mode"]) for cmd, payload in received] == [
+        (CMD_STOP, STOP_GRACEFUL),
+        (CMD_STOP, STOP_SLOW),
+        (CMD_STOP, STOP_FAST),
+    ]
+
+
+def test_watcher_dispatches_run_once_command(unique_name):
+    received = []
+    watcher = ControlWatcher(unique_name, _collect(received))
+
+    send_run_once(unique_name)
+    watcher.poll_once()
+
+    assert [cmd for cmd, _payload in received] == [CMD_RUN_ONCE]
+    assert not Path(_paths(unique_name).ctl).exists()  # 指令消费后删除
 
 
 def test_watcher_ignores_command_written_before_it_started(unique_name):
@@ -183,7 +209,7 @@ def test_watcher_ignores_command_written_before_it_started(unique_name):
     )
 
     received = []
-    ControlWatcher(unique_name, received.append).poll_once()
+    ControlWatcher(unique_name, _collect(received)).poll_once()
 
     assert received == []
     assert ctl.exists()  # 未消费，留在原地
@@ -192,10 +218,15 @@ def test_watcher_ignores_command_written_before_it_started(unique_name):
 def test_watcher_ignores_garbage_and_unknown_commands(unique_name):
     ctl = Path(_paths(unique_name).ctl)
     received = []
-    watcher = ControlWatcher(unique_name, received.append)
+    watcher = ControlWatcher(unique_name, _collect(received))
 
     # 损坏的 JSON（写入进行中的残缺内容）
     ctl.write_text('{"cmd": "st', encoding="utf-8")
+    watcher.poll_once()
+    assert received == []
+
+    # 合法 JSON 但不是对象
+    ctl.write_text('["cmd"]', encoding="utf-8")
     watcher.poll_once()
     assert received == []
 
@@ -209,6 +240,68 @@ def test_watcher_ignores_garbage_and_unknown_commands(unique_name):
     watcher.poll_once()
 
     assert received == []
+
+
+# ============================================================
+# 运行状态文件
+# ============================================================
+
+
+def test_write_then_read_state_round_trip(unique_name):
+    write_state(unique_name, PHASE_SLEEPING, next_run=1234.5, last_run_once=99.5)
+
+    state = read_state(unique_name)
+
+    assert state is not None
+    assert state["phase"] == PHASE_SLEEPING
+    assert state["next_run"] == 1234.5
+    assert state["last_run_once"] == 99.5
+    assert "ts" in state
+
+
+def test_write_state_defaults_ack_to_none(unique_name):
+    """未受理过 run-once 时回执字段为 null。"""
+    write_state(unique_name, PHASE_RUNNING)
+
+    state = read_state(unique_name)
+
+    assert state is not None
+    assert state["last_run_once"] is None
+
+
+def test_read_state_without_file_returns_none(unique_name):
+    assert read_state(unique_name) is None
+
+
+def test_read_state_rejects_corrupted_content(unique_name):
+    state_path = Path(_paths(unique_name).state)
+
+    # 损坏的 JSON
+    state_path.write_text('{"phase": "sl', encoding="utf-8")
+    assert read_state(unique_name) is None
+
+    # 非法相位视同损坏
+    state_path.write_text(
+        json.dumps({"phase": "paused", "ts": time.time()}),
+        encoding="utf-8",
+    )
+    assert read_state(unique_name) is None
+
+
+def test_write_state_rejects_unknown_phase(unique_name):
+    with pytest.raises(ValueError):
+        write_state(unique_name, "paused")
+
+
+def test_single_instance_cleanup_removes_state_file(capture_log, unique_name):
+    """SingleInstance 退出清理覆盖状态文件（与 PID / 控制文件同批）。"""
+    try:
+        with SingleInstance(unique_name, capture_log):
+            write_state(unique_name, PHASE_RUNNING)
+            assert Path(_paths(unique_name).state).exists()
+        assert not Path(_paths(unique_name).state).exists()
+    finally:
+        _cleanup_files(unique_name)
 
 
 # ============================================================

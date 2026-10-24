@@ -1,9 +1,9 @@
-"""停止指令协调器。
+"""停止指令与调度唤醒的协调器。
 
 运行实例收到停止指令后的行为由三级信号驱动：
 
 - graceful（``stop`` 默认）——当前文件传输完成后停止；
-- slow（``stop --slow``）——本轮任务全部结束后停止；
+- slow（``stop --slow``）——本轮任务结束后停止；
 - fast（``stop --fast``）——立即中止文件传输、丢弃当前任务，
   清理已写入的临时文件后退出。
 
@@ -12,6 +12,11 @@ systemd 停服的 SIGTERM 由 ``install_sigterm_fast_stop`` 接入同一条 fast
 业务循环在文件/任务边界查询，``fs.transfer`` 的复制循环在 chunk 边界查询
 fast 中止。sync 模式的外部同步进程在启动时登记，fast 中止时被整树终止，
 不留孤儿。
+
+协调器同时维护实例调度相位（``PHASE_*``，进程内权威源）：``run-once``
+指令仅在 ``sleeping`` 相位受理——受理后设置唤醒事件打断调度睡眠，
+下一轮任务立即执行；其余相位到达的指令静默忽略，由 ``run-once``
+终端经状态文件预检与受理探测反馈。
 """
 
 import signal
@@ -21,15 +26,16 @@ from collections.abc import Callable
 from typing import Any
 
 from src import fs
-from src.app.instance import terminate_process_tree
+from src.app.instance import PHASE_SLEEPING, PHASE_STARTING, PHASES, terminate_process_tree
 from src.output.logger import Logger
 
 
-class ShutdownCoordinator:
-    """三级停止信号的汇聚点与外部同步进程的登记处。
+class LifecycleCoordinator:
+    """实例生命周期信号的汇聚点与外部同步进程的登记处。
 
     每个运行实例持有唯一实例（经 AppContext 分发）：``ControlWatcher``
-    线程负责注入信号，业务代码只读状态。
+    线程负责注入停止与 run-once 指令，调度相位由调度循环更新，
+    业务代码只读状态。
     """
 
     def __init__(self) -> None:
@@ -37,9 +43,34 @@ class ShutdownCoordinator:
         self._stop_after_file = False
         self._stop_after_round = False
         self._abort_event = threading.Event()
-        # 任何停止指令都会触发，用于打断调度循环的长睡眠
+        # 任何停止指令或受理的 run-once 都会触发，用于打断调度循环的长睡眠
         self._wake_event = threading.Event()
+        # 实例调度相位（run-once 受理判定依据；状态文件是其跨进程投影）
+        self._phase = PHASE_STARTING
+        # 最近一次受理的 run-once 指令时间戳（受理回执，随状态文件持久化）
+        self._run_once_accepted_ts: float | None = None
         self._children: list[subprocess.Popen[str]] = []
+
+    # ---- 调度相位（调度循环更新） ------------------------------------
+
+    def set_phase(self, phase: str) -> None:
+        """更新实例调度相位。"""
+        if phase not in PHASES:
+            raise ValueError(f"未知的实例相位: {phase}")
+        with self._lock:
+            self._phase = phase
+
+    @property
+    def phase(self) -> str:
+        """当前调度相位。"""
+        with self._lock:
+            return self._phase
+
+    @property
+    def run_once_accepted_ts(self) -> float | None:
+        """最近一次受理的 run-once 指令时间戳；从未受理过则为 None。"""
+        with self._lock:
+            return self._run_once_accepted_ts
 
     # ---- 指令注入（ControlWatcher 调用） ----------------------------
 
@@ -58,6 +89,22 @@ class ShutdownCoordinator:
         self._abort_event.set()
         self._wake_event.set()
         self.terminate_children(logger)
+
+    def request_run_now(self, ts: float) -> bool:
+        """run-once：仅当实例处于调度休眠期时受理并唤醒调度循环。
+
+        受理时记账指令时间戳 ``ts``（此后每次状态写入都携带该回执，
+        供发送方以 ``last_run_once >= ts`` 确认指令已生效——执行轮次
+        可能短于轮询间隔，瞬时相位无法作为旁证）。返回是否受理；
+        非休眠相位（正在执行任务、尚未进入调度循环）到达的指令静默
+        忽略——反馈由 ``run-once`` 终端负责，实例日志不记录忽略事件。
+        """
+        with self._lock:
+            if self._phase != PHASE_SLEEPING:
+                return False
+            self._run_once_accepted_ts = ts
+            self._wake_event.set()
+            return True
 
     # ---- 状态查询（业务循环调用） ----------------------------------
 
@@ -89,11 +136,16 @@ class ShutdownCoordinator:
     should_stop_before_task = should_stop_before_file
 
     def wait_for_wake(self, timeout: float) -> bool:
-        """阻塞等待任意停止指令或超时（调度睡眠用）。
+        """阻塞等待任意唤醒信号或超时（调度睡眠用）。
 
-        返回 True 表示期间收到了停止指令。
+        返回 True 表示期间有唤醒信号到达，唤醒事件随返回消费（清空），
+        是否提前结束睡眠由调用方结合停止标志判断；返回 False 表示
+        超时自然醒。
         """
-        return self._wake_event.wait(timeout)
+        woken = self._wake_event.wait(timeout)
+        if woken:
+            self._wake_event.clear()
+        return woken
 
     # ---- 外部同步进程登记（sync 模式） ------------------------------
 
@@ -114,7 +166,7 @@ class ShutdownCoordinator:
             terminate_process_tree(process.pid, logger=logger)
 
 
-def install_abort_check(coordinator: ShutdownCoordinator) -> None:
+def install_abort_check(coordinator: LifecycleCoordinator) -> None:
     """把 fast 中止信号接入 fs.transfer 的 chunk 边界。"""
     fs.set_abort_check(coordinator.is_aborted)
 

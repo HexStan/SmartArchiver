@@ -444,7 +444,7 @@ class TestStopControl:
     def test_stop_preset_skips_task(
         self, run_task, app_context, tmp_path, stub_procs, prepared_dirs
     ):
-        app_context.shutdown.request_stop_after_file()
+        app_context.lifecycle.request_stop_after_file()
         run_task(sync_task(tmp_path, tool="rclone"))
 
         assert stub_procs.calls == []
@@ -455,12 +455,12 @@ class TestStopControl:
         """graceful 在 sync 执行期间到达：外部工具自然退出，不终止进程。"""
         killed = []
         monkeypatch.setattr(
-            "src.app.shutdown.terminate_process_tree",
+            "src.app.lifecycle.terminate_process_tree",
             lambda pid, **kwargs: killed.append(pid),
         )
 
         def on_first_line():
-            app_context.shutdown.request_stop_after_file()
+            app_context.lifecycle.request_stop_after_file()
 
         monkeypatch.setattr(subprocess, "Popen", lambda cmd, **kwargs: _FakeSyncProc(on_first_line))
         monkeypatch.setattr(shutil, "which", lambda name: f"/fake/bin/{name}")
@@ -476,12 +476,12 @@ class TestStopControl:
         """fast 在 sync 执行期间到达：整棵进程树被终止（不留孤儿）。"""
         killed = []
         monkeypatch.setattr(
-            "src.app.shutdown.terminate_process_tree",
+            "src.app.lifecycle.terminate_process_tree",
             lambda pid, **kwargs: killed.append(pid),
         )
 
         def on_first_line():
-            app_context.shutdown.request_abort()
+            app_context.lifecycle.request_abort()
 
         fake = _FakeSyncProc(on_first_line)
         monkeypatch.setattr(subprocess, "Popen", lambda cmd, **kwargs: fake)

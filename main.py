@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""入口：前台运行与 start / log / stop 三个控制子命令。
+"""入口：前台运行与 start / log / stop / run-once 控制子命令。
 
 - 无子命令：前台运行（客户端模式读 config/config.toml，--server 读
   config.server.toml）；
 - start：脱离终端运行实例，随后在本终端滚动显示运行日志（窗口可随时关闭）；
 - log：滚动显示运行日志（自动跟随跨天轮转），底部状态栏显示实例运行状态；
-- stop：停止运行中的实例（--fast 立即中止传输 / --slow 本轮结束后停止）。
+- stop：停止运行中的实例（--fast 立即中止传输 / --slow 本轮结束后停止）；
+- run-once：让处于调度休眠期的实例立即执行一轮任务，随后滚动显示日志。
 
 运行路径（装配与调度循环）见 src/app/runtime.py，控制子命令见 src/app/control.py。
 """
@@ -34,7 +35,8 @@ def main() -> None:
 
     parser = argparse.ArgumentParser(
         description="SmartArchiver - 智能文件归档工具",
-        epilog="子命令: start（脱离终端运行）/ log（滚动显示日志）/ stop（停止实例）",
+        epilog="子命令: start（脱离终端运行）/ log（滚动显示日志）/ stop（停止实例）"
+        "/ run-once（立即执行一轮）",
     )
     parser.add_argument(
         "--server",
@@ -66,6 +68,10 @@ def main() -> None:
     )
     stop_group.add_argument("--slow", action="store_true", help="等待本轮任务结束后再退出")
 
+    subparsers.add_parser(
+        "run-once", help="让处于调度休眠期的实例立即执行一轮任务，并滚动显示运行日志"
+    )
+
     args = parser.parse_args()
 
     if args.command is None:
@@ -81,6 +87,8 @@ def main() -> None:
         control.cmd_log(args.server, args.lines)
     elif args.command == "stop":
         control.cmd_stop(args.server, args.fast, args.slow)
+    elif args.command == "run-once":
+        control.cmd_run_once(args.server)
 
 
 if __name__ == "__main__":

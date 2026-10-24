@@ -233,7 +233,7 @@ class RotateHandler(BaseTaskHandler):
             if not rotate_mgr.is_any_group_exceeded():
                 break
 
-            if ctx.shutdown.should_stop_before_file():
+            if ctx.lifecycle.should_stop_before_file():
                 completed = False
                 break
 

@@ -1,6 +1,6 @@
 """灰盒测试：停止指令下的任务行为（graceful / slow / fast）。
 
-停止协调器像 now 一样由测试注入（AppContext 自动装配 ShutdownCoordinator）：
+停止协调器像 now 一样由测试注入（AppContext 自动装配 LifecycleCoordinator）：
 - graceful / slow / fast 预置在任务开始前，从 execute() 入口断言边界行为；
 - "当前文件传完后停止"与"传输中途丢弃任务"借助 fs.abort 的中止检查钩子在
   chunk 边界精确触发——该钩子是生产注入缝（生产环境由停止协调器注入），
@@ -57,7 +57,7 @@ class TestStopBeforeTask:
         src = make_tree(tmp_path / "src", {"a.txt": b"a", "b.txt": b"b"})
         dest = tmp_path / "dest"
 
-        app_context.shutdown.request_stop_after_file()
+        app_context.lifecycle.request_stop_after_file()
         run_task(make_task(src, dest, "copy"))
 
         assert snapshot(src) == {"a.txt": 1, "b.txt": 1}
@@ -68,7 +68,7 @@ class TestStopBeforeTask:
         src = make_tree(tmp_path / "src", {"a.txt": b"a", "b.txt": b"b"})
         dest = tmp_path / "dest"
 
-        app_context.shutdown.request_abort()
+        app_context.lifecycle.request_abort()
         run_task(make_task(src, dest, "copy"))
 
         assert snapshot(src) == {"a.txt": 1, "b.txt": 1}
@@ -79,7 +79,7 @@ class TestStopBeforeTask:
         src = make_tree(tmp_path / "src", {"a.txt": b"a", "b.txt": b"b"})
         dest = tmp_path / "dest"
 
-        app_context.shutdown.request_stop_after_round()
+        app_context.lifecycle.request_stop_after_round()
         run_task(make_task(src, dest, "copy"))
 
         assert snapshot(dest) == {"a.txt": 1, "b.txt": 1}
@@ -102,7 +102,7 @@ class TestStopMidFile:
         src = make_tree(tmp_path / "src", {"a.txt": b"a", "b.txt": b"b"})
         dest = tmp_path / "dest"
 
-        abort_hook.append(lambda _call: app_context.shutdown.request_stop_after_file() or False)
+        abort_hook.append(lambda _call: app_context.lifecycle.request_stop_after_file() or False)
         run_task(make_task(src, dest, self.MODE))
 
         assert snapshot(src) == {"a.txt": 1, "b.txt": 1}

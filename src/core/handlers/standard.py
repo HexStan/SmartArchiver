@@ -117,7 +117,7 @@ class StandardHandler(BaseTaskHandler):
         ctx = AppContext.get()
 
         for file in files:
-            if ctx.shutdown.should_stop_before_file():
+            if ctx.lifecycle.should_stop_before_file():
                 return False
 
             src_path = os.path.join(root, file)
