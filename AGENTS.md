@@ -47,17 +47,14 @@ python scripts/smoke_test.py "dist/SmartArchiver-*.zip" # 对发行 zip 做冒�
 
 ## 架构速览
 
-- 入口 `main.py`：仅 CLI 解析与分发。运行路径在 `src/app/runtime.py`（`run_client()` 无 `[schedule]` 时一次性运行，否则 cron/interval 常驻；`run_server()` 为 HTTP 远端 API），控制子命令 start/log/stop 在 `src/app/control.py`。
-- 配置加载与校验：`src/app/config.py` 的 `ConfigManager` 在加载期完成所有"仅凭配置文件即可判定"的合法性校验（Pydantic 模型）——全局段 `GlobalConfig`（max_retries、`[schedule]`、服务器数值段，致命错误为 `ConfigError`：启动期干净退出、热重载回退备份）、bootstrap 段 `BootstrapConfig`（log_dir / max_log_files / log_level，日志系统就位前消费，print + exit 通道）、远端条目（`remote.factory` / `ssh.remotes`）与任务条目；单任务/单远端条目错误记日志跳过该条目，不致命。
-- 任务分派：`src/core/registry.py` 用 `@register_handler` 装饰器维护 mode → handler 映射，`process_task()` 接收 `TaskSpec` 实例化并执行，返回 `TaskOutcome`（COMPLETED / FAILED / SKIPPED）。新增模式在此注册（同时要在 `task_config.TASK_MODELS` 声明对应配置模型）。
-- 任务配置模型与加载期解析：`src/core/task_config.py` 按 mode 判别的任务模型（`MoveCopyTaskConfig` / `RotateTaskConfig` / `SyncTaskConfig`，`extra="forbid"` + `frozen`）与共享类型（`SizeValue` / `RuleSetConfig` / `RotateRulesConfig`）；`src/core/task_plan.py` 的 `resolve_tasks()` 在加载期完成逐任务模型校验、dest 装配校验（`dest.validate_dest`）与 id/depends_on 静态校验（错误日志 + `TaskSpec.config=None` 跳过；id 注册只看字符集与唯一性，与任务自身合法性解耦）；"前置任务是否完成"的运行期判定在 `app/runtime.py` 的任务循环内（finished 集合每轮重置）。
-- 处理器在 `src/core/handlers/`：`StandardHandler`（move/copy）、`RotateHandler`、`SyncHandler`，继承 `base.py` 的 `BaseTaskHandler`（构造签名收 `TaskSpec`，只做外部条件校验——目录存在性、远端可达、工具可用、静默期）。
-- 目标侧 I/O 转发层 `src/core/dest.py`：dest 串协议（`{http:别名}?` / `{ssh:别名}?` / 本地路径）的唯一解析处与目标读写的唯一入口，按前缀分派至 `fs` 或 `RemoteClient`；加载期 `validate_dest` 做模式兼容性与别名存在性校验（纯函数，由 task_plan 调用）。约定：目标目录的读写必须经 `core.dest`，`fs` 仅用于本地路径。SSH 远端目录操作与 rsync 连接参数在 `src/ssh/ops.py`。
-- 规则引擎 `src/core/filters.py` 的 `FileFilterPolicy`：顺序流水线 include → exclude → delete → TRANSFER，命中即停；消费加载期解析完成的 `RuleSetConfig`（容量解析与目录/文件拆分已在加载期完成），运行期只做匹配。模式匹配与容量解析原语在 `src/core/patterns.py`。
-- 本地文件 I/O 原语在 `src/fs/`（errors / abort / scan / atomic / transfer / cleanup），不依赖任何上层包；`fs.abort` 的中止检查由 `app/runtime.py` 组装时注入。
-- 共享校验基建 `src/validation.py`：远端别名类型（`RemoteAlias`）、别名/任务 id 共用正则（`ALIAS_PATTERN`）与校验错误中文格式化（`format_validation_error`）；与 `fs/` 平级的叶子模块，仅依赖 pydantic，所有包可导入。
-- `AppContext`（`src/app/context.py`）是全局单例，logger / history 均经 `AppContext.get()` 获取；测试 fixture 用完会重置单例。
-- 包分层依赖方向：`app/` 装配层可依赖全部；`core/` → `fs/`、`output/`、`remote/`、`ssh/`；`remote/`、`ssh/` → `fs/`；`output/` → `fs/`、`core/patterns`；`fs/` 仅标准库；`src/validation.py` 为仅依赖 pydantic 的共享叶子模块（所有包可导入）。领域包不得依赖 `app/` 的装配模块（runtime/control），需要 app 层能力时由组合根注入参数，依赖必须无环；唯一例外是文档化的 `AppContext` 服务定位与 `app.paths` 等叶子助手。`TYPE_CHECKING` 下的类型级 import（注解专用，运行时零导入）不构成违规，如 `remote/`、`app/context.py` 引用 `output.logger.Logger` 协议。
+- 运行入口：`main.py` 仅 CLI 解析与分发；运行路径在 `src/app/runtime.py`，控制子命令 start/log/stop 在 `src/app/control.py`。
+- 加载期：`src/app/config.py` 的 `ConfigManager`（Pydantic）完成所有仅凭配置即可判定的校验，单任务/单远端条目错误记日志跳过、不致命；`src/core/task_config.py` 定义按 mode 判别的任务配置模型，`src/core/task_plan.py` 的 `resolve_tasks()` 完成逐任务校验与 id/depends_on 静态校验。
+- 运行期：`src/core/registry.py` 维护 mode → handler 映射（新增模式在此注册，并在 `task_config.TASK_MODELS` 声明模型）；处理器在 `src/core/handlers/`，基类 `BaseTaskHandler` 只做外部条件校验；"前置任务是否完成"由 `app/runtime.py` 的任务循环判定。
+- 目标 I/O：dest 串解析与目标读写的唯一入口是 `src/core/dest.py`；约定：目标目录读写必须经 `core.dest`，`fs` 仅用于本地路径；SSH 远端操作在 `src/ssh/ops.py`。
+- 规则引擎：`src/core/filters.py` 顺序流水线 include → exclude → delete → TRANSFER，命中即停，运行期只做匹配；原语在 `src/core/patterns.py`。
+- 底层：本地文件 I/O 原语在 `src/fs/`（仅标准库）；共享校验基建 `src/validation.py`（仅 pydantic，所有包可导入）。
+- `AppContext`（`src/app/context.py`）是全局单例，logger / history 经 `AppContext.get()` 获取；测试 fixture 用完会重置单例。
+- 依赖方向（必须无环）：`app/` 可依赖全部；`core/` → `fs/`、`output/`、`remote/`、`ssh/`；`remote/`、`ssh/` → `fs/`；`output/` → `fs/`、`core/patterns`。领域包不得依赖 `app/` 的装配模块（runtime/control），需要 app 层能力时由组合根注入；唯一例外是文档化的 `AppContext` 与 `app.paths` 等叶子助手；`TYPE_CHECKING` 下的类型级 import 不构成违规。
 
 ## 测试约定（权威文档：tests/README.md）
 
