@@ -14,13 +14,15 @@ SSH 目标不参与逐文件转发：sync 模式的文件传输由外部工具�
 对 {ssh:别名}? 协议串的逐文件原语直接抛错；SSH 连接参数与远端目录操作
 在 src/ssh/ops.py。
 
-装配期校验（ensure_dest）保证：流入处理器的 dest 串要么是本地路径，要么
-是"模式支持且别名已配置"的远端协议串，配置错误不会推迟到落盘阶段。
+加载期校验（validate_dest，由 core.task_plan 的解析器调用）保证：流入
+处理器的 dest 串要么是本地路径，要么是"模式支持且别名已配置"的远端
+协议串，配置错误不会推迟到落盘阶段。
 """
 
 import os
 import posixpath
 import re
+from collections.abc import Collection
 from typing import NamedTuple
 
 from src import fs
@@ -45,7 +47,7 @@ class ParsedDest(NamedTuple):
     """dest 串的解析结果。
 
     kind —— 目标类型：LOCAL / HTTP / SSH；未知远端类型保留原始串，
-    由 ensure_dest 拒绝。
+    由 validate_dest 拒绝。
     alias —— 远端别名，本地目标为空串。
     path —— 归一化后的路径；本地目标为原串（路径形态交给 os.path）。
     """
@@ -101,53 +103,51 @@ def _prefix(parsed: ParsedDest) -> str:
 # ============================================================
 
 
-def ensure_dest(dest: str, mode: str) -> bool:
-    """装配期校验 dest 串与任务模式的兼容性（fail-fast，失败即跳过任务）。
+def validate_dest(
+    dest_path: str,
+    mode: str,
+    *,
+    http_aliases: Collection[str],
+    ssh_aliases: Collection[str],
+) -> str | None:
+    """加载期校验 dest 串与任务模式的兼容性（纯函数，不读 AppContext）。
 
     - 远端别名必须在对应命名空间中已配置（http 与 ssh 命名空间隔离，
       允许同名别名并存）；
     - move/copy/rotate 的逐文件传输仅支持本地与 HTTP 目标；
     - sync 的整树同步仅支持本地与 SSH 目标。
 
-    合法（含 dest 为空——move/copy 允许省略目标，逐文件动作由调用方
-    守卫跳过）返回 True；不合法时已记录错误日志并返回 False。不回退为
-    本地目标：带前缀的原始串不是合法的本地路径，回退只会把配置错误
-    推迟到落盘阶段才暴露。
+    合法（含 dest 为空——move/copy/rotate 允许省略目标，逐文件动作由
+    调用方守卫跳过）返回 None；不合法时返回中文错误消息（不含任务
+    上下文与"跳过"后缀，由调用方拼装）。不回退为本地目标：带前缀的
+    原始串不是合法的本地路径，回退只会把配置错误推迟到落盘阶段才暴露。
     """
-    ctx = AppContext.get()
-    parsed = parse_dest(dest)
+    parsed = parse_dest(dest_path)
 
     if parsed.kind == LOCAL:
-        return True
+        return None
 
     if parsed.kind == HTTP:
-        if parsed.alias not in ctx.remote_clients:
-            ctx.logger.error(f"HTTP 远端别名 '{parsed.alias}' 未在 http_remotes 中配置，任务跳过")
-            return False
+        if parsed.alias not in http_aliases:
+            return f"HTTP 远端别名 '{parsed.alias}' 未在 http_remotes 中配置"
         if mode == "sync":
-            ctx.logger.error(
+            return (
                 "sync 模式不支持 HTTP 远程目标目录，请改用 move/copy 模式，"
-                "或在远程服务器上直接运行 sync，跳过该任务。"
+                "或在远程服务器上直接运行 sync"
             )
-            return False
-        return True
+        return None
 
     if parsed.kind == SSH:
-        if parsed.alias not in ctx.ssh_remotes:
-            ctx.logger.error(f"SSH 远端别名 '{parsed.alias}' 未在 ssh_remotes 中配置，任务跳过")
-            return False
+        if parsed.alias not in ssh_aliases:
+            return f"SSH 远端别名 '{parsed.alias}' 未在 ssh_remotes 中配置"
         if mode in ("move", "copy", "rotate"):
-            ctx.logger.error(
+            return (
                 f"{mode} 模式不支持 SSH 远端目标目录"
-                f"（逐文件传输仅支持本地与 HTTP，SSH 目标请使用 sync 模式），跳过该任务。"
+                f"（逐文件传输仅支持本地与 HTTP，SSH 目标请使用 sync 模式）"
             )
-            return False
-        return True
+        return None
 
-    ctx.logger.error(
-        f"未知的远端类型 '{parsed.kind}'（dest 路径: {dest}），仅支持 http 和 ssh，任务跳过"
-    )
-    return False
+    return f"未知的远端类型 '{parsed.kind}'（dest 路径: {dest_path}），仅支持 http 和 ssh"
 
 
 # ============================================================
@@ -220,7 +220,7 @@ def relpath(root: str, dest_path: str) -> str:
 
 
 def _http_client(alias: str) -> RemoteClient:
-    """按别名取 HTTP 远端客户端（装配期 ensure_dest 已保证存在）。"""
+    """按别名取 HTTP 远端客户端（加载期 validate_dest 已保证存在）。"""
     client = AppContext.get().remote_clients.get(alias)
     if client is None:
         raise RuntimeError(f"HTTP 远端别名 '{alias}' 未在 http_remotes 中配置")

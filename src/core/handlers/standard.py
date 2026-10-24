@@ -4,8 +4,11 @@ from typing import override
 
 from src import fs
 from src.app.context import AppContext
+from src.core.filters import FileFilterPolicy
 from src.core.handlers.base import BaseTaskHandler
 from src.core.registry import register_handler
+from src.core.task_config import MoveCopyTaskConfig
+from src.core.task_plan import TaskSpec
 from src.core.types import FileAction
 from src.fs import clean_empty_dirs, get_dir_size_and_mtime
 from src.output.presentation import fmt_size, print_task_summary
@@ -14,8 +17,18 @@ from src.output.presentation import fmt_size, print_task_summary
 @register_handler("move", "copy")
 class StandardHandler(BaseTaskHandler):
     @override
+    def __init__(self, spec: TaskSpec, now: float | None = None) -> None:
+        super().__init__(spec, now)
+        # 注册表分派保证（task_config.TASK_MODELS 与 registry 由同一组模式名驱动）
+        assert isinstance(self.task, MoveCopyTaskConfig), "move/copy 模式的配置模型分派错误"
+        self.config: MoveCopyTaskConfig = self.task
+        self.policy = FileFilterPolicy(
+            self.config.include_rules, self.config.exclude_rules, self.config.delete_rules
+        )
+
+    @override
     def _execute(self) -> bool:
-        mtime_threshold_seconds = self.task.get("mtime_threshold_seconds", 0)
+        mtime_threshold_seconds = self.config.mtime_threshold_seconds
 
         ctx = AppContext.get()
 

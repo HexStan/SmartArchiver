@@ -1,11 +1,14 @@
 import os
 import time
-from typing import Any, TypedDict, override
+from typing import TypedDict, override
 
 from src.app.context import AppContext
+from src.core.filters import FileFilterPolicy
 from src.core.handlers.base import BaseTaskHandler
-from src.core.patterns import match_pattern, parse_size_string
+from src.core.patterns import match_pattern
 from src.core.registry import register_handler
+from src.core.task_config import RotateTaskConfig, RuleSetConfig
+from src.core.task_plan import TaskSpec
 from src.fs import clean_empty_dirs
 from src.output.presentation import fmt_size, print_task_summary
 
@@ -149,51 +152,19 @@ class RotateGroupManager:
                 )
 
 
-def _parse_count(label: str, value: Any) -> int:
-    """数量配置值强转；无法解析时抛出中文 ValueError（构造期由 create_handler 捕获）。"""
-    try:
-        return int(value)
-    except ValueError as e:
-        raise ValueError(f"{label} 的数量配置值 {value!r} 无效（应为整数）") from e
-
-
 @register_handler("rotate")
 class RotateHandler(BaseTaskHandler):
     @override
-    def __init__(self, task: dict[str, Any], now: float | None = None) -> None:
-        super().__init__(task, now)
-
-        # 限额在构造期一次解析并存储：容量值解析失败抛 InvalidSizeError、
-        # 数量值强转失败抛 ValueError，均由 registry.create_handler 统一
-        # 捕获并跳过任务——validate / execute / header 展示不再解析。
-        self.size_limit = parse_size_string(str(task.get("size_limit", "0")))
-        self.count_limit = _parse_count("count_limit", task.get("count_limit", 0))
-        rotate_rules = task.get("rotate_rules", {})
-        self.rotate_size_rules = {
-            key: parse_size_string(v) for key, v in rotate_rules.get("size", {}).items()
-        }
-        self.rotate_count_rules = {
-            key: _parse_count(f"rotate_rules.count 规则 '{key}'", v)
-            for key, v in rotate_rules.get("count", {}).items()
-        }
-
-    @override
-    def validate(self) -> bool:
-        if not super().validate():
-            return False
-
-        if (
-            self.size_limit == 0
-            and self.count_limit == 0
-            and not self.rotate_size_rules
-            and not self.rotate_count_rules
-        ):
-            AppContext.get().logger.error(
-                "rotate 模式下必须配置 size_limit、count_limit、"
-                "rotate_rules.size 或 rotate_rules.count 中的至少一项，跳过该任务。"
-            )
-            return False
-        return True
+    def __init__(self, spec: TaskSpec, now: float | None = None) -> None:
+        super().__init__(spec, now)
+        # 注册表分派保证（task_config.TASK_MODELS 与 registry 由同一组模式名驱动）
+        assert isinstance(self.task, RotateTaskConfig), "rotate 模式的配置模型分派错误"
+        self.config: RotateTaskConfig = self.task
+        # 限额已由配置模型在加载期解析为字节数/数量，此处只装配；
+        # include 不参与 rotate（模型层拒绝 include_rules），规则表只挂排除与删除
+        self.policy = FileFilterPolicy(
+            RuleSetConfig(), self.config.exclude_rules, self.config.delete_rules
+        )
 
     @override
     def _execute(self) -> bool:
@@ -204,7 +175,10 @@ class RotateHandler(BaseTaskHandler):
             return False
 
         rotate_mgr = RotateGroupManager(
-            self.size_limit, self.count_limit, self.rotate_size_rules, self.rotate_count_rules
+            self.config.size_limit,
+            self.config.count_limit,
+            self.config.rotate_rules.size,
+            self.config.rotate_rules.count,
         )
 
         start_time = time.time()

@@ -43,6 +43,10 @@ _ERROR_TYPE_MESSAGES: dict[str, str] = {
     "model_type": "应为字典结构",
     "list_type": "应为数组结构",
     "finite_number": "必须为有限数字",
+    # Literal 字段（如 conflict_policy）：expected 为 pydantic 生成的取值清单
+    "literal_error": "配置值无效，允许的取值: {expected}",
+    # extra="forbid"：未知字段（拼写错误、不适配当前模式的字段）
+    "extra_forbidden": "不支持的字段",
 }
 
 

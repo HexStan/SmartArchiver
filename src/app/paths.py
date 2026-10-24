@@ -11,7 +11,6 @@ bundled_rclone_path() 负责在运行时定位它们。
 
 import os
 import sys
-from typing import Any
 
 import src
 
@@ -40,9 +39,8 @@ def config_path(is_server: bool) -> str:
     return os.path.join(app_base_dir(), name)
 
 
-def resolve_log_dir(raw_config: dict[str, Any]) -> str:
+def resolve_log_dir(log_dir: str) -> str:
     """解析日志目录：相对路径以应用根目录为基准，与启动时的工作目录无关。"""
-    log_dir = raw_config.get("log_dir", "./logs")
     if log_dir and not os.path.isabs(log_dir):
         return os.path.normpath(os.path.join(app_base_dir(), log_dir))
     return log_dir

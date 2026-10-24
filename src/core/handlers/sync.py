@@ -5,7 +5,7 @@ import subprocess
 import sys
 import time
 from datetime import datetime
-from typing import Any, NamedTuple, override
+from typing import NamedTuple, override
 
 from src import fs
 from src.app.context import AppContext
@@ -13,6 +13,8 @@ from src.app.paths import bundled_rclone_path
 from src.core import dest
 from src.core.handlers.base import BaseTaskHandler
 from src.core.registry import register_handler
+from src.core.task_config import SyncTaskConfig
+from src.core.task_plan import TaskSpec
 from src.output.presentation import fmt_timespan
 from src.ssh import ops
 from src.ssh.remotes import SshRemote
@@ -71,10 +73,11 @@ def _resolve_rsync() -> SyncTool | None:
     return None
 
 
-def _resolve_sync_tool(task: dict[str, Any]) -> SyncTool | None:
-    """根据配置和平台解析要使用的同步工具。
+def _resolve_sync_tool(tool: str) -> SyncTool | None:
+    """根据配置值和平台解析要使用的同步工具。
 
-    解析优先级：
+    tool 取值合法性已由配置模型在加载期收口，此处只做可用性解析
+    （外部条件）。解析优先级：
     1. tool = "auto"（默认）或 "rclone"：打包版内置的 rclone → 系统 PATH 中的 rclone；
     2. tool = "auto" 且 rclone 不可用：POSIX 平台回退系统 rsync（Windows 不回退）；
     3. tool = "rsync"：系统 PATH 中的 rsync。
@@ -82,15 +85,6 @@ def _resolve_sync_tool(task: dict[str, Any]) -> SyncTool | None:
     Returns:
         SyncTool | None: 解析结果；解析失败时已记录错误日志，返回 None。
     """
-    tool = task.get("tool", "auto").lower()
-
-    if tool not in ("auto", "rsync", "rclone"):
-        ctx = AppContext.get()
-        ctx.logger.error(
-            f"sync 模式的 tool 配置值无效: '{tool}'，可选值: auto、rsync、rclone，跳过该任务。"
-        )
-        return None
-
     if tool in ("auto", "rclone"):
         resolved = _resolve_rclone()
         if resolved is not None:
@@ -203,6 +197,13 @@ def _run_rsync_sync(
 @register_handler("sync")
 class SyncHandler(BaseTaskHandler):
     @override
+    def __init__(self, spec: TaskSpec, now: float | None = None) -> None:
+        super().__init__(spec, now)
+        # 注册表分派保证（task_config.TASK_MODELS 与 registry 由同一组模式名驱动）
+        assert isinstance(self.task, SyncTaskConfig), "sync 模式的配置模型分派错误"
+        self.config: SyncTaskConfig = self.task
+
+    @override
     def _execute(self) -> bool:
         ctx = AppContext.get()
 
@@ -213,14 +214,14 @@ class SyncHandler(BaseTaskHandler):
             ctx.logger.error(f"源目录不存在: {self.source_root}")
             return False
 
-        # 装配期 ensure_dest 已保证 kind 组合合法（sync：本地或 SSH），
+        # 加载期 validate_dest 已保证 kind 组合合法（sync：本地或 SSH），
         # 此处解析只为取得 SSH 连接参数与远端根路径
         parsed = dest.parse_dest(self.dest_root)
 
         if parsed.kind == dest.SSH:
             remote = ctx.ssh_remotes.get(parsed.alias)
             if remote is None:
-                # 防御：装配期已校验别名存在，正常不会到达
+                # 防御：加载期已校验别名存在，正常不会到达
                 ctx.logger.error(
                     f"SSH 远端别名 '{parsed.alias}' 未在 ssh_remotes 中配置，跳过该任务。"
                 )
@@ -234,15 +235,14 @@ class SyncHandler(BaseTaskHandler):
             ctx.logger.critical("!!! 致命错误: 目标目录不存在 !!!")
             return False
 
-        tool = _resolve_sync_tool(self.task)
+        tool = _resolve_sync_tool(self.config.tool)
         if tool is None:
             return False
 
-        exclude = self.task.get("exclude", [])
-        exclude_list: list[str] = [exclude] if isinstance(exclude, str) else exclude
+        exclude_list = self.config.exclude
 
-        backup_enabled = self.task.get("create_backups", False)
-        max_backups = self.task.get("max_backups", 0)
+        backup_enabled = self.config.create_backups
+        max_backups = self.config.max_backups
 
         if remote is not None:
             return self._execute_ssh_sync(

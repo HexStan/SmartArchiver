@@ -1,27 +1,127 @@
-"""统一配置管理器：加载、验证、重载、备份。"""
+"""统一配置管理器：加载、验证、重载、备份。
+
+加载期完成所有"仅凭配置文件本身即可判定"的合法性校验（Pydantic 模型）：
+- bootstrap 段（BootstrapConfig：log_dir / max_log_files / log_level），
+  在日志系统就位前消费，失败走 print + exit 通道；
+- 全局段（GlobalConfig：max_retries、[schedule]、服务器数值段）；
+- http/ssh 远端条目（remote.factory / ssh.remotes）；
+- 任务条目（core.task_plan.resolve_tasks：任务模型 + dest + 依赖静态校验）。
+
+校验失败分两类：全局/结构错误 → ConfigError（致命：启动期干净退出、
+热重载回退备份）；单任务/单远端条目错误 → 记日志跳过该条目，不致命。
+"""
 
 import os
 import shutil
 import tomllib
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Self
 
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
+
+from src.core.task_plan import TaskSpec, resolve_tasks
 from src.output.logger import Logger
 from src.remote import parse_remote_config
 from src.remote.client import RemoteClient
 from src.ssh import parse_ssh_remote_config
 from src.ssh.remotes import SshRemote
+from src.validation import format_validation_error
 
 
 class ConfigError(Exception):
     """配置致命错误。"""
 
 
+class ScheduleConfig(BaseModel):
+    """[schedule] 配置块模型；仅客户端调度路径消费（_run_schedule）。
+
+    mode 不用 Literal：非法值需逐字保留既有中文错误消息，validator
+    抛出的 ValueError 经 format_validation_error 原样透出。同理，
+    interval_seconds 的"大于 0"约束由模型级校验承担而非字段级 gt，
+    以复用既有错误文案。
+    """
+
+    mode: str | None = None
+    cron_expr: str | None = None
+    interval_seconds: float | None = None
+    first_run_delay: float = -1
+
+    @field_validator("mode")
+    @classmethod
+    def _validate_mode(cls, value: str | None) -> str | None:
+        if value is not None and value not in ("cron", "interval"):
+            raise ValueError(f"不支持的定时模式: {value}")
+        return value
+
+    @model_validator(mode="after")
+    def _check_mode_requirements(self) -> Self:
+        if self.mode == "cron" and not self.cron_expr:
+            raise ValueError("cron 模式需要配置 cron_expr。")
+        if self.mode == "interval" and (
+            self.interval_seconds is None or self.interval_seconds <= 0
+        ):
+            raise ValueError("interval 模式需要配置有效的 interval_seconds (大于0的数字)。")
+        return self
+
+
+class GlobalConfig(BaseModel):
+    """顶层全局配置段（未声明的配置键忽略）。
+
+    客户端消费 max_retries 与 schedule；服务器消费 api_key/port/并发段
+    （run_server 由 runtime 注入具体值）。数值约束在加载期收口——
+    非法值致命（ConfigError），不再推迟到监听/建门时暴露。
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    # 客户端全局
+    max_retries: int = Field(default=3, ge=0)
+    schedule: ScheduleConfig | None = None
+    # 服务器段（原 ServerConfig 并入；服务器模式启动期经 run_server 消费）
+    api_key: str = ""
+    port: int = Field(default=13579, ge=1, le=65535)
+    max_concurrent_metadata: int = Field(default=1, ge=1)
+    max_concurrent_uploads: int = Field(default=1, ge=1)
+    max_queue_metadata: int = Field(default=32, ge=0)
+    max_queue_uploads: int = Field(default=32, ge=0)
+
+
+class BootstrapConfig(BaseModel):
+    """bootstrap 配置段：日志系统就位前消费的三项（其余键忽略）。
+
+    校验先于日志系统就位，失败走 print + exit 通道（与"配置文件未找到"
+    同通道）。instance_name 不在此列——其"非法回退默认 + 事后 warning"
+    是有意的降级语义，且在更早的实例标识决策处解析。
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    log_dir: str = "./logs"
+    max_log_files: int = Field(default=0, ge=0)
+    log_level: str = "INFO"
+
+    @field_validator("log_level")
+    @classmethod
+    def _validate_log_level(cls, value: str) -> str:
+        """大小写不敏感（setup_logger 的既有行为），归一为大写。
+
+        SUCCESS 为本应用注册的自定义级别；CRITICAL 为 logging 内建级别。
+        """
+        upper = value.upper()
+        if upper not in ("DEBUG", "INFO", "SUCCESS", "WARNING", "ERROR", "CRITICAL"):
+            raise ValueError(
+                f"log_level 配置值无效: '{value}'，"
+                "可选值: DEBUG、INFO、SUCCESS、WARNING、ERROR、CRITICAL"
+            )
+        return upper
+
+
 @dataclass
 class ConfigData:
     """从配置文件加载的完整数据集。"""
 
-    config: dict[str, Any]
+    config: GlobalConfig
+    tasks: list[TaskSpec]
     remote_clients: dict[str, RemoteClient] = field(default_factory=dict)
     ssh_remotes: dict[str, SshRemote] = field(default_factory=dict)
     used_backup: bool = False
@@ -89,12 +189,27 @@ class ConfigManager:
     # -- internal ------------------------------------------------------------
 
     def _process(self, config: dict[str, Any], save_backup: bool = False) -> ConfigData:
-        """加载流程核心：验证 → 解析远端 → 保存备份 → 更新 mtime。"""
+        """加载流程核心：验证 → 解析远端与任务 → 保存备份 → 更新 mtime。"""
         self._validate_structure(config)
-        self._warn_task_structure(config)
+
+        try:
+            root = GlobalConfig.model_validate(config)
+        except ValidationError as e:
+            raise ConfigError(f"全局配置无效：{format_validation_error(e)}") from e
 
         remote_clients = parse_remote_config(config, self._logger)
         ssh_remotes = parse_ssh_remote_config(config, self._logger)
+
+        raw_tasks_value = config.get("tasks", [])
+        raw_tasks: list[Any] = raw_tasks_value if isinstance(raw_tasks_value, list) else []
+        if not isinstance(raw_tasks_value, list):
+            self._logger.error("tasks 配置应为任务数组，已忽略全部任务。")
+        tasks = resolve_tasks(
+            raw_tasks,
+            logger=self._logger,
+            http_aliases=remote_clients.keys(),
+            ssh_aliases=ssh_remotes.keys(),
+        )
 
         if save_backup:
             self._save_backup()
@@ -103,7 +218,8 @@ class ConfigManager:
         self._logger.info("配置文件加载成功。")
 
         return ConfigData(
-            config=config,
+            config=root,
+            tasks=tasks,
             remote_clients=remote_clients,
             ssh_remotes=ssh_remotes,
             used_backup=False,
@@ -119,18 +235,6 @@ class ConfigManager:
         result = self._process(config, save_backup=False)
         result.used_backup = True
         return result
-
-    def _warn_task_structure(self, config: dict[str, Any]) -> None:
-        """逐任务检查基础字段——仅警告，不阻止加载。"""
-        tasks = config.get("tasks", [])
-        for i, task in enumerate(tasks):
-            if not isinstance(task, dict):
-                self._logger.warning(f"任务 #{i + 1} 不是有效的字典结构，将被跳过")
-                continue
-            if "mode" not in task:
-                self._logger.warning(f"任务 #{i + 1} 缺少 mode 字段，将被跳过")
-            if "source" not in task:
-                self._logger.warning(f"任务 #{i + 1} 缺少 source 字段，将被跳过")
 
     def _save_backup(self) -> None:
         """将当前配置文件复制为备份。"""

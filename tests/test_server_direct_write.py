@@ -37,7 +37,6 @@ from pathlib import Path
 
 import pytest
 from flask import Flask
-from pydantic import ValidationError
 from werkzeug.serving import make_server
 
 from src.app.shutdown import ShutdownCoordinator
@@ -45,7 +44,7 @@ from src.fs.atomic import _PARTIAL_SUFFIX
 from src.remote.client import RemoteClient
 from src.remote.concurrency import ConcurrencyGate
 from src.remote.protocol import UPLOAD_CHUNK_SIZE, UPLOAD_PATH
-from src.remote.server import ServerConfig, create_app, run_server
+from src.remote.server import create_app, run_server
 
 API_KEY = "test-key"
 # 服务端 _receive_upload 的读取块（src/remote/protocol.py::UPLOAD_CHUNK_SIZE）；
@@ -397,10 +396,15 @@ class TestServerAssembly:
         monkeypatch.setattr("src.remote.server._start_stop_watcher", lambda *args: None)
 
         run_server(
-            {"api_key": API_KEY, "port": "23456"},
-            capture_log,
-            ShutdownCoordinator(),
-            "smartarchiver-test-assembly",
+            api_key=API_KEY,
+            port=23456,
+            max_concurrent_metadata=1,
+            max_concurrent_uploads=1,
+            max_queue_metadata=32,
+            max_queue_uploads=32,
+            logger=capture_log,
+            coordinator=ShutdownCoordinator(),
+            instance_name="smartarchiver-test-assembly",
             stop_watcher=lambda *args: None,
             runtime_paths=lambda *args: None,
         )
@@ -414,29 +418,6 @@ class TestServerAssembly:
         }
 
 
-# ============================================================
-# 服务器配置模型：数值边界与 lax 强转（阶段一 Pydantic 化）
-# 行为契约的完整清单见 test_config_parsing.py 的模块 docstring；
-# ServerConfig 与 run_server 装配同属本文件的被测对象，用例就近放置。
-# ============================================================
-
-
-class TestServerConfigModel:
-    def test_defaults(self):
-        config = ServerConfig.model_validate({})
-
-        assert config.api_key == ""
-        assert config.port == 13579
-        assert config.max_concurrent_metadata == 1
-        assert config.max_concurrent_uploads == 1
-        assert config.max_queue_metadata == 32
-        assert config.max_queue_uploads == 32
-
-    def test_port_out_of_range_rejected(self):
-        """旧实现的裸 int() 会接受 99999 并推迟到监听期才暴露，现启动即失败。"""
-        with pytest.raises(ValidationError):
-            ServerConfig.model_validate({"port": 99999})
-
-    def test_zero_concurrency_rejected(self):
-        with pytest.raises(ValidationError):
-            ServerConfig.model_validate({"max_concurrent_uploads": 0})
+# 服务器配置模型（原 ServerConfig，现并入 GlobalConfig）的数值边界契约
+# 迁至 tests/test_config_parsing.py——模型已随配置段归属 app.config，
+# 与 run_server 装配不再同属一个被测对象。

@@ -377,9 +377,10 @@ class TestErrorPaths:
         assert capture_log.has("error", "规则 '*.tmp' 的容量值无效")
 
     def test_invalid_source_quiet_value_skips_task(self, run_task, tmp_path, capture_log):
-        """source_quiet_seconds 非数值时配置校验报错跳过，而不是在比较时
-        抛 TypeError 中断整轮任务。"""
-        task = move_task(tmp_path, source_quiet_seconds="300")
+        """source_quiet_seconds 不可解析时配置校验报错跳过，而不是在比较时
+        抛 TypeError 中断整轮任务（数字字符串经 lax 强转，与
+        http_remotes 数值字段的决策一致）。"""
+        task = move_task(tmp_path, source_quiet_seconds="abc")
         make_tree(task["source"], {"a.txt": b"x"})
 
         run_task(task, now=NOW)
@@ -389,8 +390,8 @@ class TestErrorPaths:
         assert capture_log.has("error", "source_quiet_seconds")
 
     def test_unknown_remote_alias_skips_task(self, run_task, tmp_path, capture_log):
-        """远端别名未配置时任务级报错跳过（不回退本地路径），目录树零变化。"""
-        # create_dest=False：dest 是远端写法且任务会在构造阶段被跳过，
+        """远端别名未配置时加载期报错跳过（不回退本地路径），目录树零变化。"""
+        # create_dest=False：dest 是远端写法且任务会在加载期被拒绝，
         # 本地不存在也不应存在对应目录
         task = move_task(tmp_path, create_dest=False, dest="{http:ghost}?/vol")
         make_tree(task["source"], {"a.txt": b"x"})
@@ -399,4 +400,4 @@ class TestErrorPaths:
 
         assert snapshot(task["source"]) == {"a.txt": 1}
         assert capture_log.has("error", "ghost")
-        assert capture_log.has("error", "任务跳过")
+        assert capture_log.has("error", "跳过该任务")

@@ -1,7 +1,8 @@
 """统一的表现层：集中所有容量/时长格式化调用和任务输出格式化"""
 
+from collections.abc import Sequence
 from datetime import timedelta
-from typing import Any, Protocol
+from typing import Protocol
 
 import humanize
 
@@ -47,23 +48,34 @@ class TaskStats(Protocol):
     def locked_skipped(self) -> int: ...
 
 
-def print_task_header(task: dict[str, Any], logger: Logger) -> None:
-    source_root = task.get("source")
-    dest_root = task.get("dest")
-    task_mode = task.get("mode", "").lower()
-    task_id = task.get("id")
-    task_name = task.get("name")
-    depends_on = task.get("depends_on")
+def print_task_header(
+    *,
+    logger: Logger,
+    task_id: str | None,
+    name: str | None,
+    depends_on: Sequence[str] | None,
+    mode: str,
+    source: str,
+    dest: str,
+    source_quiet_seconds: float = 0,
+    mtime_threshold_seconds: float | None = None,
+    size_limit: int = 0,
+    count_limit: int = 0,
+) -> None:
+    """打印任务头部信息（参数由处理器从类型化配置提取）。
 
+    本模块不感知 core 的任务模型（output 层依赖边界），模式差异由
+    调用方以可选项区分：mtime_threshold_seconds 仅 move/copy 传入；
+    size_limit / count_limit 仅 rotate 传入。
+    """
     if task_id:
         logger.info(f" - 标识: {task_id}")
 
-    if task_name:
-        logger.info(f" - 名称：{task_name}")
+    if name:
+        logger.info(f" - 名称：{name}")
 
     if depends_on:
-        deps = [depends_on] if isinstance(depends_on, str) else depends_on
-        logger.info(f" - 依赖: {'、'.join(deps)}")
+        logger.info(f" - 依赖: {'、'.join(depends_on)}")
 
     mode_labels = {
         "move": "移动",
@@ -71,33 +83,26 @@ def print_task_header(task: dict[str, Any], logger: Logger) -> None:
         "rotate": "轮转",
         "sync": "同步",
     }
-    mode_str = mode_labels.get(task_mode, task_mode)
+    mode_str = mode_labels.get(mode, mode)
     logger.info(f" - 任务模式: {mode_str}")
-    logger.info(f" - 源目录: {source_root}")
+    logger.info(f" - 源目录: {source}")
 
-    if not dest_root and task_mode != "sync":
+    if not dest and mode != "sync":
         logger.info(" - 目标目录: 无")
     else:
-        logger.info(f" - 目标目录: {dest_root}")
+        logger.info(f" - 目标目录: {dest}")
 
-    if task_mode not in ["rotate", "sync"]:
-        mtime_threshold_seconds = task.get("mtime_threshold_seconds", 0)
+    if mtime_threshold_seconds is not None:
         logger.info(f" - 时间阈值: {fmt_timespan(mtime_threshold_seconds)}")
 
-    source_quiet_seconds = task.get("source_quiet_seconds", 0)
     if source_quiet_seconds:
         logger.info(f" - 静默阈值: {fmt_timespan(source_quiet_seconds)}")
 
-    if task_mode == "rotate":
-        # size_limit 已在 RotateHandler 构造期解析成功，此处解析保证成功
-        from src.core.patterns import parse_size_string
-
-        size_limit = task.get("size_limit")
-        count_limit = task.get("count_limit")
-        if size_limit and parse_size_string(size_limit) > 0:
-            logger.info(f" - 大小限制: {size_limit}")
-        if count_limit and int(count_limit) > 0:
-            logger.info(f" - 数量限制: {count_limit}")
+    # 限额展示用解析后的数值格式化（配置串本身不再透传到展示层）
+    if size_limit > 0:
+        logger.info(f" - 大小限制: {fmt_size(size_limit)}")
+    if count_limit > 0:
+        logger.info(f" - 数量限制: {count_limit}")
 
 
 def print_task_summary(stats: TaskStats, duration: float, total_bytes: int, logger: Logger) -> None:

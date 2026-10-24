@@ -8,9 +8,11 @@
 
 import pytest
 
+from src.app.config import GlobalConfig
 from src.app.context import AppContext
 from src.core.history import HistoryManager
 from src.core.registry import create_handler
+from src.core.task_plan import resolve_tasks
 
 
 class CaptureLogger:
@@ -57,7 +59,7 @@ def app_context(tmp_path, capture_log):
     history_dir = tmp_path / "history"
     history_dir.mkdir()
     history = HistoryManager(str(history_dir))
-    AppContext.init(capture_log, history, {"max_retries": 3})
+    AppContext.init(capture_log, history, GlobalConfig())
     yield AppContext.get()
     AppContext._instance = None
 
@@ -70,11 +72,12 @@ def run_task(app_context):
 
         handler = run_task({"mode": "move", "source": ..., ...}, now=NOW)
 
-    返回 handler 实例，可读取 stats 做补充断言；任务在装配/构造期被跳过
-    （如 dest 校验失败、容量规则配置错误）时返回 None。主断言应落在
-    目录树快照上。远端连接参数通过 remote_clients / ssh_remotes 注入
-    （写入 AppContext，供 dest.ensure_dest 校验与 core.dest 转发层取用，
-    见 test_greybox_sync.py）。
+    与生产装配路径对齐：任务字典先经加载期解析（resolve_tasks——任务
+    模型校验、dest 装配校验，错误日志在此给出，被拒绝的任务返回 None），
+    再经 create_handler 构造并执行。返回 handler 实例，可读取 stats 做
+    补充断言。远端连接参数通过 remote_clients / ssh_remotes 注入（写入
+    AppContext，供加载期 dest 别名校验与 core.dest 转发层取用，见
+    test_greybox_sync.py）。
     """
 
     def _run(task, now=None, remote_clients=None, ssh_remotes=None):
@@ -83,9 +86,15 @@ def run_task(app_context):
             ctx.remote_clients = remote_clients
         if ssh_remotes is not None:
             ctx.ssh_remotes = ssh_remotes
-        # 与生产 process_task 共用同一条装配路径（含装配/构造期配置错误的
-        # 捕获语义），错误路径测试才是在测生产行为而不是测试替身。
-        handler = create_handler(task, now=now)
+        spec = resolve_tasks(
+            [task],
+            logger=ctx.logger,
+            http_aliases=ctx.remote_clients.keys(),
+            ssh_aliases=ctx.ssh_remotes.keys(),
+        )[0]
+        # 与生产 process_task 共用同一条装配路径，错误路径测试才是在测
+        # 生产行为而不是测试替身。
+        handler = create_handler(spec, now=now)
         if handler is None:
             return None
         handler.execute()

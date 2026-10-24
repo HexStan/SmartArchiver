@@ -3,7 +3,8 @@
 为什么直接单元测试（见 tests/README.md 原则二）：build_dest_path 与
 unique_dest 决定文件最终落在哪里、冲突副本叫什么名字——路径错了
 就是数据放错地方，这是数据安全边界，值得对每个分支单独钉死。
-本地目标的传输行为已由 test_greybox_move_copy.py 从入口覆盖。
+本地目标的传输行为已由 test_greybox_move_copy.py 从入口覆盖；
+加载期的 dest 模式兼容性校验（validate_dest）也在此白盒钉死。
 """
 
 import os
@@ -55,7 +56,7 @@ class TestParseDest:
         assert parsed.alias == "vps"
         assert parsed.path == "/var/data"
 
-    def test_unknown_remote_type_kept_for_ensure_to_reject(self):
+    def test_unknown_remote_type_kept_for_validate_to_reject(self):
         parsed = dest.parse_dest("{ftp:srv}?/path")
         assert parsed.kind == "ftp"
         assert parsed.alias == "srv"
@@ -201,57 +202,81 @@ class TestRelpath:
         assert dest.relpath("{http:nas}?/vol/data", full) == full
 
 
-class TestEnsureDest:
-    """dest 串与任务模式的装配期校验（fail-fast，失败即跳过任务）。"""
+class TestValidateDest:
+    """dest 串与任务模式的加载期校验（纯函数：合法返回 None，否则返回消息）。
 
-    def test_plain_path_is_accepted(self, app_context):
-        assert dest.ensure_dest("/local/path", "copy") is True
+    校验在配置加载期由 task_plan.resolve_tasks 调用；错误日志的拼装
+    （任务序号上下文 + 跳过语义）属解析器职责，在此只钉消息本体。
+    """
 
-    def test_empty_dest_is_accepted(self, app_context):
-        assert dest.ensure_dest("", "move") is True
+    def test_plain_path_is_accepted(self):
+        assert dest.validate_dest("/local/path", "copy", http_aliases=(), ssh_aliases=()) is None
 
-    def test_http_alias_accepted_for_transfer_modes(self, app_context):
-        AppContext.get().remote_clients = {"nas": object()}
-        assert dest.ensure_dest("{http:nas}?/vol/backup", "move") is True
+    def test_empty_dest_is_accepted(self):
+        assert dest.validate_dest("", "move", http_aliases=(), ssh_aliases=()) is None
 
-    def test_unknown_http_alias_rejected(self, app_context, capture_log):
-        assert dest.ensure_dest("{http:ghost}?/vol", "copy") is False
-        assert capture_log.has("error", "ghost")
-        assert capture_log.has("error", "http_remotes")
+    def test_http_alias_accepted_for_transfer_modes(self):
+        assert (
+            dest.validate_dest(
+                "{http:nas}?/vol/backup", "move", http_aliases={"nas"}, ssh_aliases=()
+            )
+            is None
+        )
 
-    def test_ssh_alias_accepted_for_sync(self, app_context):
-        AppContext.get().ssh_remotes = {"vps": object()}
-        assert dest.ensure_dest("{ssh:vps}?/var/data", "sync") is True
+    def test_unknown_http_alias_rejected(self):
+        reason = dest.validate_dest("{http:ghost}?/vol", "copy", http_aliases=(), ssh_aliases=())
+        assert reason is not None
+        assert "ghost" in reason
+        assert "http_remotes" in reason
 
-    def test_unknown_ssh_alias_rejected(self, app_context, capture_log):
-        assert dest.ensure_dest("{ssh:ghost}?/var/data", "sync") is False
-        assert capture_log.has("error", "ghost")
-        assert capture_log.has("error", "ssh_remotes")
+    def test_ssh_alias_accepted_for_sync(self):
+        assert (
+            dest.validate_dest("{ssh:vps}?/var/data", "sync", http_aliases=(), ssh_aliases={"vps"})
+            is None
+        )
 
-    def test_unknown_remote_type_rejected(self, app_context, capture_log):
-        assert dest.ensure_dest("{ftp:srv}?/path", "copy") is False
-        assert capture_log.has("error", "未知的远端类型")
-        assert capture_log.has("error", "任务跳过")
+    def test_unknown_ssh_alias_rejected(self):
+        reason = dest.validate_dest(
+            "{ssh:ghost}?/var/data", "sync", http_aliases=(), ssh_aliases=()
+        )
+        assert reason is not None
+        assert "ghost" in reason
+        assert "ssh_remotes" in reason
 
-    def test_http_and_ssh_namespaces_are_isolated(self, app_context):
+    def test_unknown_remote_type_rejected(self):
+        reason = dest.validate_dest("{ftp:srv}?/path", "copy", http_aliases=(), ssh_aliases=())
+        assert reason is not None
+        assert "未知的远端类型" in reason
+
+    def test_http_and_ssh_namespaces_are_isolated(self):
         """同名别名在两个命名空间互不干扰——各查各的。"""
-        AppContext.get().remote_clients = {"same": object()}
-        AppContext.get().ssh_remotes = {"same": object()}
-        assert dest.ensure_dest("{http:same}?/http_path", "copy") is True
-        assert dest.ensure_dest("{ssh:same}?/ssh_path", "sync") is True
+        assert (
+            dest.validate_dest(
+                "{http:same}?/http_path", "copy", http_aliases={"same"}, ssh_aliases={"same"}
+            )
+            is None
+        )
+        assert (
+            dest.validate_dest(
+                "{ssh:same}?/ssh_path", "sync", http_aliases={"same"}, ssh_aliases={"same"}
+            )
+            is None
+        )
 
-    def test_sync_rejects_http_dest(self, app_context, capture_log):
-        AppContext.get().remote_clients = {"nas": object()}
-        assert dest.ensure_dest("{http:nas}?/data", "sync") is False
-        assert capture_log.has("error", "不支持 HTTP 远程")
+    def test_sync_rejects_http_dest(self):
+        reason = dest.validate_dest(
+            "{http:nas}?/data", "sync", http_aliases={"nas"}, ssh_aliases=()
+        )
+        assert reason is not None
+        assert "不支持 HTTP 远程" in reason
 
     @pytest.mark.parametrize("mode", ["move", "copy", "rotate"])
-    def test_per_file_modes_reject_ssh_dest(self, app_context, capture_log, mode):
+    def test_per_file_modes_reject_ssh_dest(self, mode):
         """逐文件传输模式拒绝 SSH 目标——旧行为是运行时 NotImplementedError，
-        现在在装配期收口为配置错误。"""
-        AppContext.get().ssh_remotes = {"vps": object()}
-        assert dest.ensure_dest("{ssh:vps}?/data", mode) is False
-        assert capture_log.has("error", "不支持 SSH 远端目标")
+        现在在加载期收口为配置错误。"""
+        reason = dest.validate_dest("{ssh:vps}?/data", mode, http_aliases=(), ssh_aliases={"vps"})
+        assert reason is not None
+        assert "不支持 SSH 远端目标" in reason
 
 
 class _RecordingClient:

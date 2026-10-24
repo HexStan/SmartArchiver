@@ -1,6 +1,6 @@
-"""任务依赖：id 规范化与 depends_on 校验（白盒）+ run_tasks 编排（灰盒）。
+"""任务依赖：加载期静态校验（白盒）+ run_tasks 编排（灰盒）。
 
-为什么有白盒部分：解析期校验的错误分类（id 非法 / 重复 / 未知引用 /
+为什么有白盒部分：加载期校验的错误分类（id 非法 / 重复 / 未知引用 /
 自引用 / 前向引用）只能从日志与 TaskSpec 归一化结果区分，从任务是否
 执行的终态无法观察是哪条规则命中（tests/README.md 原则二）。
 
@@ -15,45 +15,68 @@ import time
 import pytest
 
 from src.app import runtime
-from src.core.dependencies import prepare_run_plan
+from src.app.config import GlobalConfig
+from src.app.context import AppContext
+from src.core.task_plan import resolve_tasks
 from tests.helpers import OLD, make_tree, snapshot
 
 # ============================================================
-# 白盒：prepare_run_plan 解析期校验
+# 白盒：resolve_tasks 加载期校验
 # ============================================================
+
+
+def _task(**extra):
+    """最小合法任务字典（解析期不做 I/O，source/dest 路径无需存在）。"""
+    task = {
+        "mode": "move",
+        "source": "s",
+        "dest": "d",
+        "mtime_threshold_seconds": 0,
+        "remove_empty_dirs": False,
+    }
+    task.update(extra)
+    return task
+
+
+def _plan(tasks, capture_log):
+    return resolve_tasks(tasks, logger=capture_log, http_aliases=(), ssh_aliases=())
 
 
 class TestIdNormalization:
     def test_missing_id_yields_none_without_warning(self, capture_log):
-        specs = prepare_run_plan([{"mode": "move"}], capture_log)
-        assert specs[0] == (None, (), False)
+        specs = _plan([_task()], capture_log)
+        assert specs[0].task_id is None
+        assert not specs[0].blocked
         assert capture_log.messages == []
 
     def test_valid_id_registered(self, capture_log):
-        specs = prepare_run_plan([{"mode": "move", "id": "stage-1_A"}], capture_log)
-        assert specs[0] == ("stage-1_A", (), False)
+        specs = _plan([_task(id="stage-1_A")], capture_log)
+        assert specs[0].task_id == "stage-1_A"
+        assert not specs[0].blocked
         assert capture_log.messages == []
 
     def test_invalid_chars_warn_and_drop_id(self, capture_log):
-        specs = prepare_run_plan([{"mode": "move", "id": "a.b"}], capture_log)
-        assert specs[0] == (None, (), False)
+        specs = _plan([_task(id="a.b")], capture_log)
+        assert specs[0].task_id is None
+        assert not specs[0].blocked
         assert capture_log.has("warning", "含非法字符")
 
     def test_non_string_id_warns_and_drops_id(self, capture_log):
-        specs = prepare_run_plan([{"mode": "move", "id": 42}], capture_log)
-        assert specs[0] == (None, (), False)
+        specs = _plan([_task(id=42)], capture_log)
+        assert specs[0].task_id is None
+        assert not specs[0].blocked
         assert capture_log.has("warning", "id 配置值非法")
 
     def test_duplicate_id_errors_and_blocks_later_task(self, capture_log):
-        tasks = [{"id": "dup"}, {"id": "dup"}]
-        specs = prepare_run_plan(tasks, capture_log)
-        assert specs[0] == ("dup", (), False)
+        tasks = [_task(id="dup"), _task(id="dup")]
+        specs = _plan(tasks, capture_log)
+        assert specs[0].task_id == "dup"
         assert specs[1].blocked
         assert capture_log.has("error", "与任务 #1 重复")
 
     def test_invalid_id_never_collides_with_valid_id(self, capture_log):
         # 格式校验先于唯一性：非法 id 不注册，不触发重复判定
-        specs = prepare_run_plan([{"id": "a.b"}, {"id": "a.b"}], capture_log)
+        specs = _plan([_task(id="a.b"), _task(id="a.b")], capture_log)
         assert all(not spec.blocked for spec in specs)
         assert not capture_log.has("error", "重复")
         assert (
@@ -69,67 +92,76 @@ class TestIdNormalization:
 
 class TestDependsOnNormalization:
     def test_single_string_normalized_to_one_element(self, capture_log):
-        specs = prepare_run_plan([{"id": "a"}, {"depends_on": "a"}], capture_log)
-        assert specs[1] == (None, ("a",), False)
+        specs = _plan([_task(id="a"), _task(depends_on="a")], capture_log)
+        assert specs[1].task_id is None
+        assert specs[1].depends_on == ("a",)
+        assert not specs[1].blocked
         assert capture_log.messages == []
 
     def test_list_normalized(self, capture_log):
-        specs = prepare_run_plan(
-            [{"id": "a"}, {"id": "b"}, {"depends_on": ["a", "b"]}], capture_log
-        )
-        assert specs[2] == (None, ("a", "b"), False)
+        specs = _plan([_task(id="a"), _task(id="b"), _task(depends_on=["a", "b"])], capture_log)
+        assert specs[2].task_id is None
+        assert specs[2].depends_on == ("a", "b")
+        assert not specs[2].blocked
         assert capture_log.messages == []
 
     def test_empty_list_no_dependencies(self, capture_log):
-        specs = prepare_run_plan([{"depends_on": []}], capture_log)
-        assert specs[0] == (None, (), False)
+        specs = _plan([_task(depends_on=[])], capture_log)
+        assert specs[0].depends_on == ()
+        assert not specs[0].blocked
 
     def test_non_string_type_errors_and_blocks(self, capture_log):
-        specs = prepare_run_plan([{"depends_on": 3}], capture_log)
+        specs = _plan([_task(depends_on=3)], capture_log)
         assert specs[0].blocked
         assert capture_log.has("error", "depends_on 配置值非法")
 
     def test_non_string_element_errors_and_blocks(self, capture_log):
-        specs = prepare_run_plan([{"depends_on": ["a", 3]}], capture_log)
+        specs = _plan([_task(depends_on=["a", 3])], capture_log)
         assert specs[0].blocked
         assert capture_log.has("error", "depends_on 配置值非法")
 
 
 class TestReferenceValidation:
     def test_backward_reference_kept(self, capture_log):
-        tasks = [{"id": "a"}, {"id": "b", "depends_on": ["a"]}]
-        specs = prepare_run_plan(tasks, capture_log)
-        assert specs[1] == ("b", ("a",), False)
+        tasks = [_task(id="a"), _task(id="b", depends_on=["a"])]
+        specs = _plan(tasks, capture_log)
+        assert specs[1].task_id == "b"
+        assert specs[1].depends_on == ("a",)
+        assert not specs[1].blocked
         assert capture_log.messages == []
 
     def test_unknown_reference_errors_and_blocks(self, capture_log):
-        specs = prepare_run_plan([{"id": "a", "depends_on": ["ghost"]}], capture_log)
+        specs = _plan([_task(id="a", depends_on=["ghost"])], capture_log)
         assert specs[0].blocked
         assert capture_log.has("error", "依赖的 id 'ghost' 不存在")
 
     def test_self_reference_errors_and_blocks(self, capture_log):
-        specs = prepare_run_plan([{"id": "a", "depends_on": ["a"]}], capture_log)
+        specs = _plan([_task(id="a", depends_on=["a"])], capture_log)
         assert specs[0].blocked
         assert capture_log.has("error", "依赖了自身")
 
     def test_forward_reference_errors_and_blocks(self, capture_log):
-        tasks = [{"id": "a", "depends_on": ["late"]}, {"id": "late"}]
-        specs = prepare_run_plan(tasks, capture_log)
+        tasks = [_task(id="a", depends_on=["late"]), _task(id="late")]
+        specs = _plan(tasks, capture_log)
         assert specs[0].blocked
-        assert specs[1] == ("late", (), False)
+        assert specs[1].task_id == "late"
+        assert not specs[1].blocked
         assert capture_log.has("error", "位于其后方的任务 'late'")
 
     def test_duplicate_id_task_still_blocked_when_also_referenced(self, capture_log):
         # 重复 id 未注册，依赖解析到首个出现者；重复任务本身仍被跳过
-        tasks = [{"id": "dup"}, {"id": "dup"}, {"depends_on": ["dup"]}]
-        specs = prepare_run_plan(tasks, capture_log)
+        tasks = [_task(id="dup"), _task(id="dup"), _task(depends_on=["dup"])]
+        specs = _plan(tasks, capture_log)
         assert specs[1].blocked
-        assert specs[2] == (None, ("dup",), False)
+        assert specs[2].task_id is None
+        assert specs[2].depends_on == ("dup",)
+        assert not specs[2].blocked
 
     def test_non_dict_task_blocked(self, capture_log):
-        specs = prepare_run_plan(["oops", {"id": "a"}], capture_log)
+        specs = _plan(["oops", _task(id="a")], capture_log)
         assert specs[0].blocked
-        assert specs[1] == ("a", (), False)
+        assert specs[1].task_id == "a"
+        assert not specs[1].blocked
 
 
 # ============================================================
@@ -152,12 +184,18 @@ def _move_task(src, dest, **extra):
 
 @pytest.fixture
 def run_round(app_context):
-    """驱动一轮 run_tasks：注入任务列表并同步执行（无停止指令）。"""
+    """驱动一轮 run_tasks：注入任务列表并同步执行（无停止指令）。
+
+    与生产加载路径一致：任务字典先经 resolve_tasks 产出 TaskSpec
+    （错误日志在此给出），再写入 AppContext 供 run_tasks 消费。
+    """
 
     def _run(tasks):
-        app_context.update_config({"tasks": tasks}, {}, {})
+        ctx = AppContext.get()
+        specs = resolve_tasks(tasks, logger=ctx.logger, http_aliases=(), ssh_aliases=())
+        ctx.update_config(GlobalConfig(), specs, {}, {})
         runtime.run_tasks()
-        return app_context
+        return ctx
 
     return _run
 

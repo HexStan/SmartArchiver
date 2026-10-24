@@ -44,7 +44,11 @@ def _load_control_context(is_server: bool, strict: bool = False) -> tuple[str, s
     instance_name, invalid = instance.resolve_identity(raw_config, is_server)
     if invalid:
         print(f"警告: instance_name 配置值非法，按默认实例标识 {instance_name} 处理。")
-    return instance_name, paths.resolve_log_dir(raw_config)
+    # 宽松模式：log_dir 仅做类型守卫回退（旧实现非字符串会崩在 isabs 上），
+    # 不做完整校验——log/stop 在配置异常时必须依然可用
+    raw_log_dir = raw_config.get("log_dir", "./logs")
+    log_dir = raw_log_dir if isinstance(raw_log_dir, str) else "./logs"
+    return instance_name, paths.resolve_log_dir(log_dir)
 
 
 def _command_hint(is_server: bool) -> str:

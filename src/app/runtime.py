@@ -10,56 +10,22 @@ import os
 import sys
 import time
 from collections.abc import Callable
-from typing import Self
 
 from croniter import croniter
-from pydantic import BaseModel, ValidationError, field_validator, model_validator
+from pydantic import ValidationError
 
 from src import fs
 from src.app import instance, paths
-from src.app.config import ConfigManager
+from src.app.config import BootstrapConfig, ConfigError, ConfigManager, ScheduleConfig
 from src.app.context import AppContext
 from src.app.instance import SingleInstance
 from src.app.shutdown import install_abort_check, install_sigterm_fast_stop
 from src.core import process_task
-from src.core.dependencies import prepare_run_plan
 from src.core.history import HistoryManager
 from src.core.types import TaskOutcome
 from src.output.logger import Logger, setup_logger
 from src.output.presentation import fmt_timespan
 from src.validation import format_validation_error
-
-
-class ScheduleConfig(BaseModel):
-    """[schedule] 配置块模型；仅客户端调度路径消费（_run_schedule）。
-
-    mode 不用 Literal：非法值需逐字保留既有中文错误消息，validator
-    抛出的 ValueError 经 format_validation_error 原样透出。同理，
-    interval_seconds 的"大于 0"约束由模型级校验承担而非字段级 gt，
-    以复用既有错误文案。
-    """
-
-    mode: str | None = None
-    cron_expr: str | None = None
-    interval_seconds: float | None = None
-    first_run_delay: float = -1
-
-    @field_validator("mode")
-    @classmethod
-    def _validate_mode(cls, value: str | None) -> str | None:
-        if value is not None and value not in ("cron", "interval"):
-            raise ValueError(f"不支持的定时模式: {value}")
-        return value
-
-    @model_validator(mode="after")
-    def _check_mode_requirements(self) -> Self:
-        if self.mode == "cron" and not self.cron_expr:
-            raise ValueError("cron 模式需要配置 cron_expr。")
-        if self.mode == "interval" and (
-            self.interval_seconds is None or self.interval_seconds <= 0
-        ):
-            raise ValueError("interval 模式需要配置有效的 interval_seconds (大于0的数字)。")
-        return self
 
 
 def _reload_config_if_changed(manager: ConfigManager) -> None:
@@ -71,7 +37,7 @@ def _reload_config_if_changed(manager: ConfigManager) -> None:
     if cfg.used_backup:
         ctx.logger.warning("新配置加载失败，已回退到备份配置。")
 
-    ctx.update_config(cfg.config, cfg.remote_clients, cfg.ssh_remotes)
+    ctx.update_config(cfg.config, cfg.tasks, cfg.remote_clients, cfg.ssh_remotes)
 
 
 def run_tasks() -> None:
@@ -81,26 +47,23 @@ def run_tasks() -> None:
     ctx.logger.info("脚本开始执行……")
     start_time = time.time()
 
-    tasks = ctx.config.get("tasks", [])
+    specs = ctx.tasks
 
-    if not tasks:
+    if not specs:
         ctx.logger.error("配置文件没有任务可以执行。")
         sys.exit(1)
 
-    # 解析期：id 规范化与依赖静态校验（错误日志在此给出）；运行期只做
-    # 依赖满足判定。finished 每轮重置——依赖语义为"同一轮内"，与
-    # cron/interval 每轮全量重跑的调度语义一致。
-    specs = prepare_run_plan(tasks, ctx.logger)
+    # 依赖满足判定是运行期语义：finished 每轮重置——依赖语义为"同一轮内"，
+    # 与 cron/interval 每轮全量重跑的调度语义一致。任务的配置校验与
+    # 依赖静态校验已在加载期完成，此处只做编排。
     finished: set[str] = set()
 
-    for idx, task in enumerate(tasks):
+    for idx, spec in enumerate(specs):
         if coordinator.should_stop_before_task():
             break
 
-        spec = specs[idx]
-
         if spec.blocked:
-            # 具体错误日志已在解析期给出，此处静默跳过
+            # 具体错误日志已在加载期给出，此处静默跳过
             continue
 
         unmet = [dep for dep in spec.depends_on if dep not in finished]
@@ -108,9 +71,9 @@ def run_tasks() -> None:
             ctx.logger.error(f"前置任务 {'、'.join(unmet)} 未完成，跳过该任务。")
             continue
 
-        ctx.logger.info(f"-----开始 {len(tasks)} 个任务中的第 {idx + 1} 个-----")
+        ctx.logger.info(f"-----开始 {len(specs)} 个任务中的第 {idx + 1} 个-----")
 
-        outcome = process_task(task, now=start_time)
+        outcome = process_task(spec, now=start_time)
 
         ctx.logger.info("当前任务结束。")
 
@@ -163,13 +126,18 @@ def _load_and_init(
     if console is None:
         console = os.environ.get(instance.DETACHED_ENV) != "1"
 
-    max_log_files = raw_config.get("max_log_files", 0)
-    log_level = raw_config.get("log_level", "INFO")
-    log_dir = paths.resolve_log_dir(raw_config)
+    # bootstrap 段校验先于日志系统就位，失败走 print + exit 同通道
+    try:
+        bootstrap = BootstrapConfig.model_validate(raw_config)
+    except ValidationError as e:
+        print(f"Error: 配置文件无效：{format_validation_error(e)}")
+        sys.exit(1)
+
+    log_dir = paths.resolve_log_dir(bootstrap.log_dir)
     logger = setup_logger(
         log_dir,
-        max_log_files,
-        log_level,
+        bootstrap.max_log_files,
+        bootstrap.log_level,
         prefix=instance_name,
         console=console,
         # 桥接 fs 包与实例控制模块的 logger（组合根注入，output 层不感知业务模块）
@@ -178,12 +146,18 @@ def _load_and_init(
     history_mgr = HistoryManager(log_dir)
 
     manager = ConfigManager(config_path, logger)
-    cfg = manager.load(raw_config)
+    try:
+        cfg = manager.load(raw_config)
+    except ConfigError as e:
+        # 首次加载的致命配置错误：干净退出（热重载路径由 reload 的备份回退兜底）
+        logger.critical(f"配置文件无效：{e}")
+        sys.exit(1)
 
     AppContext.init(
         logger,
         history_mgr,
         cfg.config,
+        cfg.tasks,
         cfg.remote_clients,
         cfg.ssh_remotes,
         instance_name=instance_name,
@@ -208,16 +182,14 @@ def _interruptible_sleep(seconds: float) -> bool:
 
 
 def _run_schedule(manager: ConfigManager) -> None:
-    """按 [schedule] 配置驱动任务；未配置则一次性运行。"""
-    ctx = AppContext.get()
-    try:
-        schedule = ScheduleConfig.model_validate(ctx.config.get("schedule", {}))
-    except ValidationError as e:
-        # 调度配置错误为启动期致命问题，与既有行为同通道（print + exit 1）
-        print(f"[schedule] 配置无效：{format_validation_error(e)}")
-        sys.exit(1)
+    """按 [schedule] 配置驱动任务；未配置则一次性运行。
 
-    if schedule.mode is None:
+    [schedule] 的合法性已在加载期校验（GlobalConfig.schedule），此处仅分派。
+    """
+    ctx = AppContext.get()
+    schedule = ctx.config.schedule
+
+    if schedule is None or schedule.mode is None:
         run_tasks()
     elif schedule.mode == "cron":
         _run_cron(manager, schedule)
@@ -387,11 +359,17 @@ def run_server() -> None:
     try:
         with SingleInstance(ctx.instance_name, ctx.logger):
             ctx.logger.info("以服务器模式启动，请从客户端连接。")
+            # 服务器配置数值已在加载期经 GlobalConfig 收口，此处仅注入
             start_server(
-                ctx.config,
-                ctx.logger,
-                ctx.shutdown,
-                ctx.instance_name,
+                api_key=ctx.config.api_key,
+                port=ctx.config.port,
+                max_concurrent_metadata=ctx.config.max_concurrent_metadata,
+                max_concurrent_uploads=ctx.config.max_concurrent_uploads,
+                max_queue_metadata=ctx.config.max_queue_metadata,
+                max_queue_uploads=ctx.config.max_queue_uploads,
+                logger=ctx.logger,
+                coordinator=ctx.shutdown,
+                instance_name=ctx.instance_name,
                 # app 域能力注入:remote 层不感知实例控制与信号装配的实现
                 stop_watcher=_make_server_stop_watcher(ctx),
                 runtime_paths=instance.instance_paths,

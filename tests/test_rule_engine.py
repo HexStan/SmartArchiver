@@ -12,6 +12,7 @@
 """
 
 from src.core.filters import FileFilterPolicy
+from src.core.task_config import RuleSetConfig
 from src.core.types import FileAction
 
 TRANSFER = FileAction.TRANSFER
@@ -23,12 +24,12 @@ KB = 1024
 
 
 def build_policy(include=None, exclude=None, delete=None):
+    """FileFilterPolicy 消费加载期解析完成的规则模型（RuleSetConfig），
+    测试以原始 dict 经模型构造对齐生产装配路径。"""
     return FileFilterPolicy(
-        {
-            "include_rules": include or {},
-            "exclude_rules": exclude or {},
-            "delete_rules": delete or {},
-        }
+        RuleSetConfig.model_validate(include or {}),
+        RuleSetConfig.model_validate(exclude or {}),
+        RuleSetConfig.model_validate(delete or {}),
     )
 
 

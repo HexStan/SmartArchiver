@@ -1,76 +1,20 @@
 import os
 import time
 from abc import ABC, abstractmethod
-from typing import Any
 
 from src.app.context import AppContext
 from src.core import dest
-from src.core.filters import FileFilterPolicy
+from src.core.task_config import (
+    MoveCopyTaskConfig,
+    RotateTaskConfig,
+    TransferTaskConfig,
+)
+from src.core.task_plan import TaskSpec
 from src.core.types import FileAction, MoverStats, TaskOutcome
 from src.fs import TransferAbortedError, get_dir_size_and_mtime, is_file_locked
 from src.fs import delete_file as _fs_delete
 from src.output.presentation import fmt_size as _fmt_size
 from src.output.presentation import fmt_timespan, print_task_header
-
-# ============================================================
-# 配置验证
-# ============================================================
-
-
-def validate_task_config(task: dict[str, Any], task_mode: str) -> bool:
-    """验证任务配置是否完整。"""
-    ctx = AppContext.get()
-
-    if task_mode == "sync":
-        required_fields = ["mode", "source", "dest"]
-        tool = task.get("tool", "auto").lower()
-        if tool not in ("auto", "rsync", "rclone"):
-            ctx.logger.error(
-                f"sync 模式的 tool 配置值无效: '{task.get('tool')}'，"
-                f"可选值: auto、rsync、rclone，跳过该任务。"
-            )
-            return False
-    elif task_mode == "rotate":
-        required_fields = [
-            "mode",
-            "source",
-            "remove_empty_dirs",
-        ]
-    else:
-        # move/copy 的 dest 选填：省略时任务合法但不执行传输，
-        # 由 ActionExecutor 的守卫逐文件跳过，其余规则照常评估
-        required_fields = [
-            "mode",
-            "source",
-            "mtime_threshold_seconds",
-            "remove_empty_dirs",
-        ]
-
-    missing_fields = [field for field in required_fields if field not in task]
-    if missing_fields:
-        ctx.logger.error(f"任务配置缺少必填项: {'、'.join(missing_fields)}，跳过该任务。")
-        return False
-
-    # 全模式通用的选填数值项：类型不合法会在比较运算处引发 TypeError
-    # 中断整轮任务，故在配置校验期收口为"报错 + 跳过任务"
-    quiet_seconds = task.get("source_quiet_seconds", 0)
-    if (
-        isinstance(quiet_seconds, bool)
-        or not isinstance(quiet_seconds, (int, float))
-        or quiet_seconds < 0
-    ):
-        ctx.logger.error(
-            f"source_quiet_seconds 配置值无效: {quiet_seconds!r}"
-            "（应为不小于 0 的秒数），跳过该任务。"
-        )
-        return False
-
-    if task_mode in ("rotate", "sync") and task.get("include_rules"):
-        ctx.logger.error(f"{task_mode} 模式下不支持配置 include_rules，跳过该任务。")
-        return False
-
-    return True
-
 
 # ============================================================
 # 文件检查器
@@ -80,10 +24,10 @@ def validate_task_config(task: dict[str, Any], task_mode: str) -> bool:
 class FileChecker:
     """文件检查器：负责历史失败次数、时间阈值、文件锁检查。"""
 
-    def __init__(self, task: dict[str, Any], now: float | None = None) -> None:
+    def __init__(self, now: float | None = None) -> None:
         self.now = now or time.time()
         ctx = AppContext.get()
-        self.max_retries = ctx.config.get("max_retries", 3)
+        self.max_retries = ctx.config.max_retries
 
     def should_skip(
         self,
@@ -119,14 +63,14 @@ class FileChecker:
 class ActionExecutor:
     """动作执行器：负责目标目录验证、冲突处理和动作分发。
 
-    整合了原 actions.py 中 transfer_file 和 delete_file 的业务逻辑。
     目标侧 I/O 一律经由 core.dest 转发层（dest_root 为原始 dest 协议串）。
+    conflict_policy 由调用方从类型化配置传入（加载期已校验取值）。
     """
 
-    def __init__(self, task: dict[str, Any], dest_root: str) -> None:
-        self.source_root: str = task.get("source", "")
+    def __init__(self, source_root: str, dest_root: str, conflict_policy: str = "skip") -> None:
+        self.source_root = source_root
         self.dest_root = dest_root
-        self.conflict_policy: str = task.get("conflict_policy", "skip").lower()
+        self.conflict_policy = conflict_policy
         self._dest_checked = False
         self._dest_valid = False
 
@@ -201,9 +145,6 @@ class ActionExecutor:
                     # 预删除会留下"目标短暂缺失"的窗口
                     pass
 
-                else:
-                    return
-
             size_str = _fmt_size(file_size, binary=True)
             if file_exists and self.conflict_policy == "overwrite":
                 ctx.logger.info(f"正在覆盖同名文件: {rel_path} ({size_str})")
@@ -252,46 +193,60 @@ class ActionExecutor:
 class BaseTaskHandler(ABC):
     def __init__(
         self,
-        task: dict[str, Any],
+        spec: TaskSpec,
         now: float | None = None,
     ) -> None:
-        self.task = task
+        config = spec.config
+        assert config is not None, "config 为 None 的 TaskSpec 不应进入处理器构造"
+        self.task = config
+        self.depends_on = spec.depends_on
         self.now = now or time.time()
         self.stats = MoverStats()
-        self.source_root: str = task.get("source", "")
+        self.source_root: str = config.source
         # 原始 dest 协议串（可能带 {类型:别名}? 前缀），目标侧 I/O 经 core.dest
-        self.dest_root: str = task.get("dest", "") or ""
-        self.task_mode: str = task.get("mode", "").lower()
-        self.remove_empty_dirs: bool = task.get("remove_empty_dirs", False)
-
-        merged_config = {
-            "include_rules": task.get("include_rules", {})
-            if self.task_mode in ("move", "copy")
-            else {},
-            "exclude_rules": task.get("exclude_rules", {}),
-            "delete_rules": task.get("delete_rules", {}),
-        }
-        self.policy = FileFilterPolicy(merged_config)
-        self.checker = FileChecker(task, now)
-        self.executor = ActionExecutor(task, self.dest_root)
-
-    def validate(self) -> bool:
-        return validate_task_config(self.task, self.task_mode)
+        self.dest_root: str = config.dest
+        self.task_mode: str = config.mode
+        self.remove_empty_dirs: bool = (
+            config.remove_empty_dirs if isinstance(config, TransferTaskConfig) else False
+        )
+        self.checker = FileChecker(now=self.now)
+        # sync 不使用执行器与冲突策略（整树同步由外部工具完成）
+        self.executor = ActionExecutor(
+            config.source,
+            config.dest,
+            conflict_policy=(
+                config.conflict_policy if isinstance(config, TransferTaskConfig) else "skip"
+            ),
+        )
 
     def execute(self) -> TaskOutcome:
-        """模板方法：配置校验 → 任务头 → 源目录静默期检查 → 子类执行。
+        """模板方法：任务头 → 源目录静默期检查 → 子类执行。
 
         三种处理器共有的前导步骤收敛于此，新增模式自动获得同一入口行为。
-        返回本轮执行的定性结果（TaskOutcome）：校验失败为 SKIPPED（未
-        执行）；静默期跳过只是"本轮无事可做"，记 COMPLETED（依赖方照常
-        执行）；子类执行是否完整跑完由 _execute() 的布尔结果定性。
+        返回本轮执行的定性结果（TaskOutcome）：配置校验失败的任务在加载期
+        已被拒绝（不会构造处理器）；静默期跳过只是"本轮无事可做"，记
+        COMPLETED（依赖方照常执行）；子类执行是否完整跑完由 _execute()
+        的布尔结果定性。
         """
-        if not self.validate():
-            return TaskOutcome.SKIPPED
-
         ctx = AppContext.get()
 
-        print_task_header(self.task, ctx.logger)
+        print_task_header(
+            logger=ctx.logger,
+            task_id=self.task.id,
+            name=self.task.name,
+            depends_on=self.depends_on,
+            mode=self.task.mode,
+            source=self.task.source,
+            dest=self.task.dest,
+            source_quiet_seconds=self.task.source_quiet_seconds,
+            mtime_threshold_seconds=(
+                self.task.mtime_threshold_seconds
+                if isinstance(self.task, MoveCopyTaskConfig)
+                else None
+            ),
+            size_limit=self.task.size_limit if isinstance(self.task, RotateTaskConfig) else 0,
+            count_limit=self.task.count_limit if isinstance(self.task, RotateTaskConfig) else 0,
+        )
 
         if self._source_in_quiet_period():
             return TaskOutcome.COMPLETED
@@ -316,7 +271,7 @@ class BaseTaskHandler(ABC):
         本轮跳过；0 或缺省不启用，不产生额外遍历。源目录不存在时 mtime
         为 0、age 远超阈值，自然落入既有的"源目录不存在"错误路径。
         """
-        quiet_seconds = self.task.get("source_quiet_seconds", 0)
+        quiet_seconds = self.task.source_quiet_seconds
         if not quiet_seconds:
             return False
 

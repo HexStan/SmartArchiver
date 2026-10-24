@@ -15,8 +15,9 @@ import pytest
 from pydantic import ValidationError
 
 from src.app import runtime
-from src.app.config import ConfigManager
-from src.app.runtime import ScheduleConfig
+from src.app.config import ConfigManager, GlobalConfig, ScheduleConfig
+from src.app.context import AppContext
+from src.core.task_plan import resolve_tasks
 from src.validation import format_validation_error
 from tests.helpers import make_tree, snapshot
 
@@ -52,10 +53,13 @@ def move_task(tmp_path):
 def start_schedule(app_context, tmp_path, task, schedule_config):
     """在独立线程中驱动调度函数，返回 (线程, ConfigManager, schedule_config)。
 
-    ctx.config 注入任务列表供 run_tasks() 读取；ConfigManager 指向
-    临时配置文件（真实组件，mtime 稳定时热重载路径为空操作）。
+    ctx 注入加载期解析完成的任务编排信息供 run_tasks() 读取；
+    ConfigManager 指向临时配置文件（真实组件，mtime 稳定时热重载路径
+    为空操作）。
     """
-    app_context.update_config({"tasks": [task]}, {}, {})
+    ctx = AppContext.get()
+    specs = resolve_tasks([task], logger=ctx.logger, http_aliases=(), ssh_aliases=())
+    ctx.update_config(GlobalConfig(), specs, {}, {})
 
     config_path = tmp_path / "config.toml"
     source = task["source"].replace("\\", "/")
@@ -69,7 +73,8 @@ def start_schedule(app_context, tmp_path, task, schedule_config):
     manager = ConfigManager(str(config_path), app_context.logger)
 
     target = runtime._run_interval if mode == "interval" else runtime._run_cron
-    # 与生产装配一致：调度函数接收模型（生产路径在 _run_schedule 校验后传入）
+    # 与生产装配一致：调度函数接收模型（[schedule] 已在加载期经
+    # GlobalConfig.schedule 校验，生产路径直接透传）
     schedule = ScheduleConfig.model_validate(schedule_config)
     thread = threading.Thread(target=target, args=(manager, schedule), daemon=True)
     thread.start()

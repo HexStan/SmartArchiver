@@ -5,9 +5,9 @@
 重复 alias 先到先得、非法值不崩溃且日志不泄露密钥"这些契约从处理器
 入口无法观察，只能直接调用解析函数与配置模型，以捕获日志为断言对象。
 
-钉死的契约（阶段一 Pydantic 化的行为决策）：
-- 非字符串配置值判非法（不再 str() 强转收编）；
-- 数值范围收紧（port 1-65535、timeout/queue_time >= 0、并发 >= 1、队列 >= 0）；
+钉死的契约（Pydantic 模型校验的行为决策）：
+- 非字符串配置值判非法（不做 str() 强转收编）；
+- 数值范围严格校验（port 1-65535、timeout/queue_time >= 0、并发 >= 1、队列 >= 0）；
 - 重复 alias 先到先得 + 警告（与任务 id "先出现者获得 id" 语义一致）；
 - 条目非法的 warning 日志绝不包含 api_key 原值。
 """
@@ -15,8 +15,8 @@
 import pytest
 from pydantic import ValidationError
 
+from src.app.config import GlobalConfig
 from src.remote.factory import parse_remote_config
-from src.remote.server import ServerConfig
 from src.ssh.remotes import parse_ssh_remote_config
 
 
@@ -65,17 +65,17 @@ class TestParseRemoteConfig:
         assert capture_log.has("warning", "alias: 格式不合法")
 
     def test_non_string_alias_rejected(self, capture_log):
-        """决策 E：非字符串判非法跳过，不再 str() 强转收编。"""
+        """非字符串判非法跳过，不做 str() 强转收编。"""
         assert parse_remote_config(_http_config(alias=123), capture_log) == {}
         assert capture_log.has("warning", "alias: 应为字符串")
 
     def test_negative_timeout_rejected(self, capture_log):
-        """决策 F：负 timeout 不再照单全收。"""
+        """负 timeout 判非法，条目跳过。"""
         assert parse_remote_config(_http_config(timeout=-1), capture_log) == {}
         assert capture_log.has("warning", "timeout: 不能小于 0")
 
     def test_non_dict_entry_skips_without_crash(self, capture_log):
-        """旧实现对非 dict 条目会 AttributeError 崩溃，现钉死为跳过 + 警告。"""
+        """非 dict 条目不崩溃，钉死为跳过 + 警告。"""
         assert parse_remote_config({"http_remotes": ["oops"]}, capture_log) == {}
         assert capture_log.has("warning", "http_remotes 第 1 个条目无效")
 
@@ -171,9 +171,11 @@ class TestParseSshRemoteConfig:
         assert capture_log.has("warning", "ssh_remotes 第 1 个条目无效")
 
 
-class TestServerConfig:
+class TestGlobalConfigServerFields:
+    """GlobalConfig 的服务器数值段（加载期收口）。"""
+
     def test_defaults(self):
-        config = ServerConfig.model_validate({})
+        config = GlobalConfig.model_validate({})
 
         assert config.api_key == ""
         assert config.port == 13579
@@ -181,25 +183,47 @@ class TestServerConfig:
         assert config.max_concurrent_uploads == 1
         assert config.max_queue_metadata == 32
         assert config.max_queue_uploads == 32
+        assert config.max_retries == 3
+        assert config.schedule is None
 
     def test_numeric_strings_coerced(self):
-        """装配测试以 {"port": "23456"} 驱动 run_server，字符串数字必须继续可用。"""
-        assert ServerConfig.model_validate({"port": "23456"}).port == 23456
+        """数值字符串经 lax 强转（与远端条目数值字段同一规则）。"""
+        assert GlobalConfig.model_validate({"port": "23456"}).port == 23456
 
     def test_unknown_keys_ignored(self):
-        """服务器模式只消费自己的配置键，其余（如 tasks）忽略。"""
-        config = ServerConfig.model_validate({"tasks": [{"mode": "move"}], "api_key": "k"})
+        """全局段只消费自己的配置键，其余（如 tasks、http_remotes）忽略，
+        由各自的解析器负责。"""
+        config = GlobalConfig.model_validate(
+            {"tasks": [{"mode": "move"}], "http_remotes": [], "api_key": "k"}
+        )
 
         assert config.api_key == "k"
 
     def test_port_out_of_range_rejected(self):
         with pytest.raises(ValidationError):
-            ServerConfig.model_validate({"port": 99999})
+            GlobalConfig.model_validate({"port": 99999})
 
     def test_zero_concurrency_rejected(self):
         with pytest.raises(ValidationError):
-            ServerConfig.model_validate({"max_concurrent_uploads": 0})
+            GlobalConfig.model_validate({"max_concurrent_uploads": 0})
 
     def test_negative_queue_rejected(self):
         with pytest.raises(ValidationError):
-            ServerConfig.model_validate({"max_queue_metadata": -1})
+            GlobalConfig.model_validate({"max_queue_metadata": -1})
+
+    def test_negative_max_retries_rejected(self):
+        with pytest.raises(ValidationError):
+            GlobalConfig.model_validate({"max_retries": -1})
+
+    def test_schedule_block_validated(self):
+        config = GlobalConfig.model_validate(
+            {"schedule": {"mode": "cron", "cron_expr": "0 * * * *"}}
+        )
+
+        assert config.schedule is not None
+        assert config.schedule.cron_expr == "0 * * * *"
+
+    def test_invalid_schedule_block_rejected(self):
+        """[schedule] 非法 → 全局段校验失败（加载期致命，热重载回退备份）。"""
+        with pytest.raises(ValidationError, match="不支持的定时模式"):
+            GlobalConfig.model_validate({"schedule": {"mode": "weekly"}})
