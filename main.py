@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """入口：前台运行与 start / log / stop / run-once 控制子命令。
 
 - 无子命令：前台运行（客户端模式读 config/config.toml，--server 读

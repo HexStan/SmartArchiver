@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """构建 SmartArchiver 可执行文件（PyInstaller onedir + 内置 rclone）。
 
 用法:

@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """对 SmartArchiver 发行 zip 做冒烟检查：包结构 + 入口可运行。
 
 用法:
