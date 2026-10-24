@@ -38,14 +38,15 @@ class TestAddFile:
         assert mgr.group_stats[GLOBAL]["count"] == 1
 
     def test_file_joins_every_matching_pattern_group(self):
+        """分组是集合语义：消费方（任一超限判定 / 全组扣减）不依赖顺序，只钉成员。"""
         mgr = RotateGroupManager(0, 0, {"*.log": 100, "app.*": 200}, {"*.log": 5})
         groups = mgr.add_file("app.log", 50)
-        assert groups == [
+        assert set(groups) == {
             GLOBAL,
             ("size", "pattern", "*.log"),
             ("size", "pattern", "app.*"),
             ("count", "pattern", "*.log"),
-        ]
+        }
 
     def test_stats_accumulate_across_files(self):
         mgr = RotateGroupManager(2000, 10, {"*.log": 1000}, {})
