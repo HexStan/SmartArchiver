@@ -157,11 +157,12 @@ preset = "strict"
 # 1. 3.14 原生写法：内置泛型（list[str]）、X | None、PEP 695；不写
 #    `from __future__ import annotations`（PEP 649 惰性注解下无必要）；
 #    覆写方法一律加 @override。
-# 2. 配置的边界分层：有明确 schema 的配置块（http/ssh 远端条目、[schedule]、
-#    服务器模式）已模型化（src/remote/factory.py、src/ssh/remotes.py、
-#    src/app/runtime.py、src/remote/server.py，共享字段类型见 src/validation.py）；
-#    其余配置字典（tomllib 解析的嵌套结构，如任务字典）仍在边界注解为
-#    dict[str, Any]，结构合法性由运行时验证兜底，不建 TypedDict。
+# 2. 配置经 Pydantic 模型在加载期校验：任务模型（src/core/task_config）、
+#    全局段（src/app/config 的 GlobalConfig / BootstrapConfig / ScheduleConfig）、
+#    远端条目（src/remote/factory.py、src/ssh/remotes.py，共享字段类型见
+#    src/validation.py）。模型层之外不建 TypedDict；tomllib 的原始读取边界
+#    （ConfigManager.load_toml 返回值、bootstrap 前的 raw_config）仍注解为
+#    dict[str, Any]，模型只在该边界之后接管。
 # 3. 日志接口是 src/output/logger.py 的 Logger 协议（结构化）：参数注解用
 #    Logger 而非具体类，测试替身（CaptureLogger 等）结构兼容即可注入。
 # 4. 类型级依赖不构成分层违规：仅为注解服务的 import 放在 TYPE_CHECKING 下
