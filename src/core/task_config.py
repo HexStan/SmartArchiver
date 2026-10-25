@@ -177,7 +177,8 @@ class TransferTaskConfig(TaskBase):
     conflict_policy: Annotated[
         Literal["skip", "overwrite", "copy"], BeforeValidator(_lower_str)
     ] = "skip"
-    remove_empty_dirs: bool
+    # 缺省不清理：清空目录属删除类副作用，显式开启才启用
+    remove_empty_dirs: bool = False
     # 单文件操作失败的最大重试次数：连续失败达到次数后，该文件在本任务
     # 身份下进入失败历史隔离，后续轮次跳过（成功一次即清零）。失败历史
     # 按 (mode, source, dest) 任务身份隔离计数，阈值随任务级配置逐任务
@@ -190,7 +191,10 @@ class MoveCopyTaskConfig(TransferTaskConfig):
     """move / copy 模式任务配置。"""
 
     mode: Literal["move", "copy"]
-    mtime_threshold_seconds: Annotated[float, BeforeValidator(_reject_bool)] = Field(ge=0)
+    # 0 的既有语义即"无时间限制"，缺省复用该语义
+    mtime_threshold_seconds: Annotated[float, BeforeValidator(_reject_bool)] = Field(
+        default=0, ge=0
+    )
     include_rules: RuleSetConfig = Field(default_factory=RuleSetConfig)
     exclude_rules: RuleSetConfig = Field(default_factory=RuleSetConfig)
     delete_rules: RuleSetConfig = Field(default_factory=RuleSetConfig)

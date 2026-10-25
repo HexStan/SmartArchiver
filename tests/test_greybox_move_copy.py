@@ -108,6 +108,18 @@ class TestMtimeThreshold:
 
         assert snapshot(task["dest"]) == {"fresh.txt": 1}
 
+    def test_threshold_defaults_to_zero_when_omitted(self, run_task, tmp_path):
+        """缺省即无时间限制：60 秒前的文件在任何正阈值下都会被扣住，
+        却照常移动，证明缺省值是 0 而非其余正数。"""
+        task = move_task(tmp_path)
+        del task["mtime_threshold_seconds"]
+        make_tree(task["source"], {"fresh.txt": (b"f", RECENT)})
+
+        run_task(task, now=NOW)
+
+        assert snapshot(task["source"]) == {}
+        assert snapshot(task["dest"]) == {"fresh.txt": 1}
+
     def test_delete_rule_also_gated_by_mtime(self, run_task, tmp_path, capture_log):
         """README 明示的设计意图：delete_rules 同受 mtime 阈值约束，
         保护正在写入的文件。"""
@@ -312,6 +324,16 @@ class TestEmptyDirCleanup:
 
         assert os.path.isdir(os.path.join(task["source"], "sub"))
 
+    def test_move_keeps_empty_dirs_by_default(self, run_task, tmp_path):
+        """缺省不清理：remove_empty_dirs 显式开启才启用。"""
+        task = move_task(tmp_path)
+        del task["remove_empty_dirs"]
+        make_tree(task["source"], {"sub/a.txt": b"x"})
+
+        run_task(task, now=NOW)
+
+        assert os.path.isdir(os.path.join(task["source"], "sub"))
+
     def test_copy_never_cleans_source_dirs(self, run_task, tmp_path):
         """源目录未被搬空，即使开关打开也不清理。"""
         task = move_task(tmp_path, mode="copy", remove_empty_dirs=True)
@@ -353,9 +375,10 @@ class TestErrorPaths:
         assert capture_log.has("error", "源目录不存在")
 
     def test_invalid_task_config_skips_everything(self, run_task, tmp_path, capture_log):
-        """缺少必填项的任务被整体跳过：错误日志 + 目录树零变化。"""
+        """配置非法（负阈值）的任务被整体跳过：错误日志 + 目录树零变化。
+        （mtime_threshold_seconds 缺省已合法，负值是仍被加载期拒绝的输入。）"""
         task = move_task(tmp_path)
-        del task["mtime_threshold_seconds"]
+        task["mtime_threshold_seconds"] = -5
         make_tree(task["source"], {"a.txt": b"x"})
 
         run_task(task, now=NOW)

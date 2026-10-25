@@ -66,7 +66,8 @@ def print_task_header(
 
     本模块不感知 core 的任务模型（output 层依赖边界），模式差异由
     调用方以可选项区分：mtime_threshold_seconds 仅 move/copy 传入；
-    size_limit / count_limit 仅 rotate 传入。
+    size_limit / count_limit 仅 rotate 传入。0 或 None 均不展示
+    （0 = 无时间限制，与 source_quiet_seconds 的展示逻辑一致）。
     """
     if task_id:
         logger.info(f" - 标识: {task_id}")
@@ -92,7 +93,7 @@ def print_task_header(
     else:
         logger.info(f" - 目标目录: {dest}")
 
-    if mtime_threshold_seconds is not None:
+    if mtime_threshold_seconds:
         logger.info(f" - 时间阈值: {fmt_timespan(mtime_threshold_seconds)}")
 
     if source_quiet_seconds:

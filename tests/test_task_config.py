@@ -37,15 +37,13 @@ def _move(**extra):
         "mode": "move",
         "source": "s",
         "dest": "d",
-        "mtime_threshold_seconds": 0,
-        "remove_empty_dirs": False,
     }
     task.update(extra)
     return task
 
 
 def _rotate(**extra):
-    task = {"mode": "rotate", "source": "s", "remove_empty_dirs": False, "count_limit": 1}
+    task = {"mode": "rotate", "source": "s", "count_limit": 1}
     task.update(extra)
     return task
 
@@ -73,6 +71,9 @@ class TestMoveCopyTask:
         assert task.source_quiet_seconds == 0
         assert task.conflict_policy == "skip"
         assert task.max_retries == 3
+        # 两个原必填项改为选填后的默认值：无时间限制、不清理空目录
+        assert task.mtime_threshold_seconds == 0
+        assert task.remove_empty_dirs is False
         assert not task.include_rules.has_rules
         assert not task.exclude_rules.has_rules
         assert not task.delete_rules.has_rules
@@ -107,11 +108,12 @@ class TestMoveCopyTask:
         assert "source_quiet_seconds" in message
 
     def test_missing_required_field(self):
+        """mtime_threshold_seconds 等原必填项已有默认值，source 仍是必填。"""
         data = _move()
-        del data["mtime_threshold_seconds"]
+        del data["source"]
 
         message = _format(MoveCopyTaskConfig, data)
-        assert "mtime_threshold_seconds" in message
+        assert "source" in message
         assert "缺少必填字段" in message
 
     def test_empty_source_rejected(self):
@@ -196,7 +198,6 @@ class TestRotateTask:
             {
                 "mode": "rotate",
                 "source": "s",
-                "remove_empty_dirs": False,
                 "rotate_rules": {"count": {"*.log": 10}},
             }
         )
