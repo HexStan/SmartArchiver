@@ -436,8 +436,8 @@ SmartArchiver 的核心能力是**对源目录中的文件执行某种操作**�
 | `source_quiet_seconds` | ○ | 源目录静默期（秒）：源目录仍在写入时整任务跳过，默认不启用 |
 | `conflict_policy` | ○ | 同名文件冲突策略（默认 `"skip"`） |
 | `max_retries` | ○ | 单文件操作失败的最大重试次数（默认 3） |
-| `remove_empty_dirs` | ✓ | 任务结束后是否清理空目录 |
-| `mtime_threshold_seconds` | ✓ | 修改时间阈值（秒），同时约束传输与删除 |
+| `remove_empty_dirs` | ○ | 任务结束后是否清理空目录（默认 `false`） |
+| `mtime_threshold_seconds` | ○ | 修改时间阈值（秒），同时约束传输与删除；`0` 或缺省表示不限制 |
 | `include_rules` | ○ | 纳入规则：仅命中的文件参与处理；未配置时视为全部纳入 |
 | `exclude_rules` | ○ | 排除规则：命中的文件/目录跳过，不处理 |
 | `delete_rules` | ○ | 删除规则：命中的文件/目录直接删除（同样受 mtime 阈值约束） |
@@ -454,7 +454,7 @@ SmartArchiver 的核心能力是**对源目录中的文件执行某种操作**�
 | `source_quiet_seconds` | ○ | 源目录静默期（秒）：源目录仍在写入时整任务跳过，默认不启用 |
 | `conflict_policy` | ○ | 同名文件冲突策略（默认 `"skip"`），语义同 move / copy 模式 |
 | `max_retries` | ○ | 单文件操作失败的最大重试次数（默认 3），语义同 move / copy 模式 |
-| `remove_empty_dirs` | ✓ | 任务结束后是否清理空目录 |
+| `remove_empty_dirs` | ○ | 任务结束后是否清理空目录（默认 `false`） |
 | `size_limit` | ○ | 全局目录总体积上限，如 `"1GB"`，`0` 表示不限制 |
 | `count_limit` | ○ | 全局目录文件总数量上限，`0` 表示不限制 |
 | `rotate_rules` | ○ | 规则级限制：按模式分组设定 size / count 上限（不支持匹配目录） |
@@ -497,11 +497,11 @@ SmartArchiver 的核心能力是**对源目录中的文件执行某种操作**�
 
 单个文件连续操作失败的最大次数。连续失败达到该次数后，该文件在本任务内进入失败隔离，后续轮次直接跳过（日志记“跳过文件 (多次失败)”）；某轮操作成功即清零计数。失败历史按任务隔离（mode + source + dest），不同任务对同一文件的失败计数互不影响，因此可靠性差异大的源目录（本地盘 / 网络挂载 / 远端）可按任务分别设定容忍度。
 
-**`mtime_threshold_seconds`**（move / copy 模式必填）：
+**`mtime_threshold_seconds`**（move / copy 模式选填，默认 `0`，即不限制）：
 
 文件最近修改时间需超过该阈值（秒）才会被处理。**该阈值同时约束传输和删除**——即便是被 `delete_rules` 匹配的文件，如果其 mtime 不满足阈值也不会被删除。
 
-设为 `0` 表示无时间限制，所有文件立即参与处理。
+设为 `0`（或缺省）表示无时间限制，所有文件立即参与处理。
 
 **轮转模式（rotate）不需要此参数**。轮转按文件 mtime 升序处理（最旧的优先），新文件天然排在后面。
 
@@ -511,7 +511,7 @@ SmartArchiver 的核心能力是**对源目录中的文件执行某种操作**�
 
 适用场景：定时任务高频运行时，等待“正在下载 / 正在同步”的目录静置下来再归档，避免文件写了一半就被搬走。源目录静置超过该秒数后，任务才会实际执行。
 
-**`remove_empty_dirs`**（move / copy / rotate 模式）：
+**`remove_empty_dirs`**（move / copy / rotate 模式选填，默认 `false`）：
 
 任务结束后自底向上清理源目录中的空目录。清理时会跳过符号链接和挂载点，不会意外卸载外部存储。
 
@@ -577,8 +577,6 @@ mode = "rotate"
 mode = "move"
 source = "./my_files"
 dest = "./archive"
-mtime_threshold_seconds = 86400   # 1 天
-remove_empty_dirs = false
 ```
 
 **rotate 最小配置**（仅全局体积限制）：
@@ -588,7 +586,6 @@ remove_empty_dirs = false
 mode = "rotate"
 source = "./logs"
 size_limit = "500MB"
-remove_empty_dirs = false
 ```
 
 **sync 最小配置**：

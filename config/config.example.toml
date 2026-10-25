@@ -125,11 +125,11 @@ source = "./source"
 # 【选填】目标目录路径；缺省时不传输文件，仅 delete_rules 有实际效果
 # dest = "./dest"
 
-# 【必填】修改时间阈值（秒），同时约束传输与删除；0 表示不限制
-mtime_threshold_seconds = 10800
+# 【选填】修改时间阈值（秒），同时约束传输与删除；0 或缺省表示不限制
+# mtime_threshold_seconds = 10800
 
-# 【必填】任务结束后是否清理源目录中的空目录
-remove_empty_dirs = true
+# 【选填】任务结束后是否清理源目录中的空目录；默认 false
+# remove_empty_dirs = true
 
 # 【选填】同名冲突策略；范围："skip"（默认）/ "overwrite" / "copy"（创建编号副本）
 # conflict_policy = "skip"
@@ -170,9 +170,7 @@ source = "./source-2"
 
 # dest = "./dest-2"
 
-mtime_threshold_seconds = 10800
-
-remove_empty_dirs = true
+# remove_empty_dirs = true
 conflict_policy = "skip"
 
 # 【选填】全局目录总体积上限，0 表示不限制；与 count_limit、rotate_rules 至少配置一项
