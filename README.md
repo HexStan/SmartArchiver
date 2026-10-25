@@ -171,7 +171,6 @@ docker run -d \
 
 ```toml
 instance_name = "smartarchiver"           # 实例标识名：锁文件/控制文件/日志文件共用此名
-max_retries = 3                           # 单文件失败最大重试次数
 log_dir = "./logs"                        # 日志目录
 log_level = "INFO"                        # 日志级别：DEBUG / INFO / SUCCESS / WARNING / ERROR / CRITICAL
 max_log_files = 30                        # 保留的日志文件数量，0 表示不清理
@@ -436,6 +435,7 @@ SmartArchiver 的核心能力是**对源目录中的文件执行某种操作**�
 | `dest` | ○ | 目标目录路径；未配置时不传输文件，仅 `delete_rules` 删除可执行 |
 | `source_quiet_seconds` | ○ | 源目录静默期（秒）：源目录仍在写入时整任务跳过，默认不启用 |
 | `conflict_policy` | ○ | 同名文件冲突策略（默认 `"skip"`） |
+| `max_retries` | ○ | 单文件操作失败的最大重试次数（默认 3） |
 | `remove_empty_dirs` | ✓ | 任务结束后是否清理空目录 |
 | `mtime_threshold_seconds` | ✓ | 修改时间阈值（秒），同时约束传输与删除 |
 | `include_rules` | ○ | 纳入规则：仅命中的文件参与处理；未配置时视为全部纳入 |
@@ -453,6 +453,7 @@ SmartArchiver 的核心能力是**对源目录中的文件执行某种操作**�
 | `dest` | ○ | 轮转目标目录；未配置时不移动文件，仅 `delete_rules` 删除可执行 |
 | `source_quiet_seconds` | ○ | 源目录静默期（秒）：源目录仍在写入时整任务跳过，默认不启用 |
 | `conflict_policy` | ○ | 同名文件冲突策略（默认 `"skip"`），语义同 move / copy 模式 |
+| `max_retries` | ○ | 单文件操作失败的最大重试次数（默认 3），语义同 move / copy 模式 |
 | `remove_empty_dirs` | ✓ | 任务结束后是否清理空目录 |
 | `size_limit` | ○ | 全局目录总体积上限，如 `"1GB"`，`0` 表示不限制 |
 | `count_limit` | ○ | 全局目录文件总数量上限，`0` 表示不限制 |
@@ -491,6 +492,10 @@ SmartArchiver 的核心能力是**对源目录中的文件执行某种操作**�
 - `"overwrite"` — 覆盖目标文件
 - `"skip"` — 跳过该文件，不传输
 - `"copy"` — 创建带编号的副本，如 `file.txt` → `file-1.txt`。「copy」在此处指「保留两份」，不是指任务模式为复制
+
+**`max_retries`**（move / copy / rotate 模式选填，默认 `3`）：
+
+单个文件连续操作失败的最大次数。连续失败达到该次数后，该文件在本任务内进入失败隔离，后续轮次直接跳过（日志记“跳过文件 (多次失败)”）；某轮操作成功即清零计数。失败历史按任务隔离（mode + source + dest），不同任务对同一文件的失败计数互不影响，因此可靠性差异大的源目录（本地盘 / 网络挂载 / 远端）可按任务分别设定容忍度。
 
 **`mtime_threshold_seconds`**（move / copy 模式必填）：
 

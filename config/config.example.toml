@@ -134,6 +134,11 @@ remove_empty_dirs = true
 # 【选填】同名冲突策略；范围："skip"（默认）/ "overwrite" / "copy"（创建编号副本）
 # conflict_policy = "skip"
 
+# 【选填】单文件操作失败的最大重试次数，连续失败达到次数后该文件在本任务内
+#  被跳过（成功一次即清零）；默认 3
+#  范围：≥ 0 的整数
+# max_retries = 3
+
 # 【选填】纳入规则：仅命中的文件参与处理；缺省视为全部纳入
 # 阈值范围：大小字符串（支持 B、KB/MB/GB/TB 十进制、KiB/MiB/GiB/TiB 二进制）或 -1（所有大小）
 # 模式末尾带 / 匹配目录，不带 / 匹配文件；支持通配符 * 和 ?
@@ -172,6 +177,8 @@ conflict_policy = "skip"
 
 # 【选填】全局目录总体积上限，0 表示不限制；与 count_limit、rotate_rules 至少配置一项
 # size_limit = "1GiB"
+
+# max_retries = 3
 
 # 【选填】全局文件总数量上限，0 表示不限制
 # count_limit = 20
