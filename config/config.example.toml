@@ -1,295 +1,221 @@
 # ==================================================
+# SmartArchiver 客户端示例配置
+# 本文件仅列出各配置项的中文含义、允许填写范围与默认值；
+# 行为细节、规则语法与完整教程见 README「配置向导」。
+# 用法：复制本文件为 config/config.toml 后按需修改。
+# ==================================================
+
+# --------------------------------------------------
 # 全局基础配置
-# ==================================================
+# --------------------------------------------------
 
-# 实例标识名：同一份程序副本的身份证，锁文件、控制文件、日志文件共用此名
-# 锁文件与控制文件统一存放在系统临时目录（Linux: /tmp，macOS: 用户临时目录，Windows: %TEMP%），位置由程序决定
-# 如果需要同时运行多个实例，可以将程序复制多份，每份设置不同的 instance_name
-# 或直接运行多个Docker容器，容器不受实例锁限制且环境互相隔离
-# 未填或非法（如写了路径）时使用默认实例标识 smartarchiver
-instance_name = "smartarchiver"
+# 【选填】实例标识名：锁文件、控制文件、日志文件共用此名；多实例并行时须互不相同
+# 范围：仅填名称（不带路径/后缀）；缺省或非法时使用默认标识 smartarchiver
+# instance_name = "smartarchiver"
 
-# 文件操作失败时的最大重试次数
-max_retries = 3
+# 【选填】单文件操作失败的最大重试次数；默认 3
+# 范围：≥ 0 的整数
+# max_retries = 3
 
-# 日志文件存储目录
-log_dir = "./logs"
+# 【选填】日志文件存储目录；默认 "./logs"
+# log_dir = "./logs"
 
-# 日志级别，可选值："DEBUG", "INFO", "WARNING", "ERROR"
-log_level = "INFO"
+# 【选填】日志级别；默认 "INFO"
+# 范围："DEBUG" / "INFO" / "SUCCESS" / "WARNING" / "ERROR" / "CRITICAL"
+# log_level = "INFO"
 
-# 保留的日志文件数量（0 表示不清理）
-max_log_files = 30
+# 【选填】保留的日志文件数量，0 表示不清理；默认 0
+# 范围：≥ 0 的整数
+# max_log_files = 30
 
-# ==================================================
-# 定时任务配置（可选）
-# ==================================================
+# --------------------------------------------------
+# 定时调度（可选；不配置则执行完所有任务后退出）
+# --------------------------------------------------
 
-# [schedule]
-# 如果不配置 [schedule] 块，程序将作为一次性脚本执行
+[schedule]
 
-# 定时模式："cron" 或 "interval"
-# mode = "cron"
+# 【选填】定时模式；范围："cron" / "interval"
+mode = "interval"
 
-# cron 模式下的表达式（示例：每小时执行一次）
-# cron_expr = "0 * * * *"
+# 【interval 模式必填】每次执行完后等待的秒数；范围：> 0
+interval_seconds = 3600
 
-# interval 模式下的间隔秒数（任务执行完毕后开始计时）
-# interval_seconds = 3600
+# 【cron 模式必填】cron 表达式，如 "0 0 * * *"（每天 0 点）
+cron_expr = "0 0 * * *"
 
-# 启动后首次执行任务的延迟时间（秒，仅在配置了 mode 时生效）
-# -1：等待至下个调度时间点再执行（默认值）
-# 0：启动后立即执行
-# 大于 0：等待指定秒数后执行第一次任务
+# first_run_delay：【选填】启动后首次执行延迟（秒），仅配置了 mode 时生效；默认 -1
+#   范围：-1（等到下个调度点）/ 0（立即）/ 正数（等待 N 秒）
 # first_run_delay = -1
 
-# ==================================================
-# 远程实例配置（可选）
-# ==================================================
-
-# 连接其他 SmartArchiver 实例，将其目录作为任务的目标目录
+# --------------------------------------------------
+# HTTP 远端（可选）：把其他 SmartArchiver 服务器的目录作为任务目标
+# --------------------------------------------------
 
 # [[http_remotes]]
-# alias = "my_nas"  # alias 仅允许 a-z、A-Z、0-9、-、_
-# address = "http://192.168.10.10:13579"
-# key = "your_api_key"
-# timeout = 14400  # HTTP 请求超时时间（秒），默认 14400（4 小时），按需逐设备配置
-# queue_time = 0   # 服务器繁忙时最多排队秒数；0 表示不排队直接放弃；按需逐设备配置
 
-# [[http_remotes]]
-# alias = "my_pc"
-# address = "http://192.168.10.20:13579"
-# key = "your_api_key"
-# timeout = 3600  # 示例：1 小时超时
-# queue_time = 120  # 示例：允许排队最多 2 分钟
+# 【必填】远端别名，供 dest 引用；范围：a-z、A-Z、0-9、-、_
+alias = "my_nas"
 
-# [[http_remotes]]
-# alias = "bob_server"
-# address = "https://sa.bob.com"  # 反向代理场景
-# key = "your_api_key"
+# 【必填】服务器地址，如 "http://192.168.10.10:13579"，也可为反向代理后的 HTTPS 域名
+address = "http://192.168.10.10:13579"
 
-# 使用远程实例的目录作为 dest 的写法：
-# 格式：{类型:别名}?路径
-#   - 类型：http 或 ssh
-#   - 别名：在 [[http_remotes]] 或 [[ssh_remotes]] 中定义的 alias
-#   - 路径：远端目标目录路径
-# 示例：
-# dest = "{http:my_nas}?/vol/1000/backup"
-# dest = "{http:my_pc}?D:/Backup"  # Windows 环境
-# dest = "{http:bob_server}?/mnt/ext_users/backup"
+# 【必填】与服务器 api_key 一致的鉴权密钥
+key = "your_api_key"
 
-# ==================================================
-# SSH 远端主机配置（可选，用于 sync 模式）
-# ==================================================
+# 【选填】HTTP 请求超时秒数；默认 14400（4 小时）；范围：≥ 0
+# timeout = 14400
 
-# 通过 SSH 连接远端主机，将其目录作为 sync 模式的同步目标。
-# SSH 远端与 HTTP 远端的配置完全隔离，允许别名重复。
-# 目前仅 sync 模式支持 SSH 远端。
-# dest 格式示例：dest = "{ssh:my_vps}?/var/backups/data"
+# 【选填】服务器繁忙时最多排队秒数，0 表示不排队直接放弃；默认 0；范围：≥ 0
+# queue_time = 120
+
+# dest 引用远端的写法：{http:别名}?远端路径
+# 如 dest = "{http:my_nas}?/vol/1000/backup"
+
+# --------------------------------------------------
+# SSH 远端（可选，仅 sync 模式支持）：把 SSH 主机的目录作为同步目标
+# --------------------------------------------------
 
 # [[ssh_remotes]]
-# alias = "my_vps"                          # 必填，仅允许 a-z、A-Z、0-9、-、_
-# host = "192.168.1.100"                    # 必填，远端主机地址
-# user = "root"                             # 必填，SSH 用户名
-# port = 22                                 # 选填，SSH 端口（默认 22）
-# key_file = "/home/user/.ssh/id_rsa"       # 选填，SSH 私钥路径
-# password_file = "/home/user/.ssh/pass"    # 选填，明文密码文件路径
-#   - 若配置了 password_file，rsync 将通过 sshpass 传递密码
-#   - rclone 将通过 SFTP 的 --sftp-pass 传递密码
 
-# [[ssh_remotes]]
-# alias = "backup_host"
-# host = "10.0.0.50"
-# user = "backup"
-# port = 2222
-# key_file = "/home/user/.ssh/backup_key"
+# 【必填】远端别名；范围：a-z、A-Z、0-9、-、_（与 HTTP 远端命名空间隔离，允许重名）
+alias = "my_vps"
 
-# 使用格式与 http_remotes 一致：
-# dest = "{ssh:my_vps}?/var/backups/data"
-# dest = "{ssh:backup_host}?/mnt/storage/archive"
+# 【必填】SSH 服务器地址
+host = "192.168.1.100"
 
-# ==================================================
-# 任务列表
-# ==================================================
+# 【必填】SSH 用户名
+user = "root"
 
+# 【选填】SSH 端口；默认 22；范围：1-65535 的整数
+# port = 22
+
+# 【选填】SSH 私钥路径（公钥认证）
+# key_file = "/root/.ssh/id_ed25519"
+
+# 【选填】明文密码文件路径（密码认证，文件内容为单行密码）
+# password_file = "/root/.ssh/pass"
+
+# dest 引用远端的写法：{ssh:别名}?远端 POSIX 绝对路径
+# 如 dest = "{ssh:my_vps}?/data"
+
+# --------------------------------------------------
+# 任务列表（[[tasks]] 数组，配置顺序即执行顺序）
+# --------------------------------------------------
+
+# ---- move / copy 模式：移动/复制文件到目标目录 ----
 [[tasks]]
-# 【选填】任务唯一标识：仅允许 a-z、A-Z、0-9、-、_，须在所有任务中唯一
-# 供其他任务的 depends_on 引用；不填则该任务不能被依赖
-# id = "stage_a"
 
-# 【选填】任务名称，可自定义
-name = "移动/复制任务示例"
+# 【选填】任务唯一标识，供其他任务的 depends_on 引用
+#  范围：a-z、A-Z、0-9、-、_，须在所有任务中唯一，不填则不能被依赖
+# id = "task-1"
 
-source = "./source" # 源目录路径
-dest = "./dest"     # 目标目录路径
+# 【选填】任务名称，仅用于日志展示
+# name = "Task 1"
 
-# 【必填】任务执行模式：
-# "move" - 移动文件到目标目录
-# "copy" - 复制文件到目标目录
-mode = "copy"
+# 【必填】任务执行模式；范围："move" / "copy"（在当前配置组合下）
+mode = "move"
 
-# 【必填】修改时间阈值（秒），只有修改时间超过此时间的文件才会被处理
-# 注意：所有操作（包括删除规则）都必须满足此时间阈值
+# 【必填】源目录路径
+source = "./source"
+
+# 【选填】源目录静默期（秒），目录仍在写入时整任务跳过；
+#  范围：≥ 0，0 或缺省不启用
+# source_quiet_seconds = 300
+
+# 【选填】目标目录路径；缺省时不传输文件，仅 delete_rules 有实际效果
+# dest = "./dest"
+
+# 【必填】修改时间阈值（秒），同时约束传输与删除；0 表示不限制
 mtime_threshold_seconds = 10800
 
-# 【选填】源目录静默期（秒）：以源目录的最新修改时间（含子目录内文件）为准，
-# 距今不超过该秒数说明目录仍在写入中，本轮整个任务跳过；0 或缺省不启用
-# source_quiet_seconds = 300
-
-# 【选填】文件冲突处理策略：
-# "skip" - 跳过已存在的文件（默认）
-# "overwrite" - 覆盖目标文件
-# "copy" - 创建带编号的副本（如 file-1.txt）
-conflict_policy = "skip"
-
-# 【必填】是否删除源目录中的空目录
+# 【必填】任务结束后是否清理源目录中的空目录
 remove_empty_dirs = true
 
-# 匹配规则说明：
-#
-# 决策流水线（按顺序判断，命中即停止）：
-#   1. include_rules 匹配？→ 不匹配则跳过，匹配则继续
-#      注意：目录始终通过 include 检查，以确保能遍历到匹配的子项
-#   2. exclude_rules 匹配？→ 匹配则跳过，不匹配则继续
-#   3. delete_rules 匹配？→ 匹配则删除，不匹配则正常传输（移动/复制）
-#
-# 若 include_rules 未配置，则所有文件均视为"已纳入"，直接从第 2 步开始。
-#
-# 大小阈值:
-#   - 仅当文件/目录大小【小于/大于等于】设定的阈值时，规则才会生效。lt 为小于，ge 为大于等于。
-#   - 如果希望匹配所有大小，请使用 ge 规则并设置为 -1（例如: "*.log" = -1）。
-#   - 支持单位: B、KB/MB/GB/TB（十进制）、KiB/MiB/GiB/TiB（二进制），-1 表示不限制。
+# 【选填】同名冲突策略；范围："skip"（默认）/ "overwrite" / "copy"（创建编号副本）
+# conflict_policy = "skip"
 
-# 【选填】纳入规则：仅命中的文件会被处理，未命中则跳过
-# 不配置此项（或删除整个 [tasks.include_rules] 块）则所有文件均纳入处理
-[tasks.include_rules]
-# 激活的示例（取消注释即生效）：
-# lt."*.mp4" = "10GiB"                 # 纳入小于 10GiB 的 .mp4 文件
-# ge."*.doc" = "1MiB"                  # 纳入大于等于 1MiB 的 .doc 文件
+# 【选填】纳入规则：仅命中的文件参与处理；缺省视为全部纳入
+# 阈值范围：大小字符串（支持 B、KB/MB/GB/TB 十进制、KiB/MiB/GiB/TiB 二进制）或 -1（所有大小）
+# 模式末尾带 / 匹配目录，不带 / 匹配文件；支持通配符 * 和 ?
+# [tasks.include_rules]
+# ge."*alpha*" = -1
 
-# 更多模式示例：
-# lt."*.log" = "10MiB"               # 后缀匹配：匹配 .log 后缀且小于 10MiB 的文件
-# ge."beta*" = "100MiB"              # 前缀匹配：匹配 beta 开头且大于等于 100MiB 的文件
-# ge."*charlie*" = "1GiB"             # 部分匹配：匹配名称中包含 charlie 且大于等于 1GiB 的文件
-# ge."delta.db" = -1                # 匹配所有名称为 delta.db 的文件
+# 【选填】排除规则：命中的文件/目录跳过
+# [tasks.exclude_rules]
+# ge."*bravo*" = -1
 
-# 目录匹配示例（末尾有`/`时匹配目录，目录内的子项自动继承纳入状态）：
-# ge."videos/" = -1                 # 纳入 videos 目录及其所有子项
-# lt."*echo*/" = "500MiB"            # 匹配名称中包含 echo 且小于 500MiB 的目录
+# 【选填】删除规则：命中的文件/目录直接删除，不传输
+# [tasks.delete_rules]
+# ge."*charlie*" = -1
 
-# 多级路径匹配示例：
-# lt."hotel/india/juliett/" = "5GiB" # 匹配 hotel/india/ 下小于 5GiB 的 juliett 目录
-# lt."kilo/*.pdf" = "100MiB"          # 匹配 kilo 目录下 .pdf 后缀且小于 100MiB 的文件
-# lt."lima/*/mike*" = "50MiB"         # 匹配 lima 下一级子目录中 mike 开头且小于 50MiB 的文件
-
-# 【选填】排除规则：命中的文件/目录将被跳过
-[tasks.exclude_rules]
-# 示例：
-# lt."*.log" = "10MiB"               # 跳过小于 10MiB 的 .log 文件
-# ge."important.tmp" = -1            # 跳过所有 important.tmp 文件
-# ge."backup/" = -1                 # 跳过所有 backup 目录（不遍历）
-
-# 【选填】删除规则：命中的文件/目录将被直接删除，不移动到目标目录
-[tasks.delete_rules]
-# 示例：
-# lt."*.tmp" = "1KiB"                # 删除小于 1KiB 的 .tmp 文件
-# ge."cache/" = "1GiB"               # 删除大于等于 1GiB 的 cache 目录
-# ge."*" = -1                       # 删除所有文件（仅删除，不传输）
-
-# --------------------------------------------------
-
+# ---- rotate 模式：目录超限时从最旧的文件开始轮转（移动或删除）----
 [[tasks]]
-name = "轮转移动任务示例"
 
-# 【选填】依赖的前置任务 id 列表：列表中全部前置任务在【同一轮执行中】
-# 正常跑完后，本任务才会开始；前置任务失败或被跳过时，本任务本轮跳过
-# （依赖链级联生效）。仅允许引用配置顺序中更早的任务；单个字符串视为
-# 单元素列表。"完成"指任务正常跑完——个别文件失败不影响（重试机制
-# 兜底），源目录静默期跳过也不影响
-# depends_on = ["stage_a"]
+# id = "task-2"
+# name = "Task 2"
 
-source = "./source-2"
-dest = "./dest-2"     # 【该模式下选填】
+# 【选填】依赖的前置任务 id 列表（单个字符串视为单元素列表）
+# depends_on = "task-1"
 
-# 【必填】任务执行模式：
-# "rotate" - 轮转模式
-# 当满足以下任一限制条件时，将最旧的文件移动到目标目录（或删除）：
-# 1. 源目录总体积超过 size_limit
-# 2. 源目录文件总数超过 count_limit
-# 3. 命中 rotate_rules 中的特定文件限制
+# 【必填】任务执行模式；范围："rotate"（在当前配置组合下）
 mode = "rotate"
 
-conflict_policy = "skip"
-remove_empty_dirs = true
-
-# 【选填】源目录静默期（秒）：以源目录的最新修改时间（含子目录内文件）为准，
-# 距今不超过该秒数说明目录仍在写入中，本轮整个任务跳过；0 或缺省不启用
+source = "./source-2"
 # source_quiet_seconds = 300
 
-#【以下四项必填至少一项】
-# 容量单位遵循 IEC 80000-13：KB/MB/GB/TB 按十进制（1KB = 1000B），
-# KiB/MiB/GiB/TiB 按二进制（1KiB = 1024B）；无法解析的容量值会导致任务被跳过。
-size_limit = "1GiB"    # 全局目录总体积限制，0 表示不限制。
-count_limit = 20    # 全局目录文件总数量限制，0 表示不限制。
+# dest = "./dest-2"
 
-# 细粒度轮转规则：
-# 不支持以 / 结尾来匹配目录。如果需要轮转一个目录，请配置为 /*。
-[tasks.rotate_rules.count]
-"alpha/*" = 10        # 轮转阈值为 alpha 目录内有 10 个文件
-"beta/*.mp4" = 100    # 轮转阈值为 beta 目录内有 100 个 MP4 文件
-"*.log" = 10          # 轮转阈值为一共有 10 个 .log 文件
-"charlie.zip" = 20    # 轮转阈值为一共有 20 个 charlie.zip 文件
+mtime_threshold_seconds = 10800
 
-[tasks.rotate_rules.size]
-"logs/*" = "10MiB"           # 轮转阈值为 logs 目录达到 10MiB
-"backup.iso" = "100MiB"      # 轮转阈值为 backup.iso 文件达到 100MiB
+remove_empty_dirs = true
+conflict_policy = "skip"
 
-# 符合轮转要求的文件会继续匹配以下规则：
-[tasks.exclude_rules]
+# 【选填】全局目录总体积上限，0 表示不限制；与 count_limit、rotate_rules 至少配置一项
+# size_limit = "1GiB"
 
-[tasks.delete_rules]
-# 如果希望轮转时直接删除而不是移动，可以配置：
-# ge."*" = -1
+# 【选填】全局文件总数量上限，0 表示不限制
+# count_limit = 20
 
-# --------------------------------------------------
+# 【选填】规则级轮转限制：按模式分组设定上限；count 为数量、size 为体积；
+# 不支持以 / 结尾匹配目录，限制目录下文件用 "目录名/*"
+# [tasks.rotate_rules.count]
+# "*delta*" = 100
 
+# [tasks.rotate_rules.size]
+# "*echo*" = "100MiB"
+
+# [tasks.exclude_rules]
+# ge."*foxtrot*" = -1
+
+# [tasks.delete_rules]
+# ge."*golf*" = -1
+
+# ---- sync 模式：镜像同步（不支持规则系统，过滤见 exclude / exclude_from）----
 [[tasks]]
-name = "同步任务示例"
 
-source = "./source-3"
-dest = "./dest-3"
+# id = "task-3"
+# name = "Task 3"
+# depends_on = "task-2"
 
-# 【必填】任务执行模式：
-# "sync" - 将源目录以镜像方式同步到目标目录
 mode = "sync"
 
-# 【选填】同步工具选择（默认 "auto"）：
-# - "auto"：优先使用打包版内置的 rclone（源码运行无内置工具，直接从下一步开始）；
-#   内置不可用时回退系统工具 — Windows 使用 PATH 中的 rclone，
-#   macOS/Linux 使用 PATH 中的 rsync（macOS 的系统 rsync 即 openrsync 实现）
-# - "rsync"：强制使用 rsync（需确保系统中已安装）
-# - "rclone"：强制使用 rclone（优先使用打包版内置的，其次系统 PATH）
-# 注意：macOS 的系统 rsync 为 openrsync 实现，不支持备份目录，
-#       create_backups 配置在该工具下会被忽略（日志中会给出警告）
-# tool = "auto"
-
-# 【选填】排除同步的文件或目录（支持通配符，由 rclone/rsync 处理）
-# exclude = ["*.tmp", "node_modules/"]
-
-# 【选填】排除规则文件路径列表（对应 rsync/rclone 的 --exclude-from 选项，可配置多个）：
-# 文件每行一条模式，空行与 # / ; 开头的注释行会被工具忽略；
-# rsync 与 rclone 的模式语法略有差异；路径按程序工作目录解析；
-# 运行时任一文件不存在，任务会报错跳过
-# exclude_from = ["exclude.txt"]
-
-# 【选填】是否为要替换或删除的文件复制副本
-# create_backups = true
-
-# 【选填】最多保留的副本份数（0 表示不限制）
-# max_backups = 5
-
-# 【选填】源目录静默期（秒）：以源目录的最新修改时间（含子目录内文件）为准，
-# 距今不超过该秒数说明目录仍在写入中，本轮整个任务跳过；0 或缺省不启用
+source = "./source-3"
 # source_quiet_seconds = 300
 
-# 同步模式下不支持配置 rules，请在 exclude / exclude_from 中指定
+# 【必填】目标目录路径
+dest = "./dest-3"
+
+# 【选填】同步工具；范围："auto"（默认）/ "rsync" / "rclone"
+# tool = "auto"
+
+# 【选填】排除模式列表，由底层工具处理
+# exclude = ["*hotel*", "*india*"]
+
+# 【选填】排除规则文件路径列表（对应 --exclude-from，可配置多个）
+# exclude_from = ["./exclude-1.txt", "./exclude-2.txt"]
+
+# 【选填】替换/删除前是否备份；默认 false
+# create_backups = true
+
+# 【选填】最多保留的备份份数，0 表示不限制；默认 0
+# max_backups = 0

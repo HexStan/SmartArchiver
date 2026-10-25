@@ -36,7 +36,7 @@ pip install --group runtime
 
 # 3. 创建并编辑配置文件
 cp config/config.example.toml config/config.toml
-# 按需编辑 config/config.toml，参考示例文件中的注释
+# 按需编辑 config/config.toml，各项含义与取值范围见下方「配置向导」
 
 # 4. 一次性运行（客户端模式）
 python main.py
@@ -109,7 +109,7 @@ python main.py --server start  # 脱离终端运行并跟随日志
 python main.py --server stop   # 停止（中止进行中的传输并尽快退出）
 ```
 
-服务器提供两个 API 端点：`POST /api/remote`（元数据操作）和 `POST /api/remote/upload`（文件上传），支持并发控制和排队机制。详细配置见 `config/config.server.example.toml`。
+服务器提供两个 API 端点：`POST /api/remote`（元数据操作）和 `POST /api/remote/upload`（文件上传），支持并发控制和排队机制。配置参数详见[配置向导·第三步·HTTP 服务器配置](#http-服务器配置)。
 
 ### Docker 部署（推荐）
 
@@ -157,11 +157,126 @@ docker run -d \
 
 为 sync 模式提供开箱即用的 SSH 远端目标容器（Alpine + OpenSSH + rsync），镜像发布到 `ghcr.io/hexstan/sa-ssh-server`。内置 rsync 且启用 SFTP 子系统，客户端无论走 rsync-over-SSH 还是 rclone SFTP 都可直接对接。
 
-> 本章默认典型部署：**SmartArchiver（客户端）与 SSH 服务器分属两台主机**，服务器端以 Docker Compose 部署。两台主机为同一台时流程相同，可省去第 2 步中复制公钥的操作。
+镜像的部署（密钥对生成、容器启动、密码认证备选、参数说明）与客户端的连接配置、连通性验证，统一见[配置向导·第三步·SSH 服务器配置](#ssh-服务器配置)。项目仓库自带的 `docker-compose.yml` 也预置了此服务（密码认证版），单机同仓库部署时取消注释即可使用。
 
-##### 第 1 步：在客户端生成密钥对
+---
+
+## 配置向导
+
+本章以**分步**的方式引导你完成配置文件的编写：先完成全局设置与定时调度，需要远程目标时先把远端配置好并验证连通，再定义任务——明确目标、填写参数、按需叠加规则。
+
+---
+
+### 第一步：全局设置
+
+```toml
+instance_name = "smartarchiver"           # 实例标识名：锁文件/控制文件/日志文件共用此名
+max_retries = 3                           # 单文件失败最大重试次数
+log_dir = "./logs"                        # 日志目录
+log_level = "INFO"                        # 日志级别：DEBUG / INFO / SUCCESS / WARNING / ERROR / CRITICAL
+max_log_files = 30                        # 保留的日志文件数量，0 表示不清理
+```
+
+**关于实例标识**：`instance_name` 只填名称（不带任何后缀），锁文件（`<标识>.lock`）、控制文件（`<标识>.ctl`）、PID 文件（`<标识>.pid`）统一存放在系统临时目录（Linux 的 `/tmp`、macOS 的用户临时目录、Windows 的 `%TEMP%`），具体位置由程序按平台决定；日志文件名亦以该标识为前缀（`<标识>.YYYY-MM-DD.log`）。未填或非法时使用默认标识——客户端为 `smartarchiver`，服务器模式为 `smartarchiver-server`。需要同时运行多个实例时，为每份程序配置不同的 `instance_name` 即可；Docker 容器各自拥有独立的临时目录，互不影响。
+
+> 服务器模式同样读取本节各项（写入 `config/config.server.toml`），服务器专属参数见[第三步·HTTP 服务器配置](#http-服务器配置)。
+
+---
+
+### 第二步：配置定时调度（可选）
+
+如果不配置 `[schedule]` 块，程序将作为一次性脚本运行（执行完所有任务后退出）。要让它常驻运行，添加：
+
+```toml
+[schedule]
+mode = "interval"            # "cron" 或 "interval"
+interval_seconds = 3600      # interval 模式：每次执行完等待的秒数
+# cron_expr = "0 * * * *"   # cron 模式：cron 表达式
+# first_run_delay = -1      # 启动后首次执行延迟（秒）；-1=等到下个调度点，0=立即，正数=等N秒
+```
+
+**两种定时模式**：
+- `interval`：每次任务执行完毕后开始计时，等待指定秒数后再次执行
+- `cron`：按 cron 表达式定时执行（如 `"0 2 * * *"` 表示每天凌晨 2 点）
+
+**校验规则**：`cron` 模式必须配置 `cron_expr`；`interval` 模式必须配置大于 0 的 `interval_seconds`，否则配置校验失败。
+
+**`first_run_delay`** 控制启动后首次执行的延迟（秒），仅在配置了 `mode` 时生效：
+- `-1`：等待至下个调度时间点再执行（默认）
+- `0`：立即执行
+- 正数：等待指定秒数后执行第一次任务
+
+程序支持配置热重载：在 `interval` 或 `cron` 定时运行期间，修改 `config.toml` 后程序会在下次执行前自动加载新配置。如新配置验证失败，会自动回退到备份配置。
+
+---
+
+### 第三步：配置远程目标（可选）
+
+如果 `dest` 不是本地路径，你需要配置远程目标后端。SmartArchiver 支持三种后端：
+
+| 后端 | dest 格式 | 支持的模式 | 说明 |
+|------|----------|-----------|------|
+| 本地 | `"./local/path"` | 全部 | 默认，无需额外配置 |
+| HTTP 远端 | `"{http:别名}?路径"` | move / copy / rotate | 远端需运行 SmartArchiver 服务器 |
+| SSH 远端 | `"{ssh:别名}?路径"` | 仅 sync | 远端需安装 rsync 或启用 SFTP |
+
+HTTP 和 SSH 的别名命名空间完全隔离，同一别名可同时用于两者。
+
+#### HTTP 服务器配置
+
+HTTP 远端的本质是把文件操作请求发给另一台 SmartArchiver **服务器实例**，因此先在远端主机上配置并启动服务器模式。服务器配置文件为 `config/config.server.toml`（由 `cp config/config.server.example.toml config/config.server.toml` 生成）：
+
+```toml
+api_key = "your_api_key"        # 客户端连接鉴权密钥
+port = 13579                    # HTTP 服务监听端口
+max_concurrent_metadata = 1     # 最多同时处理的元数据请求数量
+max_queue_metadata = 32         # 元数据请求的排队上限
+max_concurrent_uploads = 1      # 最多同时处理的上传请求数量
+max_queue_uploads = 32          # 上传请求的排队上限
+```
+
+| 参数 | 默认值 | 允许范围 | 说明 |
+|------|--------|----------|------|
+| `api_key` | `""` | 非空字符串 | 客户端连接时使用的 API 鉴权密钥；留空等于无鉴权，务必设置 |
+| `port` | `13579` | 1–65535 | HTTP 服务监听端口 |
+| `max_concurrent_metadata` | `1` | ≥ 1 | 最多同时处理的元数据请求数量 |
+| `max_queue_metadata` | `32` | ≥ 0 | 元数据请求的排队上限 |
+| `max_concurrent_uploads` | `1` | ≥ 1 | 最多同时处理的上传请求数量 |
+| `max_queue_uploads` | `32` | ≥ 0 | 上传请求的排队上限 |
+
+服务器提供两个 API 端点：`POST /api/remote`（元数据操作）和 `POST /api/remote/upload`（文件上传）。客户端排队等待的时长由客户端侧的 `queue_time` 决定；队列已满或等待超时，服务器会向客户端返回 503。启动与后台运行方式见[服务器模式](#服务器模式http-server)。
+
+#### 连接 HTTP 目标
+
+在 `config.toml` 中配置 `[[http_remotes]]`（`alias` 仅允许 a-z、A-Z、0-9、-、_），然后在任务的 `dest` 中引用：
+
+```toml
+[[http_remotes]]
+alias = "my_nas"
+address = "http://192.168.10.10:13579"   # 也可填反向代理后的 HTTPS 域名，如 "https://sa.bob.com"
+key = "your_api_key"
+timeout = 14400       # 请求超时（秒），默认 4 小时
+queue_time = 120      # 服务器繁忙时排队秒数，0 表示不排队直接放弃
+```
+
+远端需运行 `python main.py --server`（详见[服务器模式](#服务器模式http-server)）。
+
+`dest` 的写法为 `{http:别名}?远端路径`：
+
+```toml
+dest = "{http:my_nas}?/vol/1000/backup"
+dest = "{http:my_pc}?D:/Backup"   # 远端为 Windows 主机时填其盘符路径
+```
+
+#### SSH 服务器配置
+
+没有现成的 SSH 服务器？可用官方 [SSH 远端服务器镜像](#ssh-远端服务器镜像)（Alpine + OpenSSH + rsync，内置 SFTP 子系统）在远端主机上部署一个。
+
+> 本节默认典型部署：**SmartArchiver（客户端）与 SSH 服务器分属两台主机**，服务器端以 Docker Compose 部署。两台主机为同一台时流程相同，可省去第 2 步中复制公钥的操作。
 
 SSH 公钥认证的原理：**私钥只留在客户端，公钥登记到服务端**。连接时，服务端 sshd 用自己 `authorized_keys` 里登记的公钥验证客户端确实持有配对的私钥——私钥全程不出机，公钥本身是公开信息、可随意复制。
+
+**第 1 步：在客户端生成密钥对**
 
 在 **SmartArchiver 所在主机（客户端）**的 `docker-compose.yml` 同级目录中生成密钥对（客户端以 Docker 部署时的默认密钥位置）：
 
@@ -169,7 +284,7 @@ SSH 公钥认证的原理：**私钥只留在客户端，公钥登记到服务�
 mkdir -p ./ssh && ssh-keygen -t ed25519 -f ./ssh/id_ed25519 -N ""
 ```
 
-##### 第 2 步：在服务器主机部署容器
+**第 2 步：在服务器主机部署容器**
 
 把客户端 `./ssh/id_ed25519.pub` 的**文件内容**复制到服务器主机（scp、手动粘贴均可），保存为 `./ssh/authorized_keys` 文件——容器会把它挂载为 root 用户的 `/root/.ssh/authorized_keys`，即 sshd 校验公钥的位置。多个公钥每行一条。
 
@@ -223,9 +338,7 @@ docker run -d \
   ghcr.io/hexstan/sa-ssh-server:latest
 ```
 
-项目仓库自带的 `docker-compose.yml` 也预置了此服务（密码认证版），单机同仓库部署时取消注释即可使用。
-
-##### 参数说明
+**参数说明**：
 
 | 参数 | 说明 |
 |------|------|
@@ -236,9 +349,7 @@ docker run -d \
 
 两种认证方式可同时启用。容器启动时会自动生成缺失的 SSH 主机密钥；重建容器会更换主机密钥，SmartArchiver 客户端连接时禁用了主机密钥校验，不会因此连接失败。
 
-##### 验证连接
-
-容器启动后，回到 **SmartArchiver 所在主机（客户端）**，手动测试到服务器主机的 SSH 连通性：
+**验证连接**：容器启动后，回到 **SmartArchiver 所在主机（客户端）**，手动测试到服务器主机的 SSH 连通性：
 
 ```bash
 # 公钥认证（指定第 1 步生成的私钥）
@@ -248,17 +359,48 @@ ssh -i ./ssh/id_ed25519 -p 2222 root@服务器IP
 ssh -p 2222 root@服务器IP
 ```
 
-能登录且能看到 `/data` 目录后，按 [SSH 远端](#ssh-远端)一节配置客户端即可开始同步。
+能登录且能看到目标目录（如 `/data`）后，即可按下一节配置客户端开始同步。
+
+#### 连接 SSH 目标
+
+仅 sync 模式支持。在 `config.toml` 中配置 `[[ssh_remotes]]`（`alias` 仅允许 a-z、A-Z、0-9、-、_，与 HTTP 远端的命名空间隔离，允许重名），再在任务的 `dest` 中以 `{ssh:别名}?路径` 引用（路径为远端 POSIX 绝对路径）：
+
+```toml
+[[ssh_remotes]]
+alias = "my_vps"                           # 必填
+host = "192.168.1.100"                     # 必填，SSH 服务器地址
+user = "root"                              # 必填，SSH 用户名
+port = 2222                                # 选填，默认 22；使用 sa-ssh-server 镜像（-p 2222:22）时填 2222
+key_file = "/root/.ssh/id_ed25519"         # 选填，私钥路径（公钥认证）；示例为 Docker 客户端的容器内路径，见下方说明
+password_file = "/root/.ssh/pass"          # 选填，明文密码文件路径（密码认证，内容为单行密码），见下方说明
+
+[[tasks]]
+mode = "sync"
+source = "./data"
+dest = "{ssh:my_vps}?/data"                # 同步到远端 /data 目录
+```
+
+**认证方式**（两者都未配置时回退 SSH 默认行为：`~/.ssh/id_rsa` 等默认密钥或 ssh-agent）：
+
+| 方式 | 配置 | 客户端依赖 |
+|------|------|-----------|
+| 公钥认证 | `key_file` 指向私钥，对应公钥需在远端的 `authorized_keys` 中 | 无额外依赖 |
+| 密码认证 | `password_file` 指向仅含一行密码的文本文件 | rsync 通道需安装 `sshpass`；rclone 通道无额外依赖 |
+
+底层通过 `rsync -e "ssh ..."` 或 `rclone :sftp:` 实现，密码传递方式随通道不同：
+
+- **rsync 通道**（Docker 应用镜像、未装 rclone 的 Linux/macOS）：密码经 `sshpass -f` 传递，客户端必须已安装 sshpass（Docker 应用镜像已内置）
+- **rclone 通道**（打包版内置 rclone、Windows、`tool = "rclone"`）：走 SFTP，密码经环境变量传给 rclone，不依赖 sshpass
+
+**安全提示**：
+- 客户端连接禁用了主机密钥校验（`StrictHostKeyChecking=no`），首次连接无需确认指纹，请确保网络环境可信
+- `password_file` 为明文，建议设置权限（如 `chmod 600`）并避免提交到版本库；公网环境优先使用公钥认证
+- 客户端跑在 Docker 中时，取消注释 client 服务中的 `./ssh/id_ed25519:/root/.ssh/id_ed25519`（密码认证再加 `./ssh/pass:/root/.ssh/pass`），`key_file` / `password_file` 填容器内路径——即上方示例；非 Docker 客户端直接填私钥与密码文件的宿主机路径
+- 挂载源文件必须已存在（否则 Docker 会创建同名**目录**，容器内拿到的是空目录），与服务器端 `authorized_keys` 的注意事项相同
 
 ---
 
-## 配置向导
-
-本章以**决策树**的方式引导你完成 `config.toml` 的编写：先明确目标，再选择模式和参数，最后按需叠加规则和远程目标。
-
----
-
-### 第一步：明确你的目标
+### 第四步：明确任务目标
 
 SmartArchiver 的核心能力是**对源目录中的文件执行某种操作**。根据你想做的事，选择对应的任务模式（`mode`）：
 
@@ -277,9 +419,9 @@ SmartArchiver 的核心能力是**对源目录中的文件执行某种操作**�
 
 ---
 
-### 第二步：填写基础参数
+### 第五步：填写任务参数
 
-确定模式后，按所选模式对应的表格填写参数。`✓` 表示必填，`○` 表示选填；每张表只列出该模式支持的参数，规则参数的完整语法与决策流程见[第三步](#第三步用规则精确筛选move--copy--rotate-模式)。
+确定模式后，按所选模式对应的表格填写参数。`✓` 表示必填，`○` 表示选填；每张表只列出该模式支持的参数，规则参数的完整语法与决策流程见[第六步](#第六步用规则精确筛选move--copy--rotate-模式)。
 
 #### 参数总览
 
@@ -310,6 +452,7 @@ SmartArchiver 的核心能力是**对源目录中的文件执行某种操作**�
 | `source` | ✓ | 源目录路径 |
 | `dest` | ○ | 轮转目标目录；未配置时不移动文件，仅 `delete_rules` 删除可执行 |
 | `source_quiet_seconds` | ○ | 源目录静默期（秒）：源目录仍在写入时整任务跳过，默认不启用 |
+| `conflict_policy` | ○ | 同名文件冲突策略（默认 `"skip"`），语义同 move / copy 模式 |
 | `remove_empty_dirs` | ✓ | 任务结束后是否清理空目录 |
 | `size_limit` | ○ | 全局目录总体积上限，如 `"1GB"`，`0` 表示不限制 |
 | `count_limit` | ○ | 全局目录文件总数量上限，`0` 表示不限制 |
@@ -317,7 +460,7 @@ SmartArchiver 的核心能力是**对源目录中的文件执行某种操作**�
 | `exclude_rules` | ○ | 排除规则：命中的文件留在原地，不参与轮转 |
 | `delete_rules` | ○ | 删除规则：命中的文件直接删除，不移动到 dest |
 
-> rotate 模式的 `size_limit` / `count_limit` / `rotate_rules` 至少配置一项，程序才会执行；`include_rules` 不受支持，配置会导致任务报错跳过。
+> rotate 模式的 `size_limit` / `count_limit` / `rotate_rules` 至少配置一项，程序才会执行；`include_rules` 不受支持，配置会导致任务报错跳过。容量值的单位规范见[第六步·容量单位](#容量单位)。
 
 **sync 模式**
 
@@ -341,7 +484,7 @@ SmartArchiver 的核心能力是**对源目录中的文件执行某种操作**�
 
 #### 参数详解
 
-**`conflict_policy`**（move / copy 模式选填，默认 `"skip"`）：
+**`conflict_policy`**（move / copy / rotate 模式选填，默认 `"skip"`）：
 
 当目标位置已存在同名文件时的处理策略：
 
@@ -454,7 +597,7 @@ dest = "./mirror"
 
 ---
 
-### 第三步：用规则精确筛选（move / copy / rotate 模式）
+### 第六步：用规则精确筛选（move / copy / rotate 模式）
 
 如果基础参数不能满足你的需求——比如“只移动大于 100MB 的文件”、“删除所有 .tmp 但保护 .important.tmp”——你需要配置**规则**。
 
@@ -521,6 +664,18 @@ lt."*.tmp" = "1KB"               # 小于 1KB 的 .tmp 文件 → 删除
 ge."*" = -1                      # 所有文件 → 删除
 ```
 
+#### 容量单位
+
+规则阈值与 rotate 模式的 `size_limit` / `count_limit` 等容量值遵循 IEC 80000-13：
+
+| 单位 | 进制 | 换算 |
+|------|------|------|
+| B、KB / MB / GB / TB | 十进制 | 1 KB = 1000 B |
+| KiB / MiB / GiB / TiB | 二进制 | 1 KiB = 1024 B |
+
+- 规则阈值写 `-1` 表示匹配所有大小（不受大小限制）；rotate 模式的 `size_limit` / `count_limit` 写 `0` 表示不限制
+- 无法解析的容量值会导致任务被跳过
+
 #### 多级路径匹配
 
 模式可包含 `/` 来匹配嵌套路径（规则引擎接收的是相对源目录的路径）：
@@ -581,115 +736,6 @@ ge."alpha/beta/charlie.txt" = -1  # 精确路径匹配
 **`rotate_rules` 的全局限制与规则限制**：全局 `size_limit` / `count_limit` 对所有文件生效，规则级限制只对匹配特定模式的文件生效。一个文件可能同时属于全局组和多个规则组——只要任一关联分组超限，该文件就会被处理。处理完成后会从所有关联分组中扣除该文件的统计值。
 
 **轮转停止条件**：一旦所有分组（全局 + 规则级）都不再超限，轮转立即停止。已无可处理文件但仍有分组超限时，会输出警告日志。
-
----
-
-### 第四步：配置远程目标（可选）
-
-如果 `dest` 不是本地路径，你需要配置远程目标后端。SmartArchiver 支持三种后端：
-
-| 后端 | dest 格式 | 支持的模式 | 说明 |
-|------|----------|-----------|------|
-| 本地 | `"./local/path"` | 全部 | 默认，无需额外配置 |
-| HTTP 远端 | `"{http:别名}?路径"` | move / copy / rotate | 远端需运行 SmartArchiver 服务器 |
-| SSH 远端 | `"{ssh:别名}?路径"` | 仅 sync | 远端需安装 rsync 或启用 SFTP |
-
-HTTP 和 SSH 的别名命名空间完全隔离，同一别名可同时用于两者。
-
-#### HTTP 远端
-
-在 `config.toml` 中配置 `[[http_remotes]]`，然后在任务的 `dest` 中引用：
-
-```toml
-[[http_remotes]]
-alias = "my_nas"
-address = "http://192.168.10.10:13579"
-key = "your_api_key"
-timeout = 14400       # 请求超时（秒），默认 4 小时
-queue_time = 120      # 服务器繁忙时排队秒数，0 表示不排队直接放弃
-```
-
-远端需运行 `python main.py --server`（详见[服务器模式](#服务器模式http-server)）。
-
-#### SSH 远端
-
-仅 sync 模式支持。在 `config.toml` 中配置 `[[ssh_remotes]]`，再在任务的 `dest` 中以 `{ssh:别名}?路径` 引用（路径为远端 POSIX 绝对路径）：
-
-```toml
-[[ssh_remotes]]
-alias = "my_vps"                           # 必填，仅允许字母、数字、-、_
-host = "192.168.1.100"                     # 必填，SSH 服务器地址
-user = "root"                              # 必填，SSH 用户名
-port = 2222                                # 选填，默认 22；使用 sa-ssh-server 镜像（-p 2222:22）时填 2222
-key_file = "/root/.ssh/id_ed25519"         # 选填，私钥路径（公钥认证）；示例为 Docker 客户端的容器内路径，见下方说明
-password_file = "/root/.ssh/pass"          # 选填，明文密码文件路径（密码认证，内容为单行密码），见下方说明
-
-[[tasks]]
-mode = "sync"
-source = "./data"
-dest = "{ssh:my_vps}?/data"                # 同步到远端 /data 目录
-```
-
-没有现成的 SSH 服务器？可用官方 [SSH 远端服务器镜像](#ssh-远端服务器镜像)快速部署一个。
-
-**认证方式**（两者都未配置时回退 SSH 默认行为：`~/.ssh/id_rsa` 等默认密钥或 ssh-agent）：
-
-| 方式 | 配置 | 客户端依赖 |
-|------|------|-----------|
-| 公钥认证 | `key_file` 指向私钥，对应公钥需在远端的 `authorized_keys` 中 | 无额外依赖 |
-| 密码认证 | `password_file` 指向仅含一行密码的文本文件 | rsync 通道需安装 `sshpass`；rclone 通道无额外依赖 |
-
-底层通过 `rsync -e "ssh ..."` 或 `rclone :sftp:` 实现，密码传递方式随通道不同：
-
-- **rsync 通道**（Docker 应用镜像、未装 rclone 的 Linux/macOS）：密码经 `sshpass -f` 传递，客户端必须已安装 sshpass（Docker 应用镜像已内置）
-- **rclone 通道**（打包版内置 rclone、Windows、`tool = "rclone"`）：走 SFTP，密码经环境变量传给 rclone，不依赖 sshpass
-
-**安全提示**：
-- 客户端连接禁用了主机密钥校验（`StrictHostKeyChecking=no`），首次连接无需确认指纹，请确保网络环境可信
-- `password_file` 为明文，建议设置权限（如 `chmod 600`）并避免提交到版本库；公网环境优先使用公钥认证
-- 客户端跑在 Docker 中时，取消注释 client 服务中的 `./ssh/id_ed25519:/root/.ssh/id_ed25519`（密码认证再加 `./ssh/pass:/root/.ssh/pass`），`key_file` / `password_file` 填容器内路径——即上方示例；非 Docker 客户端直接填私钥与密码文件的宿主机路径
-- 挂载源文件必须已存在（否则 Docker 会创建同名**目录**，容器内拿到的是空目录），与服务器端 `authorized_keys` 的注意事项相同
-
----
-
-### 第五步：配置定时调度（可选）
-
-如果不配置 `[schedule]` 块，程序将作为一次性脚本运行（执行完所有任务后退出）。要让它常驻运行，添加：
-
-```toml
-[schedule]
-mode = "interval"            # "cron" 或 "interval"
-interval_seconds = 3600      # interval 模式：每次执行完等待的秒数
-# cron_expr = "0 * * * *"   # cron 模式：cron 表达式
-# first_run_delay = -1      # 启动后首次执行延迟（秒）；-1=等到下个调度点，0=立即，正数=等N秒
-```
-
-**两种定时模式**：
-- `interval`：每次任务执行完毕后开始计时，等待指定秒数后再次执行
-- `cron`：按 cron 表达式定时执行（如 `"0 2 * * *"` 表示每天凌晨 2 点）
-
-**`first_run_delay`** 控制启动后首次执行的延迟（秒）：
-- `-1`：等待至下个调度时间点再执行（默认）
-- `0`：立即执行
-- 正数：等待指定秒数后执行第一次任务
-
-程序支持配置热重载：在 `interval` 或 `cron` 定时运行期间，修改 `config.toml` 后程序会在下次执行前自动加载新配置。如新配置验证失败，会自动回退到备份配置。
-
----
-
-### 第六步：全局设置
-
-```toml
-instance_name = "smartarchiver"           # 实例标识名：锁文件/控制文件/日志文件共用此名
-max_retries = 3                           # 单文件失败最大重试次数
-log_dir = "./logs"                        # 日志目录
-log_level = "INFO"                        # 日志级别：DEBUG / INFO / WARNING / ERROR
-max_log_files = 30                        # 保留的日志文件数量，0 表示不清理
-```
-
-**关于实例标识**：`instance_name` 只填名称（不带任何后缀），锁文件（`<标识>.lock`）、控制文件（`<标识>.ctl`）、PID 文件（`<标识>.pid`）统一存放在系统临时目录（Linux 的 `/tmp`、macOS 的用户临时目录、Windows 的 `%TEMP%`），具体位置由程序按平台决定；日志文件名亦以该标识为前缀（`<标识>.YYYY-MM-DD.log`）。未填或非法时使用默认标识。实例锁全平台生效：Linux / macOS 通过 `fcntl.flock`，Windows 通过 `msvcrt.locking`（server 模式同样持有实例锁）；锁由操作系统在进程退出时自动释放，不会残留死锁。需要同时运行多个实例时，为每份程序配置不同的 `instance_name` 即可，锁、控制通道与日志随之完全隔离；Docker 容器各自拥有独立的临时目录，互不影响。
-
-> 配置项 `lock_file` 已更名为 `instance_name`（去掉 `.lock` 后缀），旧键不再生效。
 
 ---
 
