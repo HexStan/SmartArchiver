@@ -142,7 +142,7 @@ class RotateRulesConfig(BaseModel):
 
 
 def _coerce_exclude(value: object) -> object:
-    """exclude 单字符串容错为单元素列表（既有语义），其余原样放行。"""
+    """exclude / exclude_from 单字符串容错为单元素列表（既有语义），其余原样放行。"""
     if isinstance(value, str):
         return [value]
     return value
@@ -240,6 +240,12 @@ class SyncTaskConfig(TaskBase):
     dest: str
     tool: str = "auto"
     exclude: Annotated[list[str], BeforeValidator(_coerce_exclude)] = Field(default_factory=list)
+    # 排除规则文件路径列表（透传给工具的 --exclude-from）：只传路径不做内容解析，
+    # 文件内注释行/模式语法由底层工具处理；文件存在性是外部条件，
+    # 由 handler 在运行期校验，不在加载期判定
+    exclude_from: Annotated[list[str], BeforeValidator(_coerce_exclude)] = Field(
+        default_factory=list
+    )
     create_backups: bool = False
     max_backups: int = Field(default=0, ge=0)
 

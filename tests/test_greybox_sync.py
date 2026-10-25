@@ -117,6 +117,79 @@ class TestLocalSyncCommands:
             "cache/",
         ]
 
+    def test_exclude_from_forwarded_rsync(self, run_task, tmp_path, stub_procs, prepared_dirs):
+        src, dest = prepared_dirs
+        exclude_file = tmp_path / "exclude.txt"
+        exclude_file.write_text("*.log\n", encoding="utf-8")
+        run_task(sync_task(tmp_path, tool="rsync", exclude_from=str(exclude_file)))
+
+        # 本地 rsync：exclude_from 以 = 连接的单参数透传（与 --backup-dir= 同风格）
+        assert stub_procs.calls[0].cmd == [
+            "rsync",
+            "-av",
+            "--delete",
+            src + "/",
+            dest,
+            f"--exclude-from={exclude_file}",
+        ]
+
+    def test_exclude_from_forwarded_rclone(self, run_task, tmp_path, stub_procs, prepared_dirs):
+        src, dest = prepared_dirs
+        exclude_file = tmp_path / "exclude.txt"
+        exclude_file.write_text("*.log\n", encoding="utf-8")
+        run_task(sync_task(tmp_path, tool="rclone", exclude_from=str(exclude_file)))
+
+        # 本地 rclone：exclude_from 以分离参数透传（与 --exclude 同风格）
+        assert stub_procs.calls[0].cmd == [
+            "rclone",
+            "sync",
+            src,
+            dest,
+            "--exclude-from",
+            str(exclude_file),
+        ]
+
+    def test_exclude_from_multiple_files_kept_in_order(
+        self, run_task, tmp_path, stub_procs, prepared_dirs
+    ):
+        """多个规则文件按配置顺序逐个透传（rsync/rclone 均支持重复该选项）。"""
+        _src, _dest = prepared_dirs
+        first = tmp_path / "a.txt"
+        second = tmp_path / "b.txt"
+        first.write_text("*.log\n", encoding="utf-8")
+        second.write_text("cache/\n", encoding="utf-8")
+        run_task(sync_task(tmp_path, tool="rsync", exclude_from=[str(first), str(second)]))
+
+        cmd = stub_procs.calls[0].cmd
+        assert [a for a in cmd if a.startswith("--exclude-from=")] == [
+            f"--exclude-from={first}",
+            f"--exclude-from={second}",
+        ]
+
+    def test_exclude_from_combined_with_exclude_and_backups(
+        self, run_task, tmp_path, stub_procs, prepared_dirs
+    ):
+        _src, _dest = prepared_dirs
+        exclude_file = tmp_path / "exclude.txt"
+        exclude_file.write_text("*.log\n", encoding="utf-8")
+        run_task(
+            sync_task(
+                tmp_path,
+                tool="rsync",
+                exclude=["*.tmp"],
+                exclude_from=str(exclude_file),
+                create_backups=True,
+            )
+        )
+
+        cmd = stub_procs.calls[0].cmd
+        # 顺序：内联 --exclude → --exclude-from → --backup/--backup-dir
+        assert cmd.index("--exclude") < cmd.index(f"--exclude-from={exclude_file}")
+        assert cmd.index(f"--exclude-from={exclude_file}") < cmd.index("--backup")
+        # 备份目录排除机制不受影响：仍以内联 --exclude 追加
+        backups_idx = cmd.index(".smart-archiver.backups/")
+        assert cmd[backups_idx - 1] == "--exclude"
+
     def test_nonzero_exit_code_logs_error(
         self, run_task, tmp_path, stub_procs, prepared_dirs, capture_log
     ):
@@ -308,6 +381,16 @@ class TestSyncRejections:
         assert stub_procs.calls == []
         assert capture_log.has("critical", "目标目录不存在")
 
+    def test_missing_exclude_from_file_aborts(
+        self, run_task, tmp_path, stub_procs, prepared_dirs, capture_log
+    ):
+        """exclude_from 文件缺失即 fail fast：不发起同步（无进程调用）。"""
+        run_task(sync_task(tmp_path, tool="rsync", exclude_from=str(tmp_path / "nope.txt")))
+
+        assert stub_procs.calls == []
+        assert capture_log.has("error", "exclude_from 文件不存在")
+        assert capture_log.has("error", "nope.txt")
+
 
 class TestSourceQuietPeriod:
     """source_quiet_seconds：源目录静默期内整任务跳过，连工具解析都
@@ -369,6 +452,42 @@ class TestSshSyncCommands:
 
         rsh = stub_procs.calls[0].cmd[4]
         assert rsh.startswith("sshpass -f /pass ssh ")
+
+    def test_rsync_ssh_exclude_from_forwarded(self, run_task, tmp_path, stub_procs, ssh_ready):
+        make_tree(tmp_path / "src", {"a.txt": b"x"})
+        exclude_file = tmp_path / "exclude.txt"
+        exclude_file.write_text("*.log\n", encoding="utf-8")
+        remote = SshRemote(alias="vps", host="192.168.1.100", user="root")
+        run_task(
+            sync_task(
+                tmp_path,
+                tool="rsync",
+                dest="{ssh:vps}?/remote/data",
+                exclude_from=str(exclude_file),
+            ),
+            ssh_remotes={"vps": remote},
+        )
+
+        # 规则文件由本地 rsync 读取：路径仍是本地路径，与目标是否为远端无关
+        assert f"--exclude-from={exclude_file}" in stub_procs.calls[0].cmd
+
+    def test_rclone_ssh_exclude_from_forwarded(self, run_task, tmp_path, stub_procs, ssh_ready):
+        make_tree(tmp_path / "src", {"a.txt": b"x"})
+        exclude_file = tmp_path / "exclude.txt"
+        exclude_file.write_text("*.log\n", encoding="utf-8")
+        remote = SshRemote(alias="vps", host="192.168.1.100", user="root")
+        run_task(
+            sync_task(
+                tmp_path,
+                tool="rclone",
+                dest="{ssh:vps}?/remote/data",
+                exclude_from=str(exclude_file),
+            ),
+            ssh_remotes={"vps": remote},
+        )
+
+        cmd = stub_procs.calls[0].cmd
+        assert cmd[cmd.index("--exclude-from") + 1] == str(exclude_file)
 
     def test_rclone_ssh_command(self, run_task, tmp_path, stub_procs, ssh_ready):
         src = make_tree(tmp_path / "src", {"a.txt": b"x"})

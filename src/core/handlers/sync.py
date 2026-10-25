@@ -165,12 +165,15 @@ def _run_rclone_sync(
     source_root: str,
     dest_root: str,
     exclude_list: list[str],
+    exclude_from: list[str],
     backup_dir: str | None,
     rclone_cmd: str,
 ) -> bool:
     cmd = [rclone_cmd, "sync", source_root, dest_root]
     for ex in exclude_list:
         cmd.extend(["--exclude", ex])
+    for path in exclude_from:
+        cmd.extend(["--exclude-from", path])
     if backup_dir:
         cmd.extend(["--backup-dir", backup_dir])
 
@@ -181,6 +184,7 @@ def _run_rsync_sync(
     source_root: str,
     dest_root: str,
     exclude_list: list[str],
+    exclude_from: list[str],
     backup_dir: str | None,
     rsync_cmd: str,
 ) -> bool:
@@ -188,6 +192,8 @@ def _run_rsync_sync(
     cmd = [rsync_cmd, "-av", "--delete", src, dest_root]
     for ex in exclude_list:
         cmd.extend(["--exclude", ex])
+    for path in exclude_from:
+        cmd.append(f"--exclude-from={path}")
     if backup_dir:
         cmd.extend(["--backup", f"--backup-dir={backup_dir}"])
 
@@ -213,6 +219,13 @@ class SyncHandler(BaseTaskHandler):
         if not os.path.exists(self.source_root):
             ctx.logger.error(f"源目录不存在: {self.source_root}")
             return False
+
+        # exclude_from 规则文件是外部条件（与源目录存在性同级）：缺失即 fail fast，
+        # 不发起同步——工具侧对缺失文件的报错信息不友好
+        for path in self.config.exclude_from:
+            if not os.path.isfile(path):
+                ctx.logger.error(f"exclude_from 文件不存在: {path}")
+                return False
 
         # 加载期 validate_dest 已保证 kind 组合合法（sync：本地或 SSH），
         # 此处解析只为取得 SSH 连接参数与远端根路径
@@ -240,13 +253,14 @@ class SyncHandler(BaseTaskHandler):
             return False
 
         exclude_list = self.config.exclude
+        exclude_from = self.config.exclude_from
 
         backup_enabled = self.config.create_backups
         max_backups = self.config.max_backups
 
         if remote is not None:
             return self._execute_ssh_sync(
-                remote, parsed.path, tool, exclude_list, backup_enabled, max_backups
+                remote, parsed.path, tool, exclude_list, exclude_from, backup_enabled, max_backups
             )
 
         backup_dir = None
@@ -264,6 +278,7 @@ class SyncHandler(BaseTaskHandler):
             self.source_root,
             self.dest_root,
             exclude_list,
+            exclude_from,
             backup_dir,
             tool.exec_path,
         )
@@ -278,6 +293,7 @@ class SyncHandler(BaseTaskHandler):
         remote_root: str,
         tool: SyncTool,
         exclude_list: list[str],
+        exclude_from: list[str],
         backup_enabled: bool,
         max_backups: int,
     ) -> bool:
@@ -292,8 +308,12 @@ class SyncHandler(BaseTaskHandler):
                 _warn_backup_unsupported()
 
         if tool.name == "rsync":
-            return self._run_ssh_rsync(tool, remote, remote_root, exclude_list, backup_dir)
-        return self._run_ssh_rclone(tool, remote, remote_root, exclude_list, backup_dir)
+            return self._run_ssh_rsync(
+                tool, remote, remote_root, exclude_list, exclude_from, backup_dir
+            )
+        return self._run_ssh_rclone(
+            tool, remote, remote_root, exclude_list, exclude_from, backup_dir
+        )
 
     def _run_ssh_rsync(
         self,
@@ -301,6 +321,7 @@ class SyncHandler(BaseTaskHandler):
         remote: SshRemote,
         remote_root: str,
         exclude_list: list[str],
+        exclude_from: list[str],
         backup_dir: str | None,
     ) -> bool:
         """通过 rsync + SSH 同步到远端主机。"""
@@ -314,6 +335,8 @@ class SyncHandler(BaseTaskHandler):
 
         for ex in exclude_list:
             cmd.extend(["--exclude", ex])
+        for path in exclude_from:
+            cmd.append(f"--exclude-from={path}")
 
         if backup_dir:
             # --backup-dir 只接受目录路径，不支持 user@host: 前缀。
@@ -329,6 +352,7 @@ class SyncHandler(BaseTaskHandler):
         remote: SshRemote,
         remote_root: str,
         exclude_list: list[str],
+        exclude_from: list[str],
         backup_dir: str | None,
     ) -> bool:
         """通过 rclone SFTP 同步到远端主机。"""
@@ -356,6 +380,8 @@ class SyncHandler(BaseTaskHandler):
 
         for ex in exclude_list:
             cmd.extend(["--exclude", ex])
+        for path in exclude_from:
+            cmd.extend(["--exclude-from", path])
 
         if backup_dir:
             remote_dest = f":sftp:{backup_dir}"

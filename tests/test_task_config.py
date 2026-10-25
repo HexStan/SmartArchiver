@@ -208,6 +208,7 @@ class TestSyncTask:
 
         assert task.tool == "auto"
         assert task.exclude == []
+        assert task.exclude_from == []
         assert task.create_backups is False
         assert task.max_backups == 0
 
@@ -239,6 +240,18 @@ class TestSyncTask:
     def test_exclude_non_string_item_rejected(self):
         message = _format(SyncTaskConfig, _sync(exclude=["a", 123]))
         assert "exclude" in message
+
+    def test_exclude_from_single_string_coerced(self):
+        task = SyncTaskConfig.model_validate(_sync(exclude_from="rules/exclude.txt"))
+        assert task.exclude_from == ["rules/exclude.txt"]
+
+    def test_exclude_from_list_kept(self):
+        task = SyncTaskConfig.model_validate(_sync(exclude_from=["a.txt", "b.txt"]))
+        assert task.exclude_from == ["a.txt", "b.txt"]
+
+    def test_exclude_from_non_string_item_rejected(self):
+        message = _format(SyncTaskConfig, _sync(exclude_from=["a.txt", 123]))
+        assert "exclude_from" in message
 
     def test_negative_max_backups_rejected(self):
         message = _format(SyncTaskConfig, _sync(max_backups=-1))

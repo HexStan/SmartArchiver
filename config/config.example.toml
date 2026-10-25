@@ -276,6 +276,12 @@ mode = "sync"
 # 【选填】排除同步的文件或目录（支持通配符，由 rclone/rsync 处理）
 # exclude = ["*.tmp", "node_modules/"]
 
+# 【选填】排除规则文件路径列表（对应 rsync/rclone 的 --exclude-from 选项，可配置多个）：
+# 文件每行一条模式，空行与 # / ; 开头的注释行会被工具忽略；
+# rsync 与 rclone 的模式语法略有差异；路径按程序工作目录解析；
+# 运行时任一文件不存在，任务会报错跳过
+# exclude_from = ["exclude.txt"]
+
 # 【选填】是否为要替换或删除的文件复制副本
 # create_backups = true
 
@@ -286,4 +292,4 @@ mode = "sync"
 # 距今不超过该秒数说明目录仍在写入中，本轮整个任务跳过；0 或缺省不启用
 # source_quiet_seconds = 300
 
-# 同步模式下不支持配置 rules，请在 exclude 中指定
+# 同步模式下不支持配置 rules，请在 exclude / exclude_from 中指定
