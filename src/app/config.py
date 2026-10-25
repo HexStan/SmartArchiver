@@ -35,10 +35,10 @@ class ConfigError(Exception):
 class ScheduleConfig(BaseModel):
     """[schedule] 配置块模型；仅客户端调度路径消费（_run_schedule）。
 
-    mode 不用 Literal：非法值需逐字保留既有中文错误消息，validator
-    抛出的 ValueError 经 format_validation_error 原样透出。同理，
-    interval_seconds 的"大于 0"约束由模型级校验承担而非字段级 gt，
-    以复用既有错误文案。
+    mode 不用 Literal：错误文案需逐字可控（Literal 的默认报错文案
+    不满足），validator 抛出的 ValueError 经 format_validation_error
+    原样透出。同理，interval_seconds 的"大于 0"约束由模型级校验
+    承担而非字段级 gt，以保持错误文案统一。
     """
 
     mode: str | None = None

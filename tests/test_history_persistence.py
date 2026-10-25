@@ -111,14 +111,14 @@ class TestPersistence:
 
         assert hm.should_skip(COPY, "/f.txt", 1) == (False, 0)
 
-    def test_old_flat_format_starts_empty(self, tmp_path):
-        """旧版扁平 path → 次数格式不被兼容：顶层不是数组即从空历史开始。"""
-        (tmp_path / "legacy").mkdir()
-        (tmp_path / "legacy" / "failure_history.json").write_text(
+    def test_non_array_format_starts_empty(self, tmp_path):
+        """顶层不是数组（如扁平 path → 次数映射）即从空历史开始。"""
+        (tmp_path / "flat").mkdir()
+        (tmp_path / "flat" / "failure_history.json").write_text(
             json.dumps({"/f.txt": 2}), encoding="utf-8"
         )
 
-        hm = make_manager(tmp_path, name="legacy")
+        hm = make_manager(tmp_path, name="flat")
 
         assert hm.should_skip(COPY, "/f.txt", 1) == (False, 0)
 

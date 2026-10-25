@@ -285,15 +285,15 @@ class TestScheduleConfig:
         assert schedule.mode == "cron"
         assert schedule.cron_expr == "0 * * * *"
 
-    def test_invalid_mode_keeps_legacy_message(self):
+    def test_invalid_mode_error_message(self):
         with pytest.raises(ValidationError, match="不支持的定时模式: weekly"):
             ScheduleConfig.model_validate({"mode": "weekly"})
 
-    def test_cron_requires_expr_keeps_legacy_message(self):
+    def test_cron_requires_expr_error_message(self):
         with pytest.raises(ValidationError, match="cron 模式需要配置 cron_expr"):
             ScheduleConfig.model_validate({"mode": "cron"})
 
-    def test_interval_requires_seconds_keeps_legacy_message(self):
+    def test_interval_requires_seconds_error_message(self):
         with pytest.raises(ValidationError, match="interval 模式需要配置有效的 interval_seconds"):
             ScheduleConfig.model_validate({"mode": "interval"})
 

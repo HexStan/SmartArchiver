@@ -272,8 +272,7 @@ class TestValidateDest:
 
     @pytest.mark.parametrize("mode", ["move", "copy", "rotate"])
     def test_per_file_modes_reject_ssh_dest(self, mode):
-        """逐文件传输模式拒绝 SSH 目标——旧行为是运行时 NotImplementedError，
-        现在在加载期收口为配置错误。"""
+        """逐文件传输模式拒绝 SSH 目标：在加载期即报配置错误，不等到运行时。"""
         reason = dest.validate_dest("{ssh:vps}?/data", mode, http_aliases=(), ssh_aliases={"vps"})
         assert reason is not None
         assert "不支持 SSH 远端目标" in reason
