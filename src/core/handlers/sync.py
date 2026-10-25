@@ -105,7 +105,51 @@ def _warn_backup_unsupported():
     )
 
 
-def _run_sync_command(cmd: list[str], tool_name: str, prepend_timestamp: bool = False) -> bool:
+# ============================================================
+# 公共参数段构造（过滤规则 + 备份选项，与目标寻址无关）
+# ============================================================
+
+
+def _rsync_common_args(
+    exclude_list: list[str], exclude_from: list[str], backup_dir: str | None
+) -> list[str]:
+    """构造 rsync 的过滤规则与备份选项段；--exclude-from/--backup-dir 用等号连写形式。"""
+    args: list[str] = []
+    for ex in exclude_list:
+        args.extend(["--exclude", ex])
+    for path in exclude_from:
+        args.append(f"--exclude-from={path}")
+    if backup_dir:
+        args.extend(["--backup", f"--backup-dir={backup_dir}"])
+    return args
+
+
+def _rclone_common_args(
+    exclude_list: list[str], exclude_from: list[str], backup_dir: str | None
+) -> list[str]:
+    """构造 rclone 的过滤规则与备份选项段；与 --exclude 同风格，全部双参数形式。"""
+    args: list[str] = []
+    for ex in exclude_list:
+        args.extend(["--exclude", ex])
+    for path in exclude_from:
+        args.extend(["--exclude-from", path])
+    if backup_dir:
+        args.extend(["--backup-dir", backup_dir])
+    return args
+
+
+def _run_sync_command(
+    cmd: list[str],
+    tool_name: str,
+    *,
+    env: dict[str, str] | None = None,
+    prepend_timestamp: bool = False,
+) -> bool:
+    """启动同步工具进程并消费其输出直至退出。
+
+    env 为附加进程环境变量（None 时继承当前环境），用于传递不宜出现在
+    进程列表中的敏感信息（如 rclone SFTP 密码）。
+    """
     ctx = AppContext.get()
     ctx.logger.info(f"正在使用 {tool_name} 进行同步……")
     try:
@@ -116,6 +160,7 @@ def _run_sync_command(cmd: list[str], tool_name: str, prepend_timestamp: bool = 
             text=True,
             encoding="utf-8",
             errors="replace",
+            env=env,
         )
     except Exception as e:  # noqa: BLE001
         ctx.logger.error(f"执行 {tool_name} 时发生错误: {e}")
@@ -169,13 +214,10 @@ def _run_rclone_sync(
     backup_dir: str | None,
     rclone_cmd: str,
 ) -> bool:
-    cmd = [rclone_cmd, "sync", source_root, dest_root]
-    for ex in exclude_list:
-        cmd.extend(["--exclude", ex])
-    for path in exclude_from:
-        cmd.extend(["--exclude-from", path])
-    if backup_dir:
-        cmd.extend(["--backup-dir", backup_dir])
+    # -v：INFO 级日志，逐文件输出传输清单，与 rsync -av 的行为对齐
+    # （rclone 默认 NOTICE 级只输出错误与提示，不打印逐文件信息）
+    cmd = [rclone_cmd, "sync", source_root, dest_root, "-v"]
+    cmd.extend(_rclone_common_args(exclude_list, exclude_from, backup_dir))
 
     return _run_sync_command(cmd, "rclone")
 
@@ -190,12 +232,7 @@ def _run_rsync_sync(
 ) -> bool:
     src = source_root if source_root.endswith("/") else source_root + "/"
     cmd = [rsync_cmd, "-av", "--delete", src, dest_root]
-    for ex in exclude_list:
-        cmd.extend(["--exclude", ex])
-    for path in exclude_from:
-        cmd.append(f"--exclude-from={path}")
-    if backup_dir:
-        cmd.extend(["--backup", f"--backup-dir={backup_dir}"])
+    cmd.extend(_rsync_common_args(exclude_list, exclude_from, backup_dir))
 
     return _run_sync_command(cmd, "rsync", prepend_timestamp=True)
 
@@ -329,20 +366,9 @@ class SyncHandler(BaseTaskHandler):
         src = src if src.endswith("/") else src + "/"
         dest_target = f"{remote.user}@{remote.host}:{remote_root}"
 
-        cmd = [tool.exec_path, "-av", "--delete"]
         rsh = ops.build_rsync_ssh_rsh(remote)
-        cmd.extend(["-e", rsh])
-
-        for ex in exclude_list:
-            cmd.extend(["--exclude", ex])
-        for path in exclude_from:
-            cmd.append(f"--exclude-from={path}")
-
-        if backup_dir:
-            # --backup-dir 只接受目录路径，不支持 user@host: 前缀。
-            # rsync 已经知道备份放在接收端（远端主机），直接传绝对路径即可。
-            cmd.extend(["--backup", f"--backup-dir={backup_dir}"])
-
+        cmd = [tool.exec_path, "-av", "--delete", "-e", rsh]
+        cmd.extend(_rsync_common_args(exclude_list, exclude_from, backup_dir))
         cmd.extend([src, dest_target])
         return _run_sync_command(cmd, "rsync", prepend_timestamp=True)
 
@@ -366,10 +392,15 @@ class SyncHandler(BaseTaskHandler):
             "sync",
             self.source_root,
             dest_target,
+            # 与本地 rclone 一致：-v 启用 INFO 级日志，逐文件输出传输清单
+            "-v",
             "--sftp-host",
             remote.host,
             "--sftp-user",
             remote.user,
+            # 显式声明不做 SSH 主机密钥校验，消除 rclone 的 NOTICE 提示
+            "--sftp-known-hosts-file",
+            "none",
         ]
 
         if remote.port != 22:
@@ -378,41 +409,23 @@ class SyncHandler(BaseTaskHandler):
         if remote.key_file:
             cmd.extend(["--sftp-key-file", remote.key_file])
 
-        for ex in exclude_list:
-            cmd.extend(["--exclude", ex])
-        for path in exclude_from:
-            cmd.extend(["--exclude-from", path])
-
-        if backup_dir:
-            remote_dest = f":sftp:{backup_dir}"
-            cmd.extend(["--backup-dir", remote_dest])
+        # 备份目录在远端：:sftp: 前缀是寻址细节，在此转换后交给公共段
+        remote_backup = f":sftp:{backup_dir}" if backup_dir else None
+        cmd.extend(_rclone_common_args(exclude_list, exclude_from, remote_backup))
 
         # 处理密码文件：通过环境变量传入，避免密码出现在进程列表中
-        env = os.environ.copy()
+        env: dict[str, str] | None = None
         if remote.password_file:
             try:
                 with open(remote.password_file, "r") as f:
                     password = f.read().strip()
+                env = os.environ.copy()
                 env["RCLONE_SFTP_PASS"] = password
             except OSError as e:
                 ctx.logger.error(f"读取密码文件失败: {e}，跳过该任务。")
                 return False
 
-        ctx.logger.info("正在使用 rclone (SFTP) 进行同步……")
-        try:
-            process = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                env=env,
-            )
-        except Exception as e:  # noqa: BLE001
-            ctx.logger.error(f"执行 rclone 时发生错误: {e}")
-            return False
-        return _consume_sync_process(process, "rclone")
+        return _run_sync_command(cmd, "rclone", env=env)
 
     def _setup_ssh_backup_dir(
         self, remote: SshRemote, remote_root: str, max_backups: int, exclude_list: list[str]
@@ -420,6 +433,8 @@ class SyncHandler(BaseTaskHandler):
         """为 SSH 远端目标设置备份目录。
 
         在远端计算备份路径，清理旧备份，返回远端备份目录路径。
+        返回值是远端绝对路径：rsync 的 --backup-dir 不接受 user@host: 前缀，
+        备份由接收端（远端）的 rsync 直接落盘；rclone 侧由调用方补 :sftp: 前缀。
         """
         ctx = AppContext.get()
 
