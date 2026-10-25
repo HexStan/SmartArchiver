@@ -70,8 +70,8 @@ class TestLocalSyncCommands:
         src, dest = prepared_dirs
         run_task(sync_task(tmp_path, tool="rclone"))
 
-        # -v：INFO 级日志，逐文件输出与 rsync -av 对齐
-        assert stub_procs.calls[0].cmd == ["rclone", "sync", src, dest, "-v"]
+        # -v：INFO 级日志，逐文件输出与 rsync -av 对齐；--transfers 1：串行传输
+        assert stub_procs.calls[0].cmd == ["rclone", "sync", src, dest, "-v", "--transfers", "1"]
 
     def test_auto_resolves_rsync_on_posix(
         self, run_task, tmp_path, stub_procs, prepared_dirs, monkeypatch
@@ -147,6 +147,8 @@ class TestLocalSyncCommands:
             src,
             dest,
             "-v",
+            "--transfers",
+            "1",
             "--exclude-from",
             str(exclude_file),
         ]
@@ -515,6 +517,8 @@ class TestSshSyncCommands:
             "2222",
             "--sftp-key-file",
             "/k",
+            "--transfers",
+            "1",
         ]
 
     def test_rclone_ssh_password_passed_via_env_not_argv(

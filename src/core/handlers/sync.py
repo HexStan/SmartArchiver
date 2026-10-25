@@ -106,7 +106,7 @@ def _warn_backup_unsupported():
 
 
 # ============================================================
-# 公共参数段构造（过滤规则 + 备份选项，与目标寻址无关）
+# 公共参数段构造（传输并发 + 过滤规则 + 备份选项，与目标寻址无关）
 # ============================================================
 
 
@@ -127,8 +127,12 @@ def _rsync_common_args(
 def _rclone_common_args(
     exclude_list: list[str], exclude_from: list[str], backup_dir: str | None
 ) -> list[str]:
-    """构造 rclone 的过滤规则与备份选项段；与 --exclude 同风格，全部双参数形式。"""
-    args: list[str] = []
+    """构造 rclone 的公共选项段：传输并发、过滤规则与备份选项。
+
+    过滤与备份项与 --exclude 同风格，全部双参数形式。
+    """
+    # 同时传输文件数固定为 1（串行传输），本地与 SSH 远端路径共用
+    args: list[str] = ["--transfers", "1"]
     for ex in exclude_list:
         args.extend(["--exclude", ex])
     for path in exclude_from:
@@ -149,6 +153,10 @@ def _run_sync_command(
 
     env 为附加进程环境变量（None 时继承当前环境），用于传递不宜出现在
     进程列表中的敏感信息（如 rclone SFTP 密码）。
+
+    工具输出行一律以 raw 模式原样透传，不叠加程序原生的"时间戳 [级别]"
+    前缀：rclone 的输出自带时间戳，直接展示；rsync 的输出无时间戳，
+    由 prepend_timestamp=True 前置程序时间戳补齐。
     """
     ctx = AppContext.get()
     ctx.logger.info(f"正在使用 {tool_name} 进行同步……")
@@ -173,6 +181,9 @@ def _consume_sync_process(
 ) -> bool:
     """读取同步工具的输出直至其退出；返回本轮同步是否正常完成。
 
+    输出行以 raw 模式原样透传：rclone 自带时间戳，不叠加程序原生时间戳；
+    rsync 无自带时间戳，prepend_timestamp=True 时前置程序时间戳。
+
     进程在停止协调器登记，``stop --fast`` 时由协调器终止整棵进程树
     （rsync/rclone 可能派生子进程，只杀直接子进程会留下孤儿）。
     """
@@ -187,10 +198,7 @@ def _consume_sync_process(
             for line in stdout:
                 if coordinator.is_aborted():
                     break
-                if prepend_timestamp:
-                    ctx.logger.info(line.strip(), raw=True, prepend_timestamp=True)
-                else:
-                    ctx.logger.info(line.strip())
+                ctx.logger.info(line.strip(), raw=True, prepend_timestamp=prepend_timestamp)
         process.wait()
     finally:
         coordinator.unregister_process(process)
