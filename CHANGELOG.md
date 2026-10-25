@@ -10,6 +10,7 @@
 - 定时调度模式下实例锁的持有范围从“每轮任务执行期间”扩展为“整个进程生命周期”：调度空闲期同样阻止第二个实例运行，`stop` 子命令也能在此期间定位到实例。
 - 容量阈值解析遵循 IEC 80000-13 单位语义：`KB`/`MB`/`GB`/`TB` 按十进制（1 KB = 1000 B），`KiB`/`MiB`/`GiB`/`TiB` 按二进制（1 KiB = 1024 B）。
 - 配置项 `mtime_threshold_minutes` 重命名为 `mtime_threshold_seconds`，单位由分钟改为秒；旧键不再生效，未改名时任务会因缺少必填项被跳过。
+- 全局配置项 `max_retries` 下放为任务级选配项（move / copy / rotate 可用），全局键不再生效，未配置时使用默认值 3。
 
 ### 新增
 
@@ -106,6 +107,26 @@ mtime_threshold_seconds = 10800  # 10800 秒 = 3 小时，与升级前一致
 ```
 
 未改名时旧键会被忽略，任务会因缺少必填项 `mtime_threshold_seconds` 而被跳过；`0` 的语义不变，仍表示无时间限制。
+
+#### 4. `max_retries` 下放为任务级配置
+
+全局 `max_retries` 键不再生效，改为在每个任务块内选配，未迁移时会被静默忽略。
+
+旧配置（全局）：
+
+```toml
+max_retries = 5
+```
+
+改为（任务级，仅需要调整容忍度的任务需配置）：
+
+```toml
+[[tasks]]
+mode = "move"
+source = "/data/inbox"
+dest = "/data/archive"
+max_retries = 5
+```
 
 ---
 
