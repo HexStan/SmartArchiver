@@ -5,7 +5,7 @@ from typing import override
 from src import fs
 from src.app.context import AppContext
 from src.core.filters import FileFilterPolicy
-from src.core.handlers.base import BaseTaskHandler
+from src.core.handlers.base import TransferTaskHandler
 from src.core.registry import register_handler
 from src.core.task_config import MoveCopyTaskConfig
 from src.core.task_plan import TaskSpec
@@ -15,7 +15,7 @@ from src.output.presentation import fmt_size, print_task_summary
 
 
 @register_handler("move", "copy")
-class StandardHandler(BaseTaskHandler):
+class StandardHandler(TransferTaskHandler):
     @override
     def __init__(self, spec: TaskSpec, now: float | None = None) -> None:
         super().__init__(spec, now)

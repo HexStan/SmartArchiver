@@ -4,6 +4,7 @@ from abc import ABC, abstractmethod
 
 from src.app.context import AppContext
 from src.core import dest
+from src.core.history import TaskIdentity
 from src.core.task_config import (
     MoveCopyTaskConfig,
     RotateTaskConfig,
@@ -22,12 +23,16 @@ from src.output.presentation import fmt_timespan, print_task_header
 
 
 class FileChecker:
-    """文件检查器：负责历史失败次数、时间阈值、文件锁检查。"""
+    """文件检查器：负责历史失败次数、时间阈值、文件锁检查。
 
-    def __init__(self, now: float | None = None) -> None:
+    失败历史按任务身份 (mode, source, dest) 隔离计数；max_retries
+    为任务级配置，随类型化任务配置注入。
+    """
+
+    def __init__(self, config: TransferTaskConfig, now: float | None = None) -> None:
         self.now = now or time.time()
-        ctx = AppContext.get()
-        self.max_retries = ctx.config.max_retries
+        self.identity = TaskIdentity(config.mode, config.source, config.dest)
+        self.max_retries = config.max_retries
 
     def should_skip(
         self,
@@ -38,7 +43,9 @@ class FileChecker:
         stats: MoverStats,
     ) -> bool:
         ctx = AppContext.get()
-        should_skip, _fail_count = ctx.history_mgr.should_skip(src_path, self.max_retries)
+        should_skip, _fail_count = ctx.history_mgr.should_skip(
+            self.identity, src_path, self.max_retries
+        )
         if should_skip:
             stats.record_dropped()
             ctx.logger.warning(f"跳过文件 (多次失败): {src_path}")
@@ -64,13 +71,15 @@ class ActionExecutor:
     """动作执行器：负责目标目录验证、冲突处理和动作分发。
 
     目标侧 I/O 一律经由 core.dest 转发层（dest_root 为原始 dest 协议串）。
-    conflict_policy 由调用方从类型化配置传入（加载期已校验取值）。
+    源/目标、冲突策略与失败历史的任务身份均取自类型化任务配置
+    （conflict_policy 在加载期已校验取值）。
     """
 
-    def __init__(self, source_root: str, dest_root: str, conflict_policy: str = "skip") -> None:
-        self.source_root = source_root
-        self.dest_root = dest_root
-        self.conflict_policy = conflict_policy
+    def __init__(self, config: TransferTaskConfig) -> None:
+        self.source_root = config.source
+        self.dest_root = config.dest
+        self.conflict_policy = config.conflict_policy
+        self.identity = TaskIdentity(config.mode, config.source, config.dest)
         self._dest_checked = False
         self._dest_valid = False
 
@@ -160,13 +169,13 @@ class ActionExecutor:
                 dest.move_file(src_path, new_dest_path)
 
             stats.record_success(bytes_transferred=file_size)
-            ctx.history_mgr.record_success(src_path)
+            ctx.history_mgr.record_success(self.identity, src_path)
 
         except TransferAbortedError:
             # stop --fast：任务被丢弃，不计入失败次数，向上传播以中止任务
             raise
         except Exception as e:  # noqa: BLE001
-            count = ctx.history_mgr.record_failure(src_path)
+            count = ctx.history_mgr.record_failure(self.identity, src_path)
             ctx.logger.error(f"{action_name}文件失败 ({count} 次): {e}")
             stats.record_error()
 
@@ -178,10 +187,10 @@ class ActionExecutor:
             size_str = _fmt_size(file_size, binary=True)
             ctx.logger.info(f"正在删除文件: {rel_path}  ({size_str})")
             _fs_delete(src_path)
-            ctx.history_mgr.record_success(src_path)
+            ctx.history_mgr.record_success(self.identity, src_path)
             stats.record_deleted()
         except OSError as e:
-            count = ctx.history_mgr.record_failure(src_path)
+            count = ctx.history_mgr.record_failure(self.identity, src_path)
             ctx.logger.error(f"删除文件失败 ({count} 次): {e}")
 
 
@@ -206,18 +215,6 @@ class BaseTaskHandler(ABC):
         # 原始 dest 协议串（可能带 {类型:别名}? 前缀），目标侧 I/O 经 core.dest
         self.dest_root: str = config.dest
         self.task_mode: str = config.mode
-        self.remove_empty_dirs: bool = (
-            config.remove_empty_dirs if isinstance(config, TransferTaskConfig) else False
-        )
-        self.checker = FileChecker(now=self.now)
-        # sync 不使用执行器与冲突策略（整树同步由外部工具完成）
-        self.executor = ActionExecutor(
-            config.source,
-            config.dest,
-            conflict_policy=(
-                config.conflict_policy if isinstance(config, TransferTaskConfig) else "skip"
-            ),
-        )
 
     def execute(self) -> TaskOutcome:
         """模板方法：任务头 → 源目录静默期检查 → 子类执行。
@@ -284,3 +281,21 @@ class BaseTaskHandler(ABC):
 
         AppContext.get().logger.info(f"源目录最近修改于 {fmt_timespan(quiet_age)} 前，跳过该任务。")
         return True
+
+
+class TransferTaskHandler(BaseTaskHandler):
+    """逐文件传输类任务（move/copy/rotate）的装配层。
+
+    依赖 TransferTaskConfig 特有字段的能力收敛于此：失败历史检查器
+    （FileChecker，含任务级 max_retries 与任务身份）与动作执行器
+    （ActionExecutor）。sync 模式整树交给外部工具，不走本层，也
+    不携带这些能力。
+    """
+
+    def __init__(self, spec: TaskSpec, now: float | None = None) -> None:
+        super().__init__(spec, now)
+        # 注册表分派保证（task_config.TASK_MODELS 与 registry 由同一组模式名驱动）
+        assert isinstance(self.task, TransferTaskConfig), "传输类模式的配置模型分派错误"
+        self.remove_empty_dirs: bool = self.task.remove_empty_dirs
+        self.checker = FileChecker(self.task, now=self.now)
+        self.executor = ActionExecutor(self.task)

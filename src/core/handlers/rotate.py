@@ -4,7 +4,7 @@ from typing import TypedDict, override
 
 from src.app.context import AppContext
 from src.core.filters import FileFilterPolicy
-from src.core.handlers.base import BaseTaskHandler
+from src.core.handlers.base import TransferTaskHandler
 from src.core.patterns import match_pattern
 from src.core.registry import register_handler
 from src.core.task_config import RotateTaskConfig, RuleSetConfig
@@ -153,7 +153,7 @@ class RotateGroupManager:
 
 
 @register_handler("rotate")
-class RotateHandler(BaseTaskHandler):
+class RotateHandler(TransferTaskHandler):
     @override
     def __init__(self, spec: TaskSpec, now: float | None = None) -> None:
         super().__init__(spec, now)

@@ -183,7 +183,6 @@ class TestGlobalConfigServerFields:
         assert config.max_concurrent_uploads == 1
         assert config.max_queue_metadata == 32
         assert config.max_queue_uploads == 32
-        assert config.max_retries == 3
         assert config.schedule is None
 
     def test_numeric_strings_coerced(self):
@@ -210,10 +209,6 @@ class TestGlobalConfigServerFields:
     def test_negative_queue_rejected(self):
         with pytest.raises(ValidationError):
             GlobalConfig.model_validate({"max_queue_metadata": -1})
-
-    def test_negative_max_retries_rejected(self):
-        with pytest.raises(ValidationError):
-            GlobalConfig.model_validate({"max_retries": -1})
 
     def test_schedule_block_validated(self):
         config = GlobalConfig.model_validate(

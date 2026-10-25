@@ -3,7 +3,7 @@
 加载期完成所有"仅凭配置文件本身即可判定"的合法性校验（Pydantic 模型）：
 - bootstrap 段（BootstrapConfig：log_dir / max_log_files / log_level），
   在日志系统就位前消费，失败走 print + exit 通道；
-- 全局段（GlobalConfig：max_retries、[schedule]、服务器数值段）；
+- 全局段（GlobalConfig：[schedule]、服务器数值段）；
 - http/ssh 远端条目（remote.factory / ssh.remotes）；
 - 任务条目（core.task_plan.resolve_tasks：任务模型 + dest + 依赖静态校验）。
 
@@ -67,7 +67,7 @@ class ScheduleConfig(BaseModel):
 class GlobalConfig(BaseModel):
     """顶层全局配置段（未声明的配置键忽略）。
 
-    客户端消费 max_retries 与 schedule；服务器消费 api_key/port/并发段
+    客户端消费 schedule；服务器消费 api_key/port/并发段
     （run_server 由 runtime 注入具体值）。数值约束在加载期收口——
     非法值致命（ConfigError）。
     """
@@ -75,7 +75,6 @@ class GlobalConfig(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     # 客户端全局
-    max_retries: int = Field(default=3, ge=0)
     schedule: ScheduleConfig | None = None
     # 服务器段（服务器模式启动期经 run_server 消费）
     api_key: str = ""

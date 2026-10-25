@@ -91,7 +91,6 @@ class TestMoveViaBinary:
         _write_config(
             program_dir,
             f"""\
-max_retries = 1
 log_dir = "./logs"
 
 [[tasks]]
@@ -100,6 +99,7 @@ source = "{src}"
 dest = "{dest}"
 mtime_threshold_seconds = 3600
 remove_empty_dirs = true
+max_retries = 1
 """,
         )
 
@@ -129,7 +129,6 @@ remove_empty_dirs = true
         _write_config(
             program_dir,
             f"""\
-max_retries = 1
 log_dir = "./logs"
 
 [[tasks]]
@@ -138,6 +137,7 @@ source = "{src}"
 dest = "{dest}"
 mtime_threshold_seconds = 3600
 remove_empty_dirs = false
+max_retries = 1
 
 [tasks.include_rules]
 ge."media/" = -1
@@ -166,7 +166,6 @@ class TestRotateViaBinary:
         _write_config(
             program_dir,
             f"""\
-max_retries = 1
 log_dir = "./logs"
 
 [[tasks]]
@@ -176,6 +175,7 @@ dest = "{dest}"
 conflict_policy = "skip"
 remove_empty_dirs = false
 count_limit = 3
+max_retries = 1
 """,
         )
 

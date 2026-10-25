@@ -72,6 +72,7 @@ class TestMoveCopyTask:
         assert task.dest == "d"
         assert task.source_quiet_seconds == 0
         assert task.conflict_policy == "skip"
+        assert task.max_retries == 3
         assert not task.include_rules.has_rules
         assert not task.exclude_rules.has_rules
         assert not task.delete_rules.has_rules
@@ -133,6 +134,20 @@ class TestMoveCopyTask:
         message = _format(MoveCopyTaskConfig, _move(conflict_policy="merge"))
         assert "conflict_policy" in message
         assert "配置值无效" in message
+
+    def test_max_retries_numeric_string_coerced(self):
+        task = MoveCopyTaskConfig.model_validate(_move(max_retries="2"))
+        assert task.max_retries == 2
+
+    def test_negative_max_retries_rejected(self):
+        """max_retries 已下放为任务级配置：负值在任务模型层拒绝。"""
+        message = _format(MoveCopyTaskConfig, _move(max_retries=-1))
+        assert "max_retries" in message
+
+    def test_max_retries_bool_rejected(self):
+        message = _format(MoveCopyTaskConfig, _move(max_retries=True))
+        assert "max_retries" in message
+        assert "不接受布尔值" in message
 
 
 class TestRotateTask:
@@ -201,6 +216,10 @@ class TestRotateTask:
         task = RotateTaskConfig.model_validate(_rotate(conflict_policy="copy"))
         assert task.conflict_policy == "copy"
 
+    def test_max_retries_accepted(self):
+        task = RotateTaskConfig.model_validate(_rotate(max_retries=5))
+        assert task.max_retries == 5
+
 
 class TestSyncTask:
     def test_minimal_fields(self):
@@ -256,6 +275,12 @@ class TestSyncTask:
     def test_negative_max_backups_rejected(self):
         message = _format(SyncTaskConfig, _sync(max_backups=-1))
         assert "max_backups" in message
+
+    def test_max_retries_rejected(self):
+        """max_retries 属于传输类任务：sync 不消费该字段，配置即按未知字段拒绝。"""
+        message = _format(SyncTaskConfig, _sync(max_retries=3))
+        assert "max_retries" in message
+        assert "不支持的字段" in message
 
 
 class TestRuleSetConfig:

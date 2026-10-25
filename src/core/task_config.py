@@ -170,10 +170,20 @@ class TaskBase(BaseModel):
 class TransferTaskConfig(TaskBase):
     """逐文件传输类任务（move/copy/rotate）的公共字段。"""
 
+    # mode 在 TaskBase 层不声明（由各模式子类以 Literal 收窄并参与分派）；
+    # 传输类装配层需以 str 读取 mode（失败历史的任务身份），此处补基线
+    # 声明，子类仍以 Literal 覆写收窄，校验行为不变
+    mode: str
     conflict_policy: Annotated[
         Literal["skip", "overwrite", "copy"], BeforeValidator(_lower_str)
     ] = "skip"
     remove_empty_dirs: bool
+    # 单文件操作失败的最大重试次数：连续失败达到次数后，该文件在本任务
+    # 身份下进入失败历史隔离，后续轮次跳过（成功一次即清零）。失败历史
+    # 按 (mode, source, dest) 任务身份隔离计数，阈值随任务级配置逐任务
+    # 判定。sync 整树交给外部工具，不消费此字段——挂在 TransferTaskConfig
+    # 而非 TaskBase，extra=forbid 使 sync 任务配置它时在加载期被拒绝
+    max_retries: Annotated[int, BeforeValidator(_reject_bool)] = Field(default=3, ge=0)
 
 
 class MoveCopyTaskConfig(TransferTaskConfig):

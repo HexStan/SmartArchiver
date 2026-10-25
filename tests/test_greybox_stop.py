@@ -13,6 +13,7 @@ import os
 import pytest
 
 from src import fs
+from src.core.history import TaskIdentity
 from src.fs import TransferAbortedError
 from tests.helpers import make_tree, snapshot
 
@@ -149,6 +150,7 @@ class TestStopMidFile:
         with pytest.raises(TransferAbortedError):
             run_task(make_task(src, dest, self.MODE))
 
-        should_skip, fail_count = app_context.history_mgr.should_skip(src_path, 3)
+        identity = TaskIdentity(self.MODE, str(src), str(dest))
+        should_skip, fail_count = app_context.history_mgr.should_skip(identity, src_path, 3)
         assert not should_skip
         assert fail_count == 0
