@@ -2,12 +2,16 @@
 
 跟随器的对外契约是"输出到输出流的内容序列"，以真实日志文件为环境、
 直接步进 _tick()/_step()（不打桩、不依赖真实时钟，见 tests/README.md
-原则四）；状态栏本身的转义序列渲染在 test_statusbar.py 单测。
+原则四）；状态栏本身的转义序列渲染在 test_statusbar.py 单测，缩放
+重绘内容源的装配以替身状态栏捕获验证（原则七）。
 """
 
 import io
 
-from src.output.logtail import LogFollower, newest_log_file, tail_lines
+import pytest
+
+from src.output import logtail
+from src.output.logtail import _HISTORY_LIMIT, LogFollower, newest_log_file, tail_lines
 
 
 def make_follower(log_dir, prefix, **kwargs):
@@ -203,3 +207,91 @@ def test_tick_without_bar_keeps_plain_log_output(tmp_path):
     follower._tick()
 
     assert out.getvalue() == "l1\nl2\n"  # 输出中没有任何转义序列痕迹
+
+
+# ============================================================
+# 重绘历史：终端缩放全屏重绘的内容源
+# ============================================================
+
+
+def test_recent_lines_returns_last_emitted_lines(tmp_path):
+    """重绘内容源 = 最近输出的日志行（含首次 tail 与轮询增量）。"""
+    log = tmp_path / "sa.2026-01-01.log"
+    log.write_text("l1\nl2\nl3\n", encoding="utf-8")
+    follower, _out = make_follower(tmp_path, "sa")
+
+    follower._print_tail(100)
+    with open(log, "a", encoding="utf-8") as f:
+        f.write("l4\n")
+    follower._step()
+
+    assert follower._recent_lines(2) == ["l3", "l4"]
+    assert follower._recent_lines(10) == ["l1", "l2", "l3", "l4"]
+    assert follower._recent_lines(0) == []
+
+
+def test_history_drops_oldest_lines_beyond_limit(tmp_path):
+    """历史上限环形截断：最旧的行被挤出，重绘内容始终是最近输出。"""
+    log = tmp_path / "sa.2026-01-01.log"
+    log.write_text("".join(f"l{i}\n" for i in range(_HISTORY_LIMIT)), encoding="utf-8")
+    follower, _out = make_follower(tmp_path, "sa")
+
+    follower._print_tail(_HISTORY_LIMIT)
+    with open(log, "a", encoding="utf-8") as f:
+        f.write("new-1\nnew-2\n")
+    follower._step()
+
+    recent = follower._recent_lines(_HISTORY_LIMIT)
+    assert len(recent) == _HISTORY_LIMIT
+    assert recent[0] == "l2"  # 最早的 l0、l1 被挤出
+    assert recent[-2:] == ["new-1", "new-2"]
+
+
+def test_ensure_history_capacity_widens_and_keeps_existing_lines(tmp_path):
+    """--lines 很大时跟随开始前放宽历史上限，且已积累的行不丢失。"""
+    log = tmp_path / "sa.2026-01-01.log"
+    log.write_text("l1\nl2\n", encoding="utf-8")
+    follower, _out = make_follower(tmp_path, "sa")
+    follower._print_tail(100)
+
+    follower._ensure_history_capacity(_HISTORY_LIMIT + 5)
+
+    assert follower._history.maxlen == _HISTORY_LIMIT + 5
+    assert follower._recent_lines(10) == ["l1", "l2"]
+
+
+def test_follow_wires_recent_lines_as_repaint_content_provider(tmp_path, monkeypatch):
+    """follow() 将 _recent_lines 注入状态栏，作为缩放全屏重绘的内容源。
+
+    follow 是无限循环，替身状态栏在首轮 refresh 抛 KeyboardInterrupt
+    结束跟随——只验证装配与内容源可用，不驱动循环本身。
+    """
+    log = tmp_path / "sa.2026-01-01.log"
+    log.write_text("l1\n", encoding="utf-8")
+    follower, _out = make_follower(tmp_path, "sa", status_provider=lambda: (True, 7))
+    captured: dict[str, object] = {}
+
+    class _ExitBar:
+        def start(self):
+            pass
+
+        def refresh(self):
+            raise KeyboardInterrupt
+
+        def close(self):
+            pass
+
+    def fake_create(out, provider, *args, **kwargs):
+        captured["content_provider"] = kwargs.get("content_provider")
+        return _ExitBar()
+
+    monkeypatch.setattr(
+        logtail, "StatusBar", type("StubStatusBar", (), {"create": staticmethod(fake_create)})
+    )
+
+    with pytest.raises(KeyboardInterrupt):
+        follower.follow(100)
+
+    provider = captured["content_provider"]
+    assert callable(provider)
+    assert provider(10) == ["l1"]  # 注入的就是跟随器自己的输出历史

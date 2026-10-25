@@ -7,13 +7,15 @@
 
 注入 ``status_provider`` 且输出流为真实终端时，跟随器同时维护一行
 钉在终端最后一行的反色状态栏，显示实例存活状态（见 src.output.statusbar）；
-环境不支持时自动降级为纯日志输出。
+环境不支持时自动降级为纯日志输出。跟随器还以环形历史保留最近输出的
+日志行，作为终端缩放时状态栏全屏重绘的内容源。
 """
 
 import glob
 import os
 import sys
 import time
+from collections import deque
 from collections.abc import Callable
 from typing import TextIO
 
@@ -21,6 +23,9 @@ from src.output.statusbar import StatusBar
 
 # 回读末尾 N 行时按块向前扫描的块大小
 _TAIL_BLOCK_SIZE = 8192
+
+# 重绘历史的环形上限：保留最近输出的日志行，足以铺满任何真实终端
+_HISTORY_LIMIT = 1000
 
 # 实例状态源：每次调用返回 (运行中, PID)，与 statusbar.StatusProvider 同形
 StatusProvider = Callable[[], tuple[bool, int | None]]
@@ -82,10 +87,14 @@ class LogFollower:
         self._bar: StatusBar | None = None
         self._current: str | None = None
         self._offset = 0
+        self._history: deque[str] = deque(maxlen=_HISTORY_LIMIT)
 
     def follow(self, lines: int = 100) -> None:
         """阻塞跟随日志；KeyboardInterrupt 由调用方处理，退出时恢复终端。"""
-        self._bar = StatusBar.create(self.out, self.status_provider)
+        self._ensure_history_capacity(lines)
+        self._bar = StatusBar.create(
+            self.out, self.status_provider, content_provider=self._recent_lines
+        )
         try:
             if self._bar is not None:
                 self._bar.start()
@@ -164,5 +173,17 @@ class LogFollower:
             self._emit(line)
         self._offset += cut + 1
 
+    def _recent_lines(self, capacity: int) -> list[str]:
+        """状态栏全屏重绘的内容源：返回最近输出的至多 capacity 行。"""
+        if capacity <= 0:
+            return []
+        return list(self._history)[-capacity:]
+
+    def _ensure_history_capacity(self, lines: int) -> None:
+        """跟随开始前放宽历史上限，保证 ``--lines`` 很大时重绘内容充足。"""
+        if lines > _HISTORY_LIMIT:
+            self._history = deque(self._history, maxlen=lines)
+
     def _emit(self, text: str) -> None:
+        self._history.append(text)
         print(text, file=self.out, flush=True)

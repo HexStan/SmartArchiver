@@ -5,6 +5,11 @@
 天然常驻最后一行，不与日志争抢输出。零依赖，仅标准序列 + Windows
 控制台的 VT 开关。
 
+缩放重绘：轮询检测到终端尺寸变化时整体清屏，按新尺寸重新铺排日志
+并贴底（内容源由调用方注入，见 ``ContentProvider``）——终端缩放
+不会清除已打印内容，不清屏重画的话，旧状态栏会悬在屏幕中部，放大
+产生的空行也永远残留（日志无新内容时没有滚动去推出它们）。
+
 优雅降级：输出流不是真实终端、或 Windows 传统控制台无法启用 VT 时，
 ``create()`` 返回 None，调用方回退为普通逐行输出。状态栏一旦启用，
 渲染异常一律自我停用——它是锦上添花，绝不允许打断日志跟随。
@@ -27,6 +32,10 @@ _HINT = "Ctrl+C 退出跟随"
 
 # 状态源：每次调用返回 (实例是否运行中, PID)
 StatusProvider = Callable[[], tuple[bool, int | None]]
+
+# 重绘内容源：入参为滚动区可用行数，返回按序、将贴底展示的内容行
+# （跟随器注入最近输出的日志行，供缩放时全屏重绘）
+ContentProvider = Callable[[int], list[str]]
 
 
 def _enable_windows_vt() -> bool:
@@ -55,6 +64,30 @@ def _display_width(text: str) -> int:
     return sum(2 if unicodedata.east_asian_width(char) in ("F", "W") else 1 for char in text)
 
 
+def _truncate(text: str, width: int) -> str:
+    """按显示宽度截断文本：从左取到恰好不超过 width 为止。"""
+    chars: list[str] = []
+    used = 0
+    for char in text:
+        used += 2 if unicodedata.east_asian_width(char) in ("F", "W") else 1
+        if used > width:
+            break
+        chars.append(char)
+    return "".join(chars)
+
+
+def _physical_rows(text: str, columns: int) -> int:
+    """文本在给定列宽下占用的物理行数：按显示宽度折行上取整。
+
+    空行占 1 行，宽字符计 2 列。制表符展开、零宽字符等极端内容可能
+    偏差 1 行，且只会向"多滚动一行"方向偏差（内容仍贴底），可接受。
+    """
+    if columns <= 0:
+        return 1
+    width = _display_width(text)
+    return max(1, (width + columns - 1) // columns)
+
+
 class StatusBar:
     """钉在终端最后一行的反色状态栏。
 
@@ -62,6 +95,8 @@ class StatusBar:
         out: 输出流，须为真实终端（``create`` 已保证）。
         provider: 状态源，每次调用返回 ``(运行中, PID)``。
         size_query: 终端尺寸查询，默认 ``shutil.get_terminal_size``（测试可注入）。
+        content_provider: 重绘内容源（见模块 docstring）；None 则缩放时
+            仅重设滚动区域并重画状态栏，不重绘日志内容。
     """
 
     def __init__(
@@ -69,10 +104,12 @@ class StatusBar:
         out: TextIO,
         provider: StatusProvider,
         size_query: Callable[[], os.terminal_size] = shutil.get_terminal_size,
+        content_provider: ContentProvider | None = None,
     ) -> None:
         self._out = out
         self._provider = provider
         self._size_query = size_query
+        self._content_provider = content_provider
         self._size: tuple[int, int] | None = None  # 上次绘制时的 (列数, 行数)
         self._status: tuple[bool, int | None] | None = None  # 上次绘制时的状态
         self._disabled = False  # 渲染出错后自我停用
@@ -85,17 +122,20 @@ class StatusBar:
         provider: StatusProvider | None,
         vt_opener: Callable[[], bool] = _enable_windows_vt,
         size_query: Callable[[], os.terminal_size] = shutil.get_terminal_size,
+        content_provider: ContentProvider | None = None,
     ) -> StatusBar | None:
         """创建状态栏；环境不支持时返回 None，调用方回退普通输出。
 
         需同时满足：输出流为真实终端、Windows 传统控制台可启用 VT、
         状态源已注入。任一不满足即返回 None，调用方回退普通输出。
+        ``content_provider`` 注入后，跟随中的终端缩放触发全屏重绘
+        （清屏 + 日志按新尺寸贴底重新铺排）。
         """
         if out is None or provider is None or not getattr(out, "isatty", lambda: False)():
             return None
         if not vt_opener():
             return None
-        return cls(out, provider, size_query)
+        return cls(out, provider, size_query, content_provider)
 
     def start(self) -> None:
         """进入跟随前调用：设置滚动区域并完成首次绘制。
@@ -155,15 +195,40 @@ class StatusBar:
             return
 
         if size_changed:
-            # 重设滚动区域（日志只在第 1..H-1 行滚动）；DECSTBM 会把光标
-            # 归位，随后的状态栏绘制与光标回移会落到确定位置
-            self._write(f"\x1b[1;{rows - 1}r")
+            if not force and self._content_provider is not None:
+                # 跟随中的缩放：全屏重绘（见 _repaint）。首次 start（force）
+                # 不清屏，保持"追加、不覆盖既有内容"的语义
+                self._repaint(columns, rows)
+            else:
+                # 重设滚动区域（日志只在第 1..H-1 行滚动）；DECSTBM 会把光标
+                # 归位，随后的状态栏绘制与光标回移会落到确定位置
+                self._write(f"\x1b[1;{rows - 1}r")
         self._size = (columns, rows)
         self._status = status
 
         self._draw(columns, rows, status)
         # 光标放回滚动区域底部行首，后续日志从那里自然滚动输出
         self._write(f"\x1b[{rows - 1};1H")
+
+    def _repaint(self, columns: int, rows: int) -> None:
+        """缩放后的全屏重绘：清屏后按新尺寸重新铺排日志并贴底。
+
+        终端缩放不会清除已打印内容：旧状态栏文字悬在屏幕中部，放大
+        产生的空行也无法消除，且日志无新内容时永远不会被滚动推出，
+        只能整体清屏重画。重绘序列合并为单次写入，避免清屏与重绘
+        之间出现闪烁。
+        """
+        capacity = rows - 1  # 滚动区可用行数
+        lines = self._content_provider(capacity) if self._content_provider else []
+        # 顶部补空行使内容贴底；占用按物理行（含折行）计。估算偏差只会
+        # 引起"多滚动一行"（仍贴底），不会在底部留出空隙
+        used = sum(_physical_rows(line, columns) for line in lines)
+        pad = max(0, capacity - used)
+        sequence = ["\x1b[r\x1b[2J\x1b[H", f"\x1b[1;{capacity}r"]
+        if lines:
+            sequence.append("\r\n" * pad)
+            sequence.append("\r\n".join(lines))
+        self._write("".join(sequence))
 
     def _draw(self, columns: int, rows: int, status: tuple[bool, int | None]) -> None:
         text = self._render(columns, status)
@@ -179,10 +244,16 @@ class StatusBar:
             left = f"● 实例运行中 (PID {pid})"
         else:
             left = "● 实例运行中"
-        pad = columns - _display_width(left) - _display_width(_HINT)
-        if pad > 0:
-            return f"{left}{' ' * pad}{_HINT}"
-        return f"{left} {_HINT}"
+        hint_width = _display_width(_HINT)
+        if columns <= hint_width:
+            return _truncate(_HINT, columns)
+        available = columns - hint_width - 1
+        if _display_width(left) > available:
+            # 窄终端兜底：截断左侧文本，保证整行（含 1 个分隔空格）不超
+            # 列数——状态栏自身折行会在屏上留下第二行残留
+            left = _truncate(left, available)
+        pad = columns - _display_width(left) - hint_width
+        return f"{left}{' ' * pad}{_HINT}"
 
     def _write(self, text: str) -> None:
         self._out.write(text)
