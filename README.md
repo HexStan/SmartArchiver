@@ -331,10 +331,11 @@ SmartArchiver 的核心能力是**对源目录中的文件执行某种操作**�
 | `source_quiet_seconds` | ○ | 源目录静默期（秒）：源目录仍在写入时整任务跳过，默认不启用 |
 | `tool` | ○ | 同步工具：`"auto"`（自动，优先内置 rclone）、`"rsync"`、`"rclone"` |
 | `exclude` | ○ | 排除模式列表，由底层工具处理 |
+| `exclude_from` | ○ | 排除规则文件路径列表（可配置多个，对应底层工具的 `--exclude-from` 选项），文件内容由底层工具处理 |
 | `create_backups` | ○ | 替换/删除前是否备份，默认 `false` |
 | `max_backups` | ○ | 最多保留备份份数，`0` 表示不限制 |
 
-> sync 模式不支持规则系统（`include_rules` / `exclude_rules` / `delete_rules` / `rotate_rules`），所有过滤通过 `exclude` 参数实现。
+> sync 模式不支持规则系统（`include_rules` / `exclude_rules` / `delete_rules` / `rotate_rules`），所有过滤通过 `exclude` / `exclude_from` 参数实现。
 
 ---
 
@@ -408,6 +409,13 @@ mode = "rotate"
 
 > macOS 注意：系统 rsync 为 openrsync 实现，不支持 `--backup`/`--backup-dir`，`create_backups` 配置在该工具下会被忽略（日志中会给出警告）。
 
+**sync 模式的 `exclude` / `exclude_from`**：
+
+- `exclude` 是内联的模式列表；`exclude_from` 指向用户维护的排除规则**文件**（可配置多个），程序把文件路径原样透传给底层工具的 `--exclude-from` 选项，适合维护大量排除条目或在多个任务间复用。
+- 文件内容每行一条模式，空行与以 `#` / `;` 开头的注释行会被底层工具忽略。注意 rsync 与 rclone 的模式语法存在差异（通配符语义与锚定规则不同），同一份文件在两个工具下的匹配行为可能不完全一致。
+- 文件路径按程序工作目录解析；目标为 SSH 远端时规则文件仍在本地读取（rsync over SSH 与 rclone SFTP 均由本地进程解析过滤规则）。
+- 运行时任一 `exclude_from` 文件不存在，任务报错跳过（不发起同步）。
+
 ---
 
 #### 最小配置示例
@@ -450,7 +458,7 @@ dest = "./mirror"
 
 如果基础参数不能满足你的需求——比如“只移动大于 100MB 的文件”、“删除所有 .tmp 但保护 .important.tmp”——你需要配置**规则**。
 
-> ⚠️ sync 模式不支持规则系统，所有过滤通过 `exclude` 参数实现。
+> ⚠️ sync 模式不支持规则系统，所有过滤通过 `exclude` / `exclude_from` 参数实现。
 
 #### 规则系统流程一览
 
@@ -460,7 +468,7 @@ flowchart TD
   
     MODE -->|"rotate"| ROTATE{"超出 size / count 限制 或<br>命中 rotate_rules?"}
     MODE -->|"move / copy"| INCLUDE{"命中 include_rules?"}
-    MODE -->|"sync"| SYNC["rsync / rclone 同步<br>仅支持 exclude 过滤"]
+    MODE -->|"sync"| SYNC["rsync / rclone 同步<br>仅支持 exclude / exclude_from 过滤"]
 
     subgraph ENGINE["规则引擎（流水线）"]
         direction TB
