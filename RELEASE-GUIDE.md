@@ -25,7 +25,7 @@
 
 本流程仅提交到本地，不推送；推送仅出现在发布流程中，或由维护者明确要求时执行。
 
-> 作为发布流程第 1 步调用时，排除 `pyproject.toml` 与 `CHANGELOG.md`——这两个文件固定由发布流程第 3 步合并提交。
+> 作为发布流程第 1 步调用时，排除 `pyproject.toml`、`CHANGELOG.md` 与 `uv.lock`——这三个文件固定由发布流程第 3 步合并提交。
 
 ## 发布流程
 
@@ -58,11 +58,12 @@
 3. 清空 `## 未发布` 段落的条目（保留标题），供下个开发周期累积。
 4. 在文件底部链接区最上方追加一行：`[x.y.z]: https://github.com/HexStan/SmartArchiver/releases/tag/vx.y.z`。
 
-### 第 3 步：合并提交 pyproject.toml 与 CHANGELOG.md
+### 第 3 步：合并提交 pyproject.toml、CHANGELOG.md 与 uv.lock
 
 前置条件：第 2 步的 CHANGELOG 已获维护者许可。
 
-两个文件合并为**一次**提交，信息沿用既有风格：`docs: 提升版本号，更新日志`。
+1. 先运行 `uv lock`：`uv.lock` 记录了本包自身的 version，`pyproject.toml` 的版本号变更会使锁文件过期。若不随本次提交收录，之后运行 `uv sync` / `uv run` 会产生意料之外的 `uv.lock` 改动。uv 会将版本号规范化为 PEP 440 形式（`*-dev` 写为 `*.dev0`）；若锁文件本已同步，此命令无变更。
+2. 将 `pyproject.toml`、`CHANGELOG.md` 与 `uv.lock`（如有变更）合并为**一次**提交，信息沿用既有风格：`docs: 提升版本号，更新日志`。
 
 ### 第 4 步：打 tag 并推送
 
@@ -170,5 +171,6 @@ PY
 
 - `python -m pytest` 未通过；
 - 待提交内容混有疑似不应入库的文件；
+- `uv lock` 执行失败（此时第 3 步尚未提交，可修复后重跑第 3 步）；
 - 目标 tag 已存在；
 - `gh` 认证或网络异常导致 Release 创建失败（此时提交与 tag 已推送可保留，修复后仅重跑第 5 步）。
