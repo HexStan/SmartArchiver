@@ -2,10 +2,12 @@
 
 - 无子命令：前台运行（客户端模式读 config/config.toml，--server 读
   config.server.toml）；
-- start：脱离终端运行实例，随后在本终端滚动显示运行日志（窗口可随时关闭）；
+- start：脱离终端运行实例，随后在本终端滚动显示运行日志（窗口可随时关闭；
+  --quiet 时确认实例启动后即返回，不跟随日志）；
 - log：滚动显示运行日志（自动跟随跨天轮转），底部状态栏显示实例运行状态；
 - stop：停止运行中的实例（--fast 立即中止传输 / --slow 本轮结束后停止）；
-- run-once：让处于调度休眠期的实例立即执行一轮任务，随后滚动显示日志。
+- run-once：让处于调度休眠期的实例立即执行一轮任务，随后滚动显示日志
+  （--quiet 时确认指令受理后即返回，未受理按失败退出）。
 
 运行路径（装配与调度循环）见 src/app/runtime.py，控制子命令见 src/app/control.py。
 """
@@ -44,7 +46,12 @@ def main() -> None:
     )
     subparsers = parser.add_subparsers(dest="command", metavar="子命令")
 
-    subparsers.add_parser("start", help="脱离终端运行实例，并滚动显示运行日志")
+    start_parser = subparsers.add_parser("start", help="脱离终端运行实例，并滚动显示运行日志")
+    start_parser.add_argument(
+        "--quiet",
+        action="store_true",
+        help="不滚动显示日志，确认实例已启动（持有实例锁）后即返回；超时未确认则报错退出",
+    )
 
     log_parser = subparsers.add_parser(
         "log", help="滚动显示运行日志（自动跟随跨天轮转的新日志文件）"
@@ -67,8 +74,13 @@ def main() -> None:
     )
     stop_group.add_argument("--slow", action="store_true", help="等待本轮任务结束后再退出")
 
-    subparsers.add_parser(
+    run_once_parser = subparsers.add_parser(
         "run-once", help="让处于调度休眠期的实例立即执行一轮任务，并滚动显示运行日志"
+    )
+    run_once_parser.add_argument(
+        "--quiet",
+        action="store_true",
+        help="不滚动显示日志，指令受理确认后即返回；未受理则以非零码退出",
     )
 
     args = parser.parse_args()
@@ -79,7 +91,7 @@ def main() -> None:
         else:
             runtime.run_client()
     elif args.command == "start":
-        control.cmd_start(args.server)
+        control.cmd_start(args.server, args.quiet)
     elif args.command == "log":
         if args.lines < 0:
             parser.error("--lines 不能为负数")
@@ -87,7 +99,7 @@ def main() -> None:
     elif args.command == "stop":
         control.cmd_stop(args.server, args.fast, args.slow)
     elif args.command == "run-once":
-        control.cmd_run_once(args.server)
+        control.cmd_run_once(args.server, args.quiet)
 
 
 if __name__ == "__main__":
