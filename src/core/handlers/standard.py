@@ -42,6 +42,10 @@ class StandardHandler(TransferTaskHandler):
 
         completed = True
         for root, dirs, files in os.walk(self.source_root):
+            # 文件系统返回的目录项顺序不保证有序（NTFS 按名称、ext4/APFS 按哈希），
+            # 先排序再处理：处理顺序与平台无关，逐文件日志顺序可预测
+            dirs.sort()
+            files.sort()
             self._process_directories(dirs, root, mtime_threshold_seconds)
             success = self._process_files(files, root, mtime_threshold_seconds, is_copy)
             if not success:

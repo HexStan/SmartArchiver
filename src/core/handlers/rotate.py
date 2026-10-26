@@ -1,5 +1,6 @@
 import os
 import time
+from operator import itemgetter
 from typing import TypedDict, override
 
 from src.app.context import AppContext
@@ -23,6 +24,7 @@ class _FileRecord(TypedDict):
     name: str
     path: str
     rel_path: str
+    norm_path: str
     size: int
     mtime: float
     groups: list[GroupId]
@@ -207,6 +209,7 @@ class RotateHandler(TransferTaskHandler):
                             "name": file,
                             "path": src_path,
                             "rel_path": rel_path,
+                            "norm_path": normalized,
                             "size": size,
                             "mtime": mtime,
                             "groups": groups,
@@ -226,7 +229,9 @@ class RotateHandler(TransferTaskHandler):
             )
             return True
 
-        all_files.sort(key=lambda x: x["mtime"])
+        # mtime 升序（最旧优先）；相等 mtime 依归一化相对路径（正斜杠）排序，
+        # 消除目录枚举顺序的平台差异，同 mtime 文件的处理顺序跨平台一致
+        all_files.sort(key=itemgetter("mtime", "norm_path"))
 
         completed = True
         for f in all_files:
