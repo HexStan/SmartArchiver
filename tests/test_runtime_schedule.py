@@ -124,20 +124,39 @@ class TestFirstRunDelay:
         assert not thread.is_alive()
         assert snapshot(task["source"]) == {}
 
-    def test_interval_first_run_delay_positive_executes_after_delay(self, app_context, tmp_path):
+    def test_interval_first_run_delay_positive_defers_first_round(
+        self, app_context, tmp_path, unique_instance
+    ):
+        """first_run_delay>0 时首轮被推迟：不立即执行，睡眠终点为启动时刻 + 延迟。
+
+        首轮决策在睡眠开始前已同步投影至状态文件（_run_first_round 先
+        _enter_phase 再 _interruptible_sleep），观察到 SLEEPING 相位与
+        next_run 值即可完成断言，无需等待延迟流逝。到点后执行的语义由
+        first_run_delay=0 测试（到点→执行）与 run-once 唤醒测试（睡眠
+        打断→执行）夹逼，此处不再以真实墙钟覆盖流逝路径。
+        """
         task = move_task(tmp_path)
         make_tree(task["source"], {"a.txt": b"alpha"})
-        schedule = {"mode": "interval", "interval_seconds": 3600, "first_run_delay": 2}
+        schedule = {"mode": "interval", "interval_seconds": 3600, "first_run_delay": 30}
         thread, _, _ = start_schedule(app_context, tmp_path, task, schedule)
 
         try:
-            assert wait_until(lambda: snapshot(task["dest"]) == {"a.txt": 5}), (
-                "first_run_delay=2 时首轮任务未在延迟后执行"
+            assert wait_until(lambda: _state_phase_is(unique_instance, PHASE_SLEEPING)), (
+                "first_run_delay>0 时调度线程未进入休眠相位"
             )
+            assert snapshot(task["dest"]) == {}
+            assert not app_context.logger.has("info", "脚本开始执行……")
+            # next_run = 写入时刻 + 延迟，写入必先于读取：上界天然成立；
+            # 紧窗口同时钉死"用了 30 而非 0 / -1 / 3600"
+            obs = time.time()
+            state = read_state(unique_instance)
+            assert state is not None and obs + 29 < state["next_run"] <= obs + 30
         finally:
-            stop_and_join(app_context, thread)
+            stop_and_join(app_context, thread)  # 唤醒事件即刻打断 30s 睡眠，不真等
         assert not thread.is_alive()
-        assert snapshot(task["source"]) == {}
+        # 未到延迟终点即停止：任务从未执行，源树原样保留
+        assert snapshot(task["source"]) == {"a.txt": 5}
+        assert snapshot(task["dest"]) == {}
 
     def test_cron_first_run_delay_zero_executes_immediately(self, app_context, tmp_path):
         task = move_task(tmp_path)
@@ -165,18 +184,30 @@ class TestFirstRunDelay:
         # 首轮执行发生在"下一次执行时间"提示之前，而非等到下个调度点
         assert first_execution < next_tick
 
-    def test_interval_without_first_run_delay_waits_for_next_tick(self, app_context, tmp_path):
+    def test_interval_without_first_run_delay_waits_for_next_tick(
+        self, app_context, tmp_path, unique_instance
+    ):
         task = move_task(tmp_path)
         make_tree(task["source"], {"a.txt": b"alpha"})
         schedule = {"mode": "interval", "interval_seconds": 3600}
         thread, _, _ = start_schedule(app_context, tmp_path, task, schedule)
 
-        # 默认 -1：等待至下个调度点，不立即执行
-        time.sleep(1.5)
-        assert snapshot(task["dest"]) == {}
-        assert not app_context.logger.has("info", "脚本开始执行……")
-        stop_and_join(app_context, thread)
+        try:
+            # 默认 -1：首轮决策同步完成于进入 SLEEPING 之前——观察到 SLEEPING
+            # 相位即证明"未立即执行"，无需固定墙钟等待
+            assert wait_until(lambda: _state_phase_is(unique_instance, PHASE_SLEEPING)), (
+                "默认 first_run_delay 下调度线程未进入休眠相位"
+            )
+            assert snapshot(task["dest"]) == {}
+            assert not app_context.logger.has("info", "脚本开始执行……")
+            # 睡眠终点是整整一个周期之后，而非"现在"（钉死"等待至下个调度点"）
+            state = read_state(unique_instance)
+            assert state is not None and state["next_run"] > time.time() + 3600 - 5
+        finally:
+            stop_and_join(app_context, thread)
         assert not thread.is_alive()
+        # 未到调度点：任务未执行，源树原样保留
+        assert snapshot(task["source"]) == {"a.txt": 5}
         assert snapshot(task["dest"]) == {}
 
 
