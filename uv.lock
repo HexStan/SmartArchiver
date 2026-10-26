@@ -619,7 +619,7 @@ wheels = [
 
 [[package]]
 name = "smartarchiver"
-version = "0.36.2.dev0"
+version = "0.38.0.dev0"
 source = { virtual = "." }
 
 [package.dev-dependencies]
