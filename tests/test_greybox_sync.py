@@ -171,7 +171,7 @@ class TestLocalSyncCommands:
         ]
 
     def test_exclude_from_combined_with_exclude_and_backups(
-        self, run_task, tmp_path, stub_procs, prepared_dirs
+        self, run_task, tmp_path, stub_procs, prepared_dirs, capture_log
     ):
         _src, _dest = prepared_dirs
         exclude_file = tmp_path / "exclude.txt"
@@ -187,12 +187,17 @@ class TestLocalSyncCommands:
         )
 
         cmd = stub_procs.calls[0].cmd
-        # 顺序：内联 --exclude → --exclude-from → --backup/--backup-dir
+        # 顺序：内联 --exclude → --exclude-from（跨平台一致）
         assert cmd.index("--exclude") < cmd.index(f"--exclude-from={exclude_file}")
-        assert cmd.index(f"--exclude-from={exclude_file}") < cmd.index("--backup")
-        # 备份目录排除机制不受影响：仍以内联 --exclude 追加
-        backups_idx = cmd.index(".smart-archiver.backups/")
-        assert cmd[backups_idx - 1] == "--exclude"
+        if sys.platform == "darwin":
+            # macOS 系统 rsync 为 openrsync：备份段整体缺失并告警
+            assert capture_log.has("warning", "openrsync")
+        else:
+            # 顺序：--exclude-from → --backup/--backup-dir
+            assert cmd.index(f"--exclude-from={exclude_file}") < cmd.index("--backup")
+            # 备份目录排除机制不受影响：仍以内联 --exclude 追加
+            backups_idx = cmd.index(".smart-archiver.backups/")
+            assert cmd[backups_idx - 1] == "--exclude"
 
     def test_nonzero_exit_code_logs_error(
         self, run_task, tmp_path, stub_procs, prepared_dirs, capture_log
@@ -204,6 +209,11 @@ class TestLocalSyncCommands:
 
 
 class TestLocalBackupDir:
+    @pytest.mark.skipif(
+        sys.platform == "darwin",
+        reason="macOS 系统 rsync 为 openrsync，不支持备份目录"
+        "（openrsync 行为由 test_macos_rsync_is_openrsync_and_ignores_backups 覆盖）",
+    )
     def test_rsync_backup_flags_added(self, run_task, tmp_path, stub_procs, prepared_dirs):
         _src, _dest = prepared_dirs
         run_task(sync_task(tmp_path, tool="rsync", create_backups=True))
@@ -223,6 +233,10 @@ class TestLocalBackupDir:
         assert "--backup-dir" in cmd
         assert ".smart-archiver.backups" in cmd[cmd.index("--backup-dir") + 1]
 
+    @pytest.mark.skipif(
+        sys.platform == "darwin",
+        reason="macOS 系统 rsync 为 openrsync，备份目录功能整体被跳过，无清理可言",
+    )
     def test_max_backups_prunes_oldest(self, run_task, tmp_path, stub_procs, prepared_dirs):
         """超出保留数量的旧备份从最旧开始清理（真实文件操作）。"""
         _src, dest = prepared_dirs
