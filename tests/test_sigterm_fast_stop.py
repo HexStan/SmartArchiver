@@ -4,7 +4,7 @@
 普通信号直接 TerminateProcess，无法在单元测试内向本进程投递
 SIGTERM——只能同步调用已注册的处理器验证「信号 → fast 动作」的
 映射契约；真实投递由 POSIX-only 的子进程测试单独覆盖（CI 的
-ubuntu 节点执行）。信号处理器是进程级全局状态，fixture 负责保存
+POSIX 节点执行）。信号处理器是进程级全局状态，fixture 负责保存
 并恢复原处理器，避免污染其他测试。
 """
 
@@ -193,7 +193,7 @@ def test_real_sigterm_delivery(tmp_path):
     """真实信号投递（进程边界）：SIGTERM 触发停止动作且进程存活。
 
     Windows 的 ``os.kill`` 对普通信号直接 TerminateProcess，无法投递
-    SIGTERM，故仅在 POSIX 执行（CI 的 ubuntu 节点覆盖）。
+    SIGTERM，故仅在 POSIX 执行（CI 的 POSIX 节点覆盖）。
     """
     ready = tmp_path / "ready"
     marker = tmp_path / "marker"
