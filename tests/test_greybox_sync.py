@@ -15,6 +15,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from src.platform_info import exe_name
 from src.ssh.remotes import SshRemote
 from tests.helpers import NOW, RECENT, make_tree, snapshot
 
@@ -73,27 +74,39 @@ class TestLocalSyncCommands:
         # -v：INFO 级日志，逐文件输出与 rsync -av 对齐；--transfers 1：串行传输
         assert stub_procs.calls[0].cmd == ["rclone", "sync", src, dest, "-v", "--transfers", "1"]
 
-    def test_auto_resolves_rsync_on_posix(
+    def test_auto_prefers_system_rsync_on_linux(
         self, run_task, tmp_path, stub_procs, prepared_dirs, monkeypatch
     ):
         _src, _dest = prepared_dirs
-        monkeypatch.setattr(os, "name", "posix")
-        # rclone 不可用时，POSIX 的 auto 回退到系统 rsync
-        monkeypatch.setattr(
-            shutil,
-            "which",
-            lambda name: None if name == "rclone" else f"/fake/bin/{name}",
-        )
+        monkeypatch.setattr(sys, "platform", "linux")
 
         run_task(sync_task(tmp_path))  # tool 默认 auto
 
+        # Linux 的 auto 优先系统 rsync（链首，即使 rclone 也可用）
         assert stub_procs.calls[0].cmd[0] == "rsync"
+
+    def test_auto_falls_back_to_system_rclone_on_linux_when_rsync_missing(
+        self, run_task, tmp_path, stub_procs, prepared_dirs, monkeypatch, capture_log
+    ):
+        _src, _dest = prepared_dirs
+        monkeypatch.setattr(sys, "platform", "linux")
+        monkeypatch.setattr(
+            shutil,
+            "which",
+            lambda name: None if name == "rsync" else f"/fake/bin/{name}",
+        )
+
+        run_task(sync_task(tmp_path))
+
+        # 链首 rsync 缺失：记回退 warning 后使用系统 rclone
+        assert stub_procs.calls[0].cmd[0] == "rclone"
+        assert capture_log.has("warning", "未找到 rsync，回退使用 rclone")
 
     def test_auto_resolves_rclone_on_windows(
         self, run_task, tmp_path, stub_procs, prepared_dirs, monkeypatch
     ):
         _src, _dest = prepared_dirs
-        monkeypatch.setattr(os, "name", "nt")
+        monkeypatch.setattr(sys, "platform", "win32")
 
         run_task(sync_task(tmp_path))
 
@@ -253,9 +266,9 @@ class TestLocalBackupDir:
 
 
 class TestBundledRcloneResolution:
-    """内置 rclone 与 auto 回退：打包版优先用内置二进制，
-    内置不可用时按平台回退系统工具（打桩只涉及 sys.frozen/_MEIPASS
-    打包环境边界与 shutil.which 进程边界）。"""
+    """内置 rclone 与 auto 平台链：打包版优先用内置二进制，
+    链中缺失时按平台优先级回退（打桩只涉及 sys.frozen/_MEIPASS
+    打包环境边界与 shutil.which 进程边界；平台以 sys.platform 桩固定）。"""
 
     @pytest.fixture
     def frozen_env(self, monkeypatch, tmp_path):
@@ -268,19 +281,21 @@ class TestBundledRcloneResolution:
 
     @staticmethod
     def bundle_rclone(internal):
-        name = "rclone.exe" if os.name == "nt" else "rclone"
-        path = internal / "rclone" / name
+        # 与生产端同源：exe_name 实时读取 sys.platform，与各用例的平台桩保持一致
+        path = internal / "rclone" / exe_name("rclone")
         path.write_bytes(b"fake rclone binary")
         return str(path)
 
-    def test_auto_prefers_bundled_rclone(
-        self, run_task, tmp_path, stub_procs, prepared_dirs, frozen_env
+    def test_auto_prefers_bundled_rclone_on_macos(
+        self, run_task, tmp_path, stub_procs, prepared_dirs, frozen_env, monkeypatch
     ):
+        monkeypatch.setattr(sys, "platform", "darwin")
         bundled = self.bundle_rclone(frozen_env)
         _src, _dest = prepared_dirs
 
         run_task(sync_task(tmp_path))  # tool 默认 auto
 
+        # macOS 的 auto 链首即 rclone：内置优先于系统 PATH 与系统 rsync
         assert stub_procs.calls[0].cmd[:2] == [bundled, "sync"]
 
     def test_forced_rclone_uses_bundled_first(
@@ -297,28 +312,30 @@ class TestBundledRcloneResolution:
         self, run_task, tmp_path, stub_procs, prepared_dirs, frozen_env, monkeypatch
     ):
         """打包环境但内置 rclone 缺失（分发损坏等）：Windows 回退系统 rclone。"""
-        monkeypatch.setattr(os, "name", "nt")
+        monkeypatch.setattr(sys, "platform", "win32")
         _src, _dest = prepared_dirs
 
         run_task(sync_task(tmp_path))
 
         assert stub_procs.calls[0].cmd[0] == "rclone"
 
-    def test_auto_falls_back_to_system_rsync_on_posix(
-        self, run_task, tmp_path, stub_procs, prepared_dirs, frozen_env, monkeypatch
+    def test_auto_falls_back_to_bundled_rclone_on_linux_when_rsync_missing(
+        self, run_task, tmp_path, stub_procs, prepared_dirs, frozen_env, monkeypatch, capture_log
     ):
-        monkeypatch.setattr(os, "name", "posix")
         monkeypatch.setattr(sys, "platform", "linux")
         monkeypatch.setattr(
             shutil,
             "which",
-            lambda name: None if name == "rclone" else f"/fake/bin/{name}",
+            lambda name: None if name == "rsync" else f"/fake/bin/{name}",
         )
+        bundled = self.bundle_rclone(frozen_env)
         _src, _dest = prepared_dirs
 
         run_task(sync_task(tmp_path))
 
-        assert stub_procs.calls[0].cmd[0] == "rsync"
+        # Linux 链首 rsync 缺失：记回退 warning 后使用内置 rclone（优先于系统 rclone）
+        assert stub_procs.calls[0].cmd[:2] == [bundled, "sync"]
+        assert capture_log.has("warning", "未找到 rsync，回退使用 rclone")
 
     def test_macos_rsync_is_openrsync_and_ignores_backups(
         self,
@@ -331,7 +348,6 @@ class TestBundledRcloneResolution:
         capture_log,
     ):
         """macOS 的系统 rsync 即 openrsync：不支持备份目录，警告后继续同步。"""
-        monkeypatch.setattr(os, "name", "posix")
         monkeypatch.setattr(sys, "platform", "darwin")
         monkeypatch.setattr(
             shutil,
@@ -351,7 +367,6 @@ class TestBundledRcloneResolution:
     def test_explicit_rsync_on_macos_ignores_backups(
         self, run_task, tmp_path, stub_procs, prepared_dirs, monkeypatch, capture_log
     ):
-        monkeypatch.setattr(os, "name", "posix")
         monkeypatch.setattr(sys, "platform", "darwin")
         _src, _dest = prepared_dirs
 
@@ -372,6 +387,30 @@ class TestSyncRejections:
 
         assert stub_procs.calls == []
         assert capture_log.has("error", "未找到 rsync")
+
+    def test_auto_all_tools_missing_skips_task_on_linux(
+        self, run_task, tmp_path, stub_procs, prepared_dirs, monkeypatch, capture_log
+    ):
+        monkeypatch.setattr(sys, "platform", "linux")
+        monkeypatch.setattr(shutil, "which", lambda _name: None)
+        _src, _dest = prepared_dirs
+        run_task(sync_task(tmp_path))  # tool 默认 auto
+
+        assert stub_procs.calls == []
+        # 整条链失败只报一次 error，列出该平台尝试过的工具
+        assert capture_log.has("error", "未找到 rsync 或 rclone，无法执行 sync 模式")
+
+    def test_auto_rclone_missing_skips_task_on_windows(
+        self, run_task, tmp_path, stub_procs, prepared_dirs, monkeypatch, capture_log
+    ):
+        """Windows 的 auto 链只有 rclone：缺失即报错，不尝试 rsync。"""
+        monkeypatch.setattr(sys, "platform", "win32")
+        monkeypatch.setattr(shutil, "which", lambda _name: None)
+        _src, _dest = prepared_dirs
+        run_task(sync_task(tmp_path))
+
+        assert stub_procs.calls == []
+        assert capture_log.has("error", "未找到 rclone，无法执行 sync 模式")
 
     def test_http_remote_dest_rejected(
         self, run_task, tmp_path, stub_procs, prepared_dirs, capture_log

@@ -2,7 +2,6 @@ import os
 import posixpath
 import shutil
 import subprocess
-import sys
 import time
 from datetime import datetime
 from typing import NamedTuple, override
@@ -16,6 +15,7 @@ from src.core.registry import register_handler
 from src.core.task_config import SyncTaskConfig
 from src.core.task_plan import TaskSpec
 from src.output.presentation import fmt_timespan
+from src.platform_info import Platform, current, is_macos
 from src.ssh import ops
 from src.ssh.remotes import SshRemote
 
@@ -38,21 +38,27 @@ class SyncTool(NamedTuple):
     supports_backup_dir: bool
 
 
+# tool = "auto" 时各平台的探测优先级（顺序即优先级，越靠前越优先）。
+_AUTO_TOOL_CHAINS: dict[Platform, tuple[str, ...]] = {
+    Platform.POSIX: ("rsync", "rclone"),  # Linux 惯例工具是 rsync，优先
+    Platform.MACOS: ("rclone", "rsync"),  # macOS 系统 rsync 为 openrsync，功能受限，rclone 优先
+    Platform.WINDOWS: ("rclone",),  # Windows 无 rsync
+}
+
+
 def _resolve_rclone() -> SyncTool | None:
     """解析 rclone 可执行文件：打包版内置优先，其次系统 PATH。
 
     Returns:
-        SyncTool | None: 解析失败时已记录错误日志，返回 None。
+        SyncTool | None: 解析失败时返回 None，是否致命由调用方判定。
     """
     bundled = bundled_rclone_path()
     if bundled:
         return SyncTool("rclone", bundled, True)
 
-    ctx = AppContext.get()
     if shutil.which("rclone"):
         return SyncTool("rclone", "rclone", True)
 
-    ctx.logger.error("未找到 rclone，无法执行 sync 模式，跳过该任务。")
     return None
 
 
@@ -63,13 +69,11 @@ def _resolve_rsync() -> SyncTool | None:
     以 supports_backup_dir=False 标记，由调用方忽略 create_backups 配置。
 
     Returns:
-        SyncTool | None: 解析失败时已记录错误日志，返回 None。
+        SyncTool | None: 解析失败时返回 None，是否致命由调用方判定。
     """
-    ctx = AppContext.get()
     if shutil.which("rsync"):
-        return SyncTool("rsync", "rsync", sys.platform != "darwin")
+        return SyncTool("rsync", "rsync", not is_macos())
 
-    ctx.logger.error("未找到 rsync，无法执行 sync 模式，跳过该任务。")
     return None
 
 
@@ -77,23 +81,30 @@ def _resolve_sync_tool(tool: str) -> SyncTool | None:
     """根据配置值和平台解析要使用的同步工具。
 
     tool 取值合法性已由配置模型在加载期收口，此处只做可用性解析
-    （外部条件）。解析优先级：
-    1. tool = "auto"（默认）或 "rclone"：打包版内置的 rclone → 系统 PATH 中的 rclone；
-    2. tool = "auto" 且 rclone 不可用：POSIX 平台回退系统 rsync（Windows 不回退）；
-    3. tool = "rsync"：系统 PATH 中的 rsync。
+    （外部条件）。显式指定时只解析该工具（rclone 先内置后系统 PATH）；
+    tool = "auto"（默认）按平台优先级链依次探测（链表见 _AUTO_TOOL_CHAINS）：
+    - POSIX（Linux 等）: 系统 rsync → 内置 rclone → 系统 rclone
+    - macOS:             内置 rclone → 系统 rclone → 系统 rsync（openrsync）
+    - Windows:           内置 rclone → 系统 rclone
+
+    链中回退记 warning，整条链失败才报 error 并跳过任务。
 
     Returns:
         SyncTool | None: 解析结果；解析失败时已记录错误日志，返回 None。
     """
-    if tool in ("auto", "rclone"):
-        resolved = _resolve_rclone()
+    chain = _AUTO_TOOL_CHAINS[current()] if tool == "auto" else (tool,)
+
+    for index, name in enumerate(chain):
+        resolved = _resolve_rclone() if name == "rclone" else _resolve_rsync()
         if resolved is not None:
             return resolved
-        if tool == "rclone" or os.name == "nt":
-            # _resolve_rclone 已记录错误；Windows 的 auto 不回退 rsync
-            return None
+        if index < len(chain) - 1:
+            ctx = AppContext.get()
+            ctx.logger.warning(f"未找到 {name}，回退使用 {chain[index + 1]}。")
 
-    return _resolve_rsync()
+    ctx = AppContext.get()
+    ctx.logger.error(f"未找到 {' 或 '.join(chain)}，无法执行 sync 模式，跳过该任务。")
+    return None
 
 
 def _warn_backup_unsupported():

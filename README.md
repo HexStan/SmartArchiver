@@ -475,7 +475,7 @@ SmartArchiver 的核心能力是**对源目录中的文件执行某种操作**�
 | `source` | ✓ | 源目录路径 |
 | `dest` | ✓ | 目标目录路径 |
 | `source_quiet_seconds` | ○ | 源目录静默期（秒）：源目录仍在写入时整任务跳过，默认不启用 |
-| `tool` | ○ | 同步工具：`"auto"`（自动，优先内置 rclone）、`"rsync"`、`"rclone"` |
+| `tool` | ○ | 同步工具：`"auto"`（自动，按平台选择，见下文）、`"rsync"`、`"rclone"` |
 | `exclude` | ○ | 排除模式列表，由底层工具处理 |
 | `exclude_from` | ○ | 排除规则文件路径列表（可配置多个，对应底层工具的 `--exclude-from` 选项），文件内容由底层工具处理 |
 | `create_backups` | ○ | 替换/删除前是否备份，默认 `false` |
@@ -553,7 +553,11 @@ mode = "rotate"
 
 **sync 模式的 `tool` 选择**：
 
-- `"auto"`（默认）：优先使用打包版内置的 rclone；内置不可用时回退系统工具 — Windows 使用 PATH 中的 rclone，macOS/Linux 使用 PATH 中的 rsync（macOS 的系统 rsync 即 openrsync 实现）
+- `"auto"`（默认）：按平台优先级依次探测，首个可用者生效，链中回退会记录警告日志：
+  - **Linux**：PATH 中的 rsync → 打包版内置的 rclone → PATH 中的 rclone
+  - **macOS**：打包版内置的 rclone → PATH 中的 rclone → PATH 中的 rsync
+  - **Windows**：打包版内置的 rclone → PATH 中的 rclone
+- 整条链全部不可用时记录错误并跳过该任务（Linux/macOS 报 `未找到 rsync 或 rclone`，Windows 报 `未找到 rclone`）。
 - `"rsync"`：强制使用 rsync（需预装，Linux/macOS 通常自带）
 - `"rclone"`：强制使用 rclone（优先使用打包版内置的，其次 PATH；[下载地址](https://rclone.org/downloads/)）
 
