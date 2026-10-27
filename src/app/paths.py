@@ -13,6 +13,7 @@ import os
 import sys
 
 import src
+from src.platform_info import exe_name, is_windows
 
 
 def is_frozen() -> bool:
@@ -55,8 +56,7 @@ def bundled_rclone_path() -> str | None:
     if not base:
         return None
 
-    exe_name = "rclone.exe" if os.name == "nt" else "rclone"
-    path = os.path.join(base, "rclone", exe_name)
+    path = os.path.join(base, "rclone", exe_name("rclone"))
     if not os.path.isfile(path):
         return None
 
@@ -66,7 +66,7 @@ def bundled_rclone_path() -> str | None:
 
 def _ensure_executable(path: str) -> None:
     """兜底确保二进制具有可执行权限（防打包/解压过程丢失执行位）。"""
-    if os.name == "nt":
+    if is_windows():
         return
     if not os.access(path, os.X_OK):
         try:

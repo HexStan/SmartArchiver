@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 from flask import Flask, jsonify, request
 
 from src import fs
+from src.platform_info import is_posix
 from src.remote.concurrency import (
     ClientDisconnectedError,
     ConcurrencyGate,
@@ -79,7 +80,7 @@ def _receive_upload(path: str, mtime: float | None) -> None:
     def _finalize(temp_path: str) -> None:
         if mtime is not None:
             os.utime(temp_path, (mtime, mtime))
-        if os.name == "posix":
+        if is_posix():
             # mkstemp 回退路径默认 0600，还原 open(path, "wb") 的常规权限
             os.chmod(temp_path, 0o644)
 

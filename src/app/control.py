@@ -17,6 +17,7 @@ from typing import Any
 from src.app import instance, paths
 from src.app.config import ConfigManager
 from src.output.logtail import LogFollower
+from src.platform_info import is_windows
 
 # stop --fast 发出指令后等待实例自行退出的时限，超时则强杀
 _FAST_STOP_TIMEOUT = 5.0
@@ -88,12 +89,16 @@ def _spawn_detached(is_server: bool) -> int:
     env[instance.DETACHED_ENV] = "1"
 
     kwargs: dict[str, Any] = {}
-    if os.name == "nt":
+    if is_windows():
         # CREATE_NO_WINDOW：进程带一个不可见的控制台。不用 DETACHED_PROCESS
         # 是因为源码模式下 venv 的 python.exe 是跳板程序，它重新 spawn 的
         # 真实解释器不继承该标志，会被 Windows 分配一个可见的空控制台窗口；
         # 而隐藏控制台会被正常继承，跳板链路同样无窗口。
-        kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP
+        # pyrefly 按 Linux 语义检查（见 pyproject.toml 的 [tool.pyrefly]），两个
+        # creationflags 常量是 Windows 专属，此处运行时已被平台判定守卫
+        kwargs["creationflags"] = (
+            subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP  # type: ignore[pyrefly:missing-attribute]
+        )
     else:
         kwargs["start_new_session"] = True
 

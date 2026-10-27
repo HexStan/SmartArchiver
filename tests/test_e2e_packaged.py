@@ -24,6 +24,7 @@ import subprocess
 
 import pytest
 
+from src.platform_info import exe_name
 from tests.helpers import OLD, make_tree, snapshot
 
 PROGRAM_DIR = os.environ.get("SMARTARCHIVER_BIN")
@@ -37,7 +38,7 @@ pytestmark = pytest.mark.skipif(
 
 def _entry_name():
     """打包入口名：Windows 为 SmartArchiver.exe，其余平台为裸二进制。"""
-    return "SmartArchiver.exe" if os.name == "nt" else "SmartArchiver"
+    return exe_name("SmartArchiver")
 
 
 def _run_binary(program_dir, timeout=120):

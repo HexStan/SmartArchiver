@@ -23,6 +23,8 @@ import unicodedata
 from collections.abc import Callable
 from typing import TextIO
 
+from src.platform_info import is_windows
+
 # Windows 控制台模式位：ENABLE_VIRTUAL_TERMINAL_PROCESSING
 _ENABLE_VT_PROCESSING = 0x0004
 _STD_OUTPUT_HANDLE = -11
@@ -45,10 +47,10 @@ def _enable_windows_vt() -> bool:
     控制台（conhost）默认关闭 VT，需经 SetConsoleMode 打开。返回
     是否可用，不可用时由调用方降级为无状态栏。
     """
-    if os.name != "nt":
+    if not is_windows():
         return True
     # pyrefly 按 Linux 语义检查（见 pyproject.toml 的 [tool.pyrefly]），ctypes.windll 是
-    # Windows 专属属性，此处运行时已被 os.name 判定守卫
+    # Windows 专属属性，此处运行时已被平台判定守卫
     kernel32 = ctypes.windll.kernel32  # type: ignore[pyrefly:missing-attribute]
     handle = kernel32.GetStdHandle(_STD_OUTPUT_HANDLE)
     mode = ctypes.c_uint32()
