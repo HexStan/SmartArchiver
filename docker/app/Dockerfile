@@ -7,27 +7,32 @@ ENV PYTHONUNBUFFERED=1
 # 多架构构建的目标架构（BuildKit 注入，取值 amd64/arm64，与 rclone 发布包命名一致）
 ARG TARGETARCH
 
-# 安装 rsync、SSH 客户端及 sshpass（用于 SSH 远端同步），以及 curl（供下方下载 rclone）
+# 安装 rsync、SSH 客户端及 sshpass（用于 SSH 远端同步）
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends rsync openssh-client sshpass curl && \
+    apt-get install -y --no-install-recommends rsync openssh-client sshpass && \
     rm -rf /var/lib/apt/lists/*
 
 # 设置工作目录
 WORKDIR /app
 
 # 先复制依赖清单（[tool.smartarchiver] 同时声明内置 rclone 版本，供下方读取；
-# 此层在 apt 之后，pyproject.toml 变更不影响 apt 层缓存）
+# 此层在常驻工具的 apt 层之后，pyproject.toml 变更不影响该层缓存）
 COPY pyproject.toml .
 
 # 安装官方固定版本的 rclone（版本唯一出处：pyproject.toml 的 [tool.smartarchiver].rclone_version，
 # 可执行文件构建（scripts/build_executable.py）读取同一处。Debian 源的 rclone 版本过旧，
 # 故从官方发布地址下载 .deb 包并用 dpkg 安装（安装后位于 /usr/bin/rclone）。下载必须走
-# curl——该站点的 Cloudflare 防护按 User-Agent 拦截，Python urllib 的默认 UA 会被 403）
-RUN RCLONE_VERSION=$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["tool"]["smartarchiver"]["rclone_version"])') && \
+# curl——该站点的 Cloudflare 防护按 User-Agent 拦截，Python urllib 的默认 UA 会被 403；
+# curl 仅此处一次性使用，故在本层内即装即用即删（连同其独占依赖），不落入最终镜像）
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends curl && \
+    RCLONE_VERSION=$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["tool"]["smartarchiver"]["rclone_version"])') && \
     curl -fsSL -o /tmp/rclone.deb "https://downloads.rclone.org/v${RCLONE_VERSION}/rclone-v${RCLONE_VERSION}-linux-${TARGETARCH}.deb" && \
     dpkg -i /tmp/rclone.deb && \
     rm -f /tmp/rclone.deb && \
-    rclone version
+    rclone version && \
+    apt-get purge -y --auto-remove curl && \
+    rm -rf /var/lib/apt/lists/*
 
 # 安装依赖层（源码变更时此层缓存仍可复用）：
 # uv 通过 BuildKit bind mount 从官方镜像临时挂载，仅本条 RUN 期间可见、不落入
