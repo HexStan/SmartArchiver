@@ -26,16 +26,16 @@ SmartArchiver 是文件归档/清理工具：目录树 + 配置 → 新目录树
 ## 常用命令
 
 ```bash
-uv pip install --group dev                              # dev 组 = 运行依赖 + ruff / pyrefly / pytest / 类型存根
-python -m pytest                                        # 全部测试（pyproject.toml 已设 pythonpath=. 和 testpaths=tests）
-python -m pytest tests/test_greybox_rotate.py -v        # 单个测试文件
-ruff check .                                            # Ruff 静态检查
-ruff format .                                           # Ruff 格式化
-pyrefly check                                           # Pyrefly 类型检查（strict 门禁，配置见 pyproject.toml 的 [tool.pyrefly]）
-python main.py                                          # 客户端模式，读取 config/config.toml，缺失即退出
-python main.py --server                                 # 服务器模式，读取 config/config.server.toml
-python scripts/build_executable.py                      # 构建当前平台的可执行文件（PyInstaller onedir + 内置 rclone）
-python scripts/smoke_test.py "dist/SmartArchiver-*.zip" # 对发行 zip 做冒烟检查（包结构 + 入口可运行）
+uv sync --all-groups                                                    # 安装依赖到 .venv（严格按 uv.lock 锁定；dev 组 = 运行依赖 + ruff / pyrefly / pytest / 类型存根）
+uv run python -m pytest                                                 # 全部测试（pyproject.toml 已设 pythonpath=. 和 testpaths=tests）
+uv run python -m pytest tests/test_greybox_rotate.py -v                 # 单个测试文件
+uv run ruff check .                                                     # Ruff 静态检查
+uv run ruff format .                                                    # Ruff 格式化
+uv run pyrefly check                                                    # Pyrefly 类型检查（strict 门禁，配置见 pyproject.toml 的 [tool.pyrefly]）
+uv run python main.py                                                   # 客户端模式，读取 config/config.toml，缺失即退出
+uv run python main.py --server                                          # 服务器模式，读取 config/config.server.toml
+uv run --group build python scripts/build_executable.py                 # 构建当前平台的可执行文件（PyInstaller onedir + 内置 rclone；--group build 保证隐式同步不裁掉 PyInstaller）
+uv run python scripts/smoke_test.py "dist/SmartArchiver-*.zip" # 对发行 zip 做冒烟检查（包结构 + 入口可运行）
 ```
 
 - 运行前需 `cp config/config.example.toml config/config.toml`；`config.toml` 已 gitignore，只提交 `config/*.example.toml`。
@@ -52,7 +52,7 @@ python scripts/smoke_test.py "dist/SmartArchiver-*.zip" # 对发行 zip 做冒�
 - 运行期：`src/core/registry.py` 维护 mode → handler 映射（新增模式在此注册，并在 `task_config.TASK_MODELS` 声明模型）；处理器在 `src/core/handlers/`，基类 `BaseTaskHandler` 只做外部条件校验；"前置任务是否完成"由 `app/runtime.py` 的任务循环判定。
 - 目标 I/O：dest 串解析与目标读写的唯一入口是 `src/core/dest.py`；约定：目标目录读写必须经 `core.dest`，`fs` 仅用于本地路径；SSH 远端操作在 `src/ssh/ops.py`。
 - 规则引擎：`src/core/filters.py` 顺序流水线 include → exclude → delete → TRANSFER，命中即停，运行期只做匹配；原语在 `src/core/patterns.py`。
-- 底层：本地文件 I/O 原语在 `src/fs/`（仅标准库）；共享校验基建 `src/validation.py`（仅 pydantic，所有包可导入）；共享平台探测 `src/platform_info.py`（仅标准库，所有包可导入，运行平台判定的唯一入口，禁止散落 `sys.platform` / `os.name` / `platform.system()` 裸比较）。
+- 底层：本地文件 I/O 原语在 `src/fs/`（仅标准库）；共享校验基建 `src/validation.py`（仅 pydantic，所有包可导入）；共享平台探测 `src/platform_info.py`（运行平台判定的唯一入口）。
 - `AppContext`（`src/app/context.py`）是全局单例，logger / history 经 `AppContext.get()` 获取；测试 fixture 用完会重置单例。
 - 依赖方向（必须无环）：`app/` 可依赖全部；`core/` → `fs/`、`output/`、`remote/`、`ssh/`；`remote/`、`ssh/` → `fs/`；`output/` → `fs/`、`core/patterns`。领域包不得依赖 `app/` 的装配模块（runtime/control），需要 app 层能力时由组合根注入；唯一例外是文档化的 `AppContext` 与 `app.paths` 等叶子助手；`TYPE_CHECKING` 下的类型级 import 不构成违规。
 
