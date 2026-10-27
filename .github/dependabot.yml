@@ -9,8 +9,8 @@ updates:
     commit-message:
       prefix: ci
 
-  # Python 依赖（pyproject.toml：PEP 735 依赖组 runtime / dev / build）
-  - package-ecosystem: pip
+  # Python 依赖（pyproject.toml 的 PEP 735 依赖组 runtime / dev / build + 锁文件 uv.lock）
+  - package-ecosystem: uv
     directory: /
     schedule:
       interval: weekly
