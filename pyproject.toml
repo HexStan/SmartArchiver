@@ -73,6 +73,11 @@ build = [
     "pyinstaller==6.22.3",
 ]
 
+[tool.smartarchiver]
+# 内置 rclone 的版本（唯一出处）：可执行文件构建（scripts/build_executable.py）
+# 与应用 Docker 镜像（docker/app/Dockerfile）均从此处读取。
+rclone_version = "1.75.2"
+
 [tool.pytest.ini_options]
 # 测试体系详见 tests/README.md
 pythonpath = ["."]
