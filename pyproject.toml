@@ -4,17 +4,19 @@
 # 用户 clone 运行，不发布到 PyPI，因此无 [build-system]、不做 pip 安装。
 # 版本号只写在 [project] 的 version 字段（发布流程与构建脚本使用，见 RELEASE-GUIDE.md）。
 #
-# 依赖以 PEP 735 依赖组声明，安装方式（pip ≥ 25.1，Python 3.14 自带的 pip 已满足）：
-#   pip install --group runtime   # 仅运行依赖（Docker 镜像使用）
-#   pip install --group dev       # runtime + pytest / ruff / pyrefly / 类型存根
-#   pip install --group build     # runtime + PyInstaller（构建可执行文件）
-# 所有依赖钉精确版本，由 Dependabot 每周自动更新（2026-02 起支持 [dependency-groups]）。
+# 依赖以 PEP 735 依赖组声明，完整依赖树锁定在 uv.lock（本仓库以 uv 0.13.5 生成，
+# 读锁请使用不低于此的版本）：
+#   uv sync --group dev           # runtime + pytest / ruff / pyrefly / 类型存根（本地开发与 CI）
+#   uv sync --group build         # runtime + PyInstaller（构建可执行文件）
+#   uv sync --only-group runtime  # 仅运行依赖（Docker 镜像使用）
+# pip ≥ 25.1 的 `pip install --group <组名>` 亦可安装，但不经过锁文件，仅作后备手段。
+# 所有依赖钉精确版本，由 Dependabot（uv 生态）每周同步更新 pyproject.toml 与 uv.lock。
 
 [project]
 name = "smartarchiver"
 # 版本号唯一出处（发布流程与构建脚本使用，见 RELEASE-GUIDE.md）：
 # [x].[y].[z] 为正式版，带 -dev 后缀为开发版。
-version = "0.38.3-dev"
+version = "0.38.4-dev"
 description = "灵活的文件归档与清理工具：按规则移动、复制、轮转与同步文件"
 readme = "README.md"
 license = "MIT"
