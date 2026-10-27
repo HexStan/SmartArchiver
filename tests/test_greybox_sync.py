@@ -527,6 +527,8 @@ class TestSshSyncCommands:
             "root",
             "--sftp-known-hosts-file",
             "none",
+            "--sftp-shell-type",
+            "none",
             "--sftp-port",
             "2222",
             "--sftp-key-file",

@@ -409,6 +409,12 @@ class SyncHandler(BaseTaskHandler):
             # 显式声明不做 SSH 主机密钥校验，消除 rclone 的 NOTICE 提示
             "--sftp-known-hosts-file",
             "none",
+            # :sftp: 临时后端无法持久化 shell 探测结果，显式禁用远端 shell，
+            # 避免 rclone 每次运行重新探测并输出 "Can't save config" NOTICE
+            # （sync 的 size+modtime 比对不依赖远端 shell 与哈希；
+            # 若将来引入 --checksum 比对，需改为显式 shell 类型并指定校验和命令）
+            "--sftp-shell-type",
+            "none",
         ]
 
         if remote.port != 22:
