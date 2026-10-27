@@ -119,7 +119,7 @@ python main.py --server stop   # 停止（中止进行中的传输并尽快退�
 
 #### 客户端 / HTTP 服务器镜像
 
-应用镜像基于 `python:3.14-slim-trixie`，已内置 `rsync`。GitHub Actions 自动构建 `linux/amd64` 和 `linux/arm64` 多架构镜像，发布到 `ghcr.io/hexstan/smartarchiver`。
+应用镜像基于 `python:3.14-slim-trixie`，已内置 `rsync` 与 `rclone`。GitHub Actions 自动构建 `linux/amd64` 和 `linux/arm64` 多架构镜像，发布到 `ghcr.io/hexstan/smartarchiver`。
 
 ```bash
 # 1. 创建并编辑配置文件
