@@ -51,7 +51,7 @@ class TestPipelineOrder:
     def test_not_included_returns_skip_even_if_delete_matches(self):
         policy = build_policy(
             include={"ge": {"*.doc": "10MB"}},
-            delete={"ge": {"*.txt": "-1"}},
+            delete={"ge": {"*.txt": "0"}},
         )
         assert policy.decide("app.txt", 500) == SKIP
 
@@ -63,7 +63,7 @@ class TestPipelineOrder:
         assert policy.decide("app.log", 500 * KB) == SKIP
 
     def test_delete_match_returns_delete(self):
-        policy = build_policy(delete={"ge": {"*.tmp": "-1"}})
+        policy = build_policy(delete={"ge": {"*.tmp": "0"}})
         assert policy.decide("temp.tmp", 123) == DELETE
 
     def test_no_rule_matches_returns_transfer(self):
@@ -80,8 +80,8 @@ class TestPipelineOrder:
     def test_readme_example_exclude_shields_from_delete(self):
         """README 文档化的用法：删除所有 .tmp 但保护 important.tmp。"""
         policy = build_policy(
-            exclude={"ge": {"important.tmp": "-1"}},
-            delete={"ge": {"*.tmp": "-1"}},
+            exclude={"ge": {"important.tmp": "0"}},
+            delete={"ge": {"*.tmp": "0"}},
         )
         assert policy.decide("important.tmp", 100) == SKIP
         assert policy.decide("other.tmp", 100) == DELETE
@@ -115,22 +115,22 @@ class TestThresholdBoundary:
         assert policy.decide("empty.log", 0) == TRANSFER
 
 
-class TestUnconditionalMinusOne:
-    """ge 阈值 -1 无条件命中（含零大小）；lt 阈值 -1 永不命中。"""
+class TestUnconditionalMatch:
+    """ge 阈值 0 无条件命中（含零大小）；lt 阈值 0 永不命中。"""
 
-    def test_ge_minus_one_matches_any_size(self):
-        policy = build_policy(delete={"ge": {"*.tmp": "-1"}})
+    def test_ge_zero_matches_any_size(self):
+        policy = build_policy(delete={"ge": {"*.tmp": "0"}})
         assert policy.decide("a.tmp", 0) == DELETE
         assert policy.decide("b.tmp", 10 * MB) == DELETE
 
-    def test_lt_minus_one_never_matches(self):
-        policy = build_policy(delete={"lt": {"*.tmp": "-1"}})
+    def test_lt_zero_never_matches(self):
+        policy = build_policy(delete={"lt": {"*.tmp": "0"}})
         assert policy.decide("a.tmp", 0) == TRANSFER
 
 
 class TestLazyEvaluation:
     """惰性求值契约：名称不匹配不求大小；每组规则至多求值一次；
-    ge -1 命中时完全不求值。目录大小的递归计算开销大，这是性能契约。"""
+    ge 阈值 ≤ 0 命中时完全不求值。目录大小的递归计算开销大，这是性能契约。"""
 
     def test_size_not_computed_when_name_mismatches(self):
         policy = build_policy(exclude={"lt": {"*.zip": "1MB"}})
@@ -144,8 +144,8 @@ class TestLazyEvaluation:
         assert policy.decide("app.log", spy) == SKIP
         assert spy.calls == 1
 
-    def test_ge_minus_one_never_computes_size(self):
-        policy = build_policy(delete={"ge": {"*.tmp": "-1"}})
+    def test_ge_zero_never_computes_size(self):
+        policy = build_policy(delete={"ge": {"*.tmp": "0"}})
         spy = SizeSpy(0)
         assert policy.decide("temp.tmp", spy) == DELETE
         assert spy.calls == 0
@@ -177,8 +177,8 @@ class TestDirVsFileRules:
         policy = build_policy(exclude={"ge": {"*.log": "1MB"}})
         assert policy.decide("app.log", 50 * MB, is_dir=True) == TRANSFER
 
-    def test_dir_ge_minus_one_unconditional(self):
-        policy = build_policy(delete={"ge": {"cache/": "-1"}})
+    def test_dir_ge_zero_unconditional(self):
+        policy = build_policy(delete={"ge": {"cache/": "0"}})
         assert policy.decide("cache", 2 * 1024**3, is_dir=True) == DELETE
 
 
@@ -188,7 +188,7 @@ class TestIncludeInheritance:
 
     def test_dir_always_passes_include_check(self):
         """目录即使不匹配 include 也放行，否则无法遍历到匹配的子项。"""
-        policy = build_policy(include={"ge": {"*.mp4": "-1"}})
+        policy = build_policy(include={"ge": {"*.mp4": "0"}})
         assert policy.decide("mydir", 0, is_dir=True) == TRANSFER
 
     def test_matching_dir_registers_children_inheritance(self):
@@ -230,19 +230,19 @@ class TestParentDirCascade:
     parent_dir_sizes 由调用方（轮转模式）在扫描阶段预计算。"""
 
     def test_parent_exclude_cascades_to_file(self):
-        policy = build_policy(exclude={"ge": {"backup/": "-1"}})
+        policy = build_policy(exclude={"ge": {"backup/": "0"}})
         sizes = {"backup": 1000}
         assert policy.decide("backup/file.txt", 500, parent_dir_sizes=sizes) == SKIP
 
     def test_parent_delete_cascades_to_file(self):
-        policy = build_policy(delete={"ge": {"backup/": "-1"}})
+        policy = build_policy(delete={"ge": {"backup/": "0"}})
         sizes = {"backup": 1000}
         assert policy.decide("backup/file.txt", 500, parent_dir_sizes=sizes) == DELETE
 
     def test_parent_exclude_beats_parent_delete(self):
         policy = build_policy(
-            exclude={"ge": {"data/": "-1"}},
-            delete={"ge": {"data/": "-1"}},
+            exclude={"ge": {"data/": "0"}},
+            delete={"ge": {"data/": "0"}},
         )
         sizes = {"data": 5000}
         assert policy.decide("data/file.txt", 500, parent_dir_sizes=sizes) == SKIP
@@ -258,23 +258,23 @@ class TestParentDirCascade:
     def test_self_exclude_beats_parent_delete(self):
         policy = build_policy(
             exclude={"lt": {"*.txt": "10MB"}},
-            delete={"ge": {"backup/": "-1"}},
+            delete={"ge": {"backup/": "0"}},
         )
         sizes = {"backup": 1000}
         assert policy.decide("backup/file.txt", 500, parent_dir_sizes=sizes) == SKIP
 
     def test_deeply_nested_parent_cascade(self):
-        policy = build_policy(exclude={"ge": {"backup/": "-1"}})
+        policy = build_policy(exclude={"ge": {"backup/": "0"}})
         sizes = {"backup": 10000, "backup/sub": 5000}
         assert policy.decide("backup/sub/deep/file.txt", 500, parent_dir_sizes=sizes) == SKIP
 
     def test_no_parent_entry_no_cascade(self):
-        policy = build_policy(exclude={"ge": {"other/": "-1"}})
+        policy = build_policy(exclude={"ge": {"other/": "0"}})
         sizes = {"backup": 1000}
         assert policy.decide("backup/file.txt", 500, parent_dir_sizes=sizes) == TRANSFER
 
     def test_none_parent_sizes_no_cascade(self):
-        policy = build_policy(exclude={"ge": {"backup/": "-1"}})
+        policy = build_policy(exclude={"ge": {"backup/": "0"}})
         assert policy.decide("backup/file.txt", 500) == TRANSFER
         assert policy.decide("backup/file.txt", 500, parent_dir_sizes=None) == TRANSFER
 
@@ -289,18 +289,18 @@ class TestGlobSemantics:
     """通配符语义（fnmatch 之上的一层路径归一化）。"""
 
     def test_single_level_pattern_matches_basename_at_any_depth(self):
-        policy = build_policy(exclude={"ge": {"*.log": "-1"}})
+        policy = build_policy(exclude={"ge": {"*.log": "0"}})
         assert policy.decide("a/b/c/app.log", 100) == SKIP
 
     def test_multi_level_pattern_anchored_at_source_root(self):
-        policy = build_policy(exclude={"ge": {"logs/*.log": "-1"}})
+        policy = build_policy(exclude={"ge": {"logs/*.log": "0"}})
         assert policy.decide("logs/app.log", 100) == SKIP
         assert policy.decide("other/app.log", 100) == TRANSFER
 
     def test_star_in_multi_level_pattern_crosses_directories(self):
         """fnmatch 的 * 不感知路径分隔符——"logs/*.log" 能匹配 logs/a/b.log。
         钉死这一语义，防止将来误改为按单级匹配。"""
-        policy = build_policy(exclude={"ge": {"logs/*.log": "-1"}})
+        policy = build_policy(exclude={"ge": {"logs/*.log": "0"}})
         assert policy.decide("logs/a/b.log", 100) == SKIP
 
     def test_question_mark_matches_single_char(self):
@@ -309,9 +309,9 @@ class TestGlobSemantics:
         assert policy.decide("app.html", 500 * KB) == TRANSFER
 
     def test_case_insensitive(self):
-        policy = build_policy(exclude={"ge": {"*.LOG": "-1"}})
+        policy = build_policy(exclude={"ge": {"*.LOG": "0"}})
         assert policy.decide("APP.LOG", 100) == SKIP
 
     def test_backslash_normalized_in_name_and_pattern(self):
-        policy = build_policy(exclude={"ge": {"logs\\*.log": "-1"}})
+        policy = build_policy(exclude={"ge": {"logs\\*.log": "0"}})
         assert policy.decide("logs\\a.log", 100) == SKIP

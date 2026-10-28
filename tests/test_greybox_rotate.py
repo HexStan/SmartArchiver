@@ -151,7 +151,7 @@ class TestSourceQuietPeriod:
 class TestRotationWithoutDest:
     def test_delete_rules_delete_in_place_of_transfer(self, run_task, tmp_path):
         """无 dest 时轮转产生的动作走 delete_rules 直接删除。"""
-        task = rotate_task(tmp_path, count_limit=2, delete_rules={"ge": {"*": "-1"}})
+        task = rotate_task(tmp_path, count_limit=2, delete_rules={"ge": {"*": "0"}})
         make_tree(
             task["source"],
             {f"f{i}.txt": (b"x", OLD + i) for i in range(4)},
@@ -181,7 +181,7 @@ class TestRulesInRotation:
             tmp_path,
             dest=str(tmp_path / "dest"),
             count_limit=1,
-            exclude_rules={"ge": {"*.keep": "-1"}},
+            exclude_rules={"ge": {"*.keep": "0"}},
         )
         make_tree(
             task["source"],

@@ -123,7 +123,7 @@ class TestMtimeThreshold:
     def test_delete_rule_also_gated_by_mtime(self, run_task, tmp_path, capture_log):
         """README 明示的设计意图：delete_rules 同受 mtime 阈值约束，
         保护正在写入的文件。"""
-        task = move_task(tmp_path, delete_rules={"ge": {"*.tmp": "-1"}})
+        task = move_task(tmp_path, delete_rules={"ge": {"*.tmp": "0"}})
         make_tree(task["source"], {"old.tmp": b"x", "new.tmp": (b"y", RECENT)})
 
         run_task(task, now=NOW)
@@ -181,7 +181,7 @@ class TestRulesEndToEnd:
     """规则系统对目录树的最终影响——README 文档化行为的落地验证。"""
 
     def test_exclude_rule_keeps_matching_files_in_place(self, run_task, tmp_path):
-        task = move_task(tmp_path, exclude_rules={"ge": {"*.log": "-1"}})
+        task = move_task(tmp_path, exclude_rules={"ge": {"*.log": "0"}})
         make_tree(task["source"], {"a.log": b"log", "b.txt": b"txt"})
 
         run_task(task, now=NOW)
@@ -190,7 +190,7 @@ class TestRulesEndToEnd:
         assert snapshot(task["dest"]) == {"b.txt": 3}
 
     def test_delete_rule_deletes_instead_of_transferring(self, run_task, tmp_path):
-        task = move_task(tmp_path, delete_rules={"ge": {"*.tmp": "-1"}})
+        task = move_task(tmp_path, delete_rules={"ge": {"*.tmp": "0"}})
         make_tree(task["source"], {"a.tmp": b"x", "b.txt": b"y"})
 
         run_task(task, now=NOW)
@@ -201,8 +201,8 @@ class TestRulesEndToEnd:
     def test_exclude_shields_file_from_delete(self, run_task, tmp_path):
         task = move_task(
             tmp_path,
-            exclude_rules={"ge": {"important.tmp": "-1"}},
-            delete_rules={"ge": {"*.tmp": "-1"}},
+            exclude_rules={"ge": {"important.tmp": "0"}},
+            delete_rules={"ge": {"*.tmp": "0"}},
         )
         make_tree(task["source"], {"important.tmp": b"keep", "other.tmp": b"del"})
 
@@ -212,7 +212,7 @@ class TestRulesEndToEnd:
         assert snapshot(task["dest"]) == {}
 
     def test_include_whitelist_only_transfers_matches(self, run_task, tmp_path):
-        task = move_task(tmp_path, include_rules={"ge": {"*.mp4": "-1"}})
+        task = move_task(tmp_path, include_rules={"ge": {"*.mp4": "0"}})
         make_tree(task["source"], {"a.mp4": b"v", "b.txt": b"t"})
 
         run_task(task, now=NOW)
@@ -222,7 +222,7 @@ class TestRulesEndToEnd:
 
     def test_include_directory_grants_access_to_children(self, run_task, tmp_path):
         """目录命中 include 后子项自动继承纳入状态。"""
-        task = move_task(tmp_path, include_rules={"ge": {"docs/": "-1"}})
+        task = move_task(tmp_path, include_rules={"ge": {"docs/": "0"}})
         make_tree(task["source"], {"docs/a.txt": b"x", "other/b.txt": b"y"})
 
         run_task(task, now=NOW)
@@ -231,7 +231,7 @@ class TestRulesEndToEnd:
         assert snapshot(task["dest"]) == {"docs/a.txt": 1}
 
     def test_directory_exclude_skips_whole_subtree(self, run_task, tmp_path):
-        task = move_task(tmp_path, exclude_rules={"ge": {"videos/": "-1"}})
+        task = move_task(tmp_path, exclude_rules={"ge": {"videos/": "0"}})
         make_tree(task["source"], {"videos/v.mp4": b"v", "a.txt": b"a"})
 
         run_task(task, now=NOW)
@@ -240,7 +240,7 @@ class TestRulesEndToEnd:
         assert snapshot(task["dest"]) == {"a.txt": 1}
 
     def test_directory_delete_removes_old_directory(self, run_task, tmp_path):
-        task = move_task(tmp_path, delete_rules={"ge": {"cache/": "-1"}})
+        task = move_task(tmp_path, delete_rules={"ge": {"cache/": "0"}})
         make_tree(task["source"], {"cache/x.tmp": b"x", "keep.txt": b"k"})
 
         run_task(task, now=NOW)
@@ -251,7 +251,7 @@ class TestRulesEndToEnd:
 
     def test_directory_delete_gated_by_content_mtime(self, run_task, tmp_path):
         """目录的 mtime 取内容物最新时间——目录里有新文件时整个目录受保护。"""
-        task = move_task(tmp_path, delete_rules={"ge": {"cache/": "-1"}})
+        task = move_task(tmp_path, delete_rules={"ge": {"cache/": "0"}})
         make_tree(task["source"], {"cache/new.tmp": (b"n", RECENT)})
 
         run_task(task, now=NOW)
@@ -349,7 +349,7 @@ class TestErrorPaths:
         """README 常见误区 2：未配置 dest 时不传输，但 delete_rules 照常生效。"""
         task = move_task(tmp_path)
         del task["dest"]
-        task["delete_rules"] = {"ge": {"*.tmp": "-1"}}
+        task["delete_rules"] = {"ge": {"*.tmp": "0"}}
         make_tree(task["source"], {"a.tmp": b"x", "b.txt": b"y"})
 
         run_task(task, now=NOW)

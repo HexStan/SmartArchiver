@@ -157,10 +157,9 @@ class TestRotateTask:
         task = RotateTaskConfig.model_validate(_rotate(size_limit="1GiB"))
         assert task.size_limit == GIB
 
-    def test_size_limit_minus_one_sentinel(self):
-        """-1 是"匹配所有大小"的哨兵值。"""
-        task = RotateTaskConfig.model_validate(_rotate(size_limit=-1))
-        assert task.size_limit == -1
+    def test_size_limit_minus_one_rejected(self):
+        message = _format(RotateTaskConfig, _rotate(size_limit=-1))
+        assert "容量字符串 '-1' 无法解析" in message
 
     def test_size_limit_empty_means_unlimited(self):
         task = RotateTaskConfig.model_validate(_rotate(size_limit=""))
@@ -295,9 +294,11 @@ class TestRuleSetConfig:
         assert rules.lt == {"*.log": 10 * 1024 * 1024}
         assert rules.ge == {"*.doc": 1000 * 1000}
 
-    def test_minus_one_sentinel(self):
-        rules = RuleSetConfig.model_validate({"ge": {"*.tmp": -1}})
-        assert rules.ge == {"*.tmp": -1}
+    def test_minus_one_rejected(self):
+        """携带规则键上下文。"""
+        message = _format(RuleSetConfig, {"ge": {"*.tmp": -1}})
+        assert "规则 '*.tmp' 的容量值无效" in message
+        assert "容量字符串 '-1' 无法解析" in message
 
     def test_invalid_size_carries_pattern_context(self):
         """错误消息携带规则键上下文。"""
@@ -308,12 +309,12 @@ class TestRuleSetConfig:
     def test_dir_file_split_views(self):
         """键尾斜杠 = 目录规则（斜杠剥除）；否则文件规则——拆分在加载期完成。"""
         rules = RuleSetConfig.model_validate(
-            {"lt": {"docs/": "100MB", "*.log": "1MB"}, "ge": {"cache/": "-1"}}
+            {"lt": {"docs/": "100MB", "*.log": "1MB"}, "ge": {"cache/": "0"}}
         )
 
         assert rules.dir_rules_lt == {"docs": 100 * 1000 * 1000}
         assert rules.file_rules_lt == {"*.log": 1000 * 1000}
-        assert rules.dir_rules_ge == {"cache": -1}
+        assert rules.dir_rules_ge == {"cache": 0}
         assert rules.file_rules_ge == {}
 
     def test_has_rules(self):

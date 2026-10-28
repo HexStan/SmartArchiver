@@ -43,10 +43,11 @@ class TestParseSizeString:
     def test_surrounding_whitespace_stripped(self):
         assert parse_size_string("  1KB  ") == 1000
 
-    def test_minus_one_is_special_value(self):
-        """-1 是"匹配所有大小"的哨兵值，不是字面大小。"""
-        assert parse_size_string("-1") == -1
-        assert parse_size_string(-1) == -1
+    def test_minus_one_rejected(self):
+        with pytest.raises(InvalidSizeError):
+            parse_size_string("-1")
+        with pytest.raises(InvalidSizeError):
+            parse_size_string(-1)
 
     def test_zero_means_no_limit(self):
         assert parse_size_string("0") == 0

@@ -41,8 +41,8 @@ from src.core.patterns import InvalidSizeError, parse_size_string
 def _parse_size_value(value: object) -> int:
     """容量配置值 → 字节数（复用 parse_size_string 的完整语义）。
 
-    经 str() 归一后交给 parse_size_string：空值视为 0（不限制）、"-1"
-    为"匹配所有大小"哨兵、其余无法解析的值抛 InvalidSizeError（
+    经 str() 归一后交给 parse_size_string：空值视为 0（不限制）、其余
+    无法解析的值抛 InvalidSizeError（
     ValueError 子类）——静默降级为 0 会让规则被静默禁用，必须显式失败。
     """
     return parse_size_string(str(value))

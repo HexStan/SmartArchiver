@@ -61,7 +61,8 @@ class FileFilterPolicy:
     ) -> bool:
         """
         判断文件或目录是否命中该组规则。
-        支持惰性求值：如果命中 ge 且阈值为 -1，则不调用 size_or_callable 获取大小。
+        支持惰性求值：ge 阈值 ≤ 0 时必然命中（大小非负，0 即"匹配所有大小"），
+        不调用 size_or_callable 获取大小。
         """
         rules_lt = rules.dir_rules_lt if is_dir else rules.file_rules_lt
         rules_ge = rules.dir_rules_ge if is_dir else rules.file_rules_ge
@@ -75,12 +76,12 @@ class FileFilterPolicy:
 
         for pattern, threshold in rules_ge.items():
             if match_pattern(name, pattern):
-                # 如果 ge 规则阈值为 -1，必然命中，无需检查大小
-                if threshold == -1:
+                # 阈值 ≤ 0 时大小非负、必然命中（0 = 匹配所有大小），无需检查大小
+                if threshold <= 0:
                     return True
                 matching_thresholds_ge.append(threshold)
 
-        # 只有在没有命中 ge -1 且命中了其他有大小限制的规则时，才获取并检查大小
+        # 只有在没有命中 ge ≤ 0 的规则且命中了其他有大小限制的规则时，才获取并检查大小
         if matching_thresholds_lt or matching_thresholds_ge:
             size = size_or_callable() if callable(size_or_callable) else size_or_callable
             for threshold in matching_thresholds_lt:

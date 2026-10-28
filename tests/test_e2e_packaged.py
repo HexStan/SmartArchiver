@@ -141,10 +141,10 @@ remove_empty_dirs = false
 max_retries = 1
 
 [tasks.include_rules]
-ge."media/" = -1
+ge."media/" = 0
 
 [tasks.exclude_rules]
-ge."secret.mp4" = -1
+ge."secret.mp4" = 0
 
 [tasks.delete_rules]
 lt."*.tmp" = "10MB"

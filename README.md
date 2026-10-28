@@ -655,7 +655,7 @@ flowchart TD
 
 每个键值对是一条规则：`lt|ge."模式" = 阈值`。模式支持通配符 `*`（匹配任意字符）和 `?`（匹配单个字符）。
 
-阈值可以是大小字符串（`"10MB"`、`"1GB"`、`"500KB"`）或特殊值 `-1`（匹配所有大小，不受大小限制）。
+阈值可以是大小字符串（`"10MB"`、`"1GB"`、`"500KB"`）；`ge` 阈值写 `0` 表示匹配所有大小（不受大小限制）。
 
 **区分文件和目录**：模式末尾带 `/` 匹配目录，不带 `/` 匹配文件。
 
@@ -666,12 +666,12 @@ lt."*.mp4" = "10GB"              # 小于 10GB 的 .mp4 文件 → 纳入处理
 ge."*.doc" = "1MB"               # 大于等于 1MB 的 .doc 文件 → 纳入处理
 
 # 目录规则（模式末尾有 /，目录内的子项自动继承纳入状态）：
-ge."videos/" = -1                # videos 目录及其所有子项 → 纳入处理
+ge."videos/" = 0                  # videos 目录及其所有子项 → 纳入处理
 
 [tasks.exclude_rules]
 # 文件规则：
 lt."*.log" = "10MB"              # 小于 10MB 的 .log 文件 → 跳过
-ge."backup.iso" = -1             # 所有 backup.iso 文件 → 跳过
+ge."backup.iso" = 0               # 所有 backup.iso 文件 → 跳过
 
 # 目录规则：
 lt."cache/" = "500MB"            # 小于 500MB 的 cache 目录 → 跳过
@@ -679,7 +679,7 @@ ge."backups/" = "1GB"            # 大于等于 1GB 的 backups 目录 → 进�
 
 [tasks.delete_rules]
 lt."*.tmp" = "1KB"               # 小于 1KB 的 .tmp 文件 → 删除
-ge."*" = -1                      # 所有文件 → 删除
+ge."*" = 0                        # 所有文件 → 删除
 ```
 
 #### 容量单位
@@ -691,7 +691,7 @@ ge."*" = -1                      # 所有文件 → 删除
 | B、KB / MB / GB / TB | 十进制 | 1 KB = 1000 B |
 | KiB / MiB / GiB / TiB | 二进制 | 1 KiB = 1024 B |
 
-- 规则阈值写 `-1` 表示匹配所有大小（不受大小限制）；rotate 模式的 `size_limit` / `count_limit` 写 `0` 表示不限制
+- 规则 `ge` 阈值写 `0` 表示匹配所有大小（不受大小限制），`lt` 阈值写 `0` 表示永不命中；rotate 模式的 `size_limit` / `count_limit` 写 `0` 表示不限制
 - 无法解析的容量值会导致任务被跳过
 
 #### 多级路径匹配
@@ -701,7 +701,7 @@ ge."*" = -1                      # 所有文件 → 删除
 ```toml
 lt."logs/*.log" = "100MB"         # logs/ 下所有 .log 文件
 lt."data/*/cache/" = "50MB"       # data/ 下一级子目录中的 cache/ 目录
-ge."alpha/beta/charlie.txt" = -1  # 精确路径匹配
+ge."alpha/beta/charlie.txt" = 0   # 精确路径匹配
 ```
 
 > ⚠️ 规则匹配的是**相对于源目录的路径**。例如源目录为 `./source`，文件为 `./source/a/b/file.txt`，编写规则时应使用 `"a/b/file.txt"` 或 `"*/*/file.txt"`。
@@ -722,8 +722,8 @@ ge."alpha/beta/charlie.txt" = -1  # 精确路径匹配
 
 > ℹ️ 配置示例：要删除所有 .tmp 文件但保护 important.tmp：
 > ```toml
-> exclude_rules.ge."important.tmp" = -1
-> delete_rules.ge."*.tmp" = -1
+> exclude_rules.ge."important.tmp" = 0
+> delete_rules.ge."*.tmp" = 0
 > ```
 > 这里 `important.tmp` 先命中 `exclude_rules`（精确匹配），流水线停止，文件被保留。
 
@@ -732,10 +732,10 @@ ge."alpha/beta/charlie.txt" = -1  # 精确路径匹配
 规则引擎在检查规则时尽可能避免计算目录大小（递归扫描开销大）：
 
 1. 先做名称匹配（字符串比较，极快）
-2. 如果命中 `ge."模式" = -1`，直接返回命中，**不计算大小**
-3. 只有名称匹配且阈值非 -1 时才实际计算大小
+2. 如果命中 `ge."模式" = 0`（或任何 ≤ 0 的阈值），直接返回命中，**不计算大小**
+3. 只有名称匹配且阈值大于 0 时才实际计算大小
 
-利用这一点，将无条件命中的规则写为 `ge."模式" = -1` 可以提升性能。
+利用这一点，将无条件命中的规则写为 `ge."模式" = 0` 可以提升性能。
 
 #### 轮转模式中的规则
 
@@ -746,8 +746,8 @@ ge."alpha/beta/charlie.txt" = -1  # 精确路径匹配
 - 都不命中 → 若有 dest 则移动，若无 dest 则跳过（留在原地）
 
 **典型用法**：
-- 纯清理：`delete_rules.ge."*" = -1`，无需配置 dest，所有轮转产生的文件直接删除
-- 选择性保护：`exclude_rules.ge."*.important" = -1`，某些重要文件即使超限也不会被轮转处理
+- 纯清理：`delete_rules.ge."*" = 0`，无需配置 dest，所有轮转产生的文件直接删除
+- 选择性保护：`exclude_rules.ge."*.important" = 0`，某些重要文件即使超限也不会被轮转处理
 
 **`rotate_rules` 不支持匹配目录**：`rotate_rules` 的 pattern 不能以 `/` 结尾。要限制某个目录下的文件，用 `"目录名/*"` 而非 `"目录名/"`。
 

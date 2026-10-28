@@ -40,17 +40,13 @@ def parse_size_string(size_str: object) -> int:
     """把容量字符串解析为字节数（IEC 80000-13：KB=1000，KiB=1024）。
 
     - 空值视为未配置，返回 0（= 不限制）；
-    - "-1" 是"匹配所有大小"的哨兵值；
-    - 其余无法解析的输入抛 InvalidSizeError：配置错误必须显式失败，
-      静默降级为 0 会让规则被静默禁用。
+    - 其余无法解析的输入抛 InvalidSizeError：
+      配置错误必须显式失败，静默降级为 0 会让规则被静默禁用。
     """
     if not size_str:
         return 0
 
     s = str(size_str).strip()
-
-    if s == "-1":
-        return -1
 
     if not _SIZE_SHAPE.fullmatch(s):
         raise InvalidSizeError(f"容量字符串 {s!r} 无法解析")
