@@ -4,6 +4,10 @@
 
 ## 未发布
 
+---
+
+## [0.39.2] - 2026-10-29
+
 ### 破坏性变更
 
 - 配置项 `lock_file` 更名为 `instance_name`（无后缀的实例标识名），旧键不再生效；锁/控制/PID 文件统一由程序存放在系统临时目录，仅接受纯名称、不再支持自定义路径。实例标识是同一份程序副本的身份证：锁文件（`<标识>.lock`）、控制文件（`<标识>.ctl`）、PID 文件（`<标识>.pid`）与日志文件前缀均由它派生，多副本部署时锁、控制通道与日志完全隔离。
@@ -432,6 +436,7 @@ backup_dir = "/data/sync-backups"
 
 ---
 
+[0.39.2]: https://github.com/HexStan/SmartArchiver/releases/tag/v0.39.2
 [0.29.3]: https://github.com/HexStan/SmartArchiver/releases/tag/v0.29.3
 [0.28.2]: https://github.com/HexStan/SmartArchiver/releases/tag/v0.28.2
 [0.24.2]: https://github.com/HexStan/SmartArchiver/releases/tag/v0.24.2
