@@ -61,6 +61,7 @@
 - `mtime_threshold_seconds` 改为选填配置项，不配置此项时默认为 `0`（无时间限制）。
 - `remove_empty_dirs` 改为选填配置项，不配置此项时默认为 `false`。
 - 优化了 `tasks = [{ mode = "sync", tool = "auto" }]` 设置下的工具选择逻辑。
+- 优化了 HTTP 传输时的文件信息获取逻辑。
 
 ### 迁移指南
 
