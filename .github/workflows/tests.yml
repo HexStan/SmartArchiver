@@ -12,6 +12,29 @@ on:
   workflow_dispatch:
 
 jobs:
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      # 安装 uv 并由 uv 托管 Python 3.14（写入 UV_PYTHON），与本地开发共用同一解释器来源；
+      # 依赖缓存默认在 GitHub 托管 runner 上开启，按 uv.lock 内容命中
+      - name: Install uv and set up Python 3.14
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          python-version: '3.14'
+
+      # --locked：uv.lock 与 pyproject.toml 不一致时直接失败（Dependabot uv 生态会同步更新两者）
+      - name: Install dependencies
+        run: uv sync --group dev --locked
+
+      - name: Type check (Pyrefly)
+        run: uv run --no-sync pyrefly check
+
+      - name: Lint (Ruff)
+        run: uv run --no-sync ruff check .
+
   test:
     runs-on: ${{ matrix.os }}
     strategy:
@@ -19,6 +42,7 @@ jobs:
       matrix:
         os:
           - ubuntu-latest
+          - macos-latest
           - windows-latest
         python-version:
           - '3.14'
@@ -26,18 +50,15 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
+      - name: Install uv and set up Python ${{ matrix.python-version }}
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           python-version: ${{ matrix.python-version }}
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
-
-      - name: Install pytest
-        run: pip install pytest
+        run: uv sync --group dev --locked
 
       - name: Run tests
-        run: python -m pytest
+        run: uv run --no-sync python -m pytest

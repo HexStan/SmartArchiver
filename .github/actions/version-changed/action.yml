@@ -1,0 +1,52 @@
+# 复合 action：判断本次推送是否变更了 pyproject.toml 的 version 字段。
+#
+# 背景：版本号唯一出处是 pyproject.toml 的 [project].version，而该文件同时
+# 承载依赖与工具配置，Dependabot 每周更新依赖也会改到它。调用方工作流的
+# paths 过滤只能到文件级，这里进一步比较 version 相对 github.event.before
+# 提交的值，避免依赖更新触发无意义的镜像 / 可执行文件构建。
+#
+# 使用前提：调用方已以 fetch-depth: 0 检出仓库——before 提交可能不是父提交
+# （一次推送多个提交时在更早处），浅克隆读不到其文件内容。
+name: Detect version change
+description: 读取 pyproject.toml 的 version 字段，判断相对上次推送是否变更
+outputs:
+  version:
+    description: pyproject.toml 中 [project].version 的值
+    value: ${{ steps.detect.outputs.version }}
+  changed:
+    description: version 相对上次推送是否变更（手动触发补发或取不到 before 提交时视为 true，宁可多构建也不漏构建）
+    value: ${{ steps.detect.outputs.changed }}
+runs:
+  using: composite
+  steps:
+    - name: Detect version change
+      id: detect
+      shell: bash
+      run: |
+        read_version() {
+          python3 -c 'import sys, tomllib; print(tomllib.load(open(sys.argv[1], "rb"))["project"]["version"])' "$1"
+        }
+
+        VERSION=$(read_version pyproject.toml)
+        echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+        echo "当前版本: $VERSION"
+
+        BEFORE="${{ github.event.before }}"
+        # 手动触发（补发场景）、分支首次推送（before 为全零 SHA）或强推导致
+        # before 提交本地不可达时，无法证明 version 未变 → 视为变更，直接构建
+        if [[ "${{ github.event_name }}" == "workflow_dispatch" ]] \
+          || [[ -z "$BEFORE" || "$BEFORE" == "0000000000000000000000000000000000000000" ]] \
+          || ! git cat-file -e "$BEFORE:pyproject.toml" 2>/dev/null; then
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+
+        git show "$BEFORE:pyproject.toml" > "$RUNNER_TEMP/pyproject.before.toml"
+        PREVIOUS=$(read_version "$RUNNER_TEMP/pyproject.before.toml")
+        echo "上一版本: $PREVIOUS"
+
+        if [[ "$VERSION" != "$PREVIOUS" ]]; then
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "changed=false" >> "$GITHUB_OUTPUT"
+        fi

@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """对 SmartArchiver 发行 zip 做冒烟检查：包结构 + 入口可运行。
 
 用法:
@@ -44,9 +43,7 @@ def locate_zip(pattern):
     if not matches:
         raise SystemExit(f"未找到发行包: {pattern}")
     if len(matches) > 1:
-        raise SystemExit(
-            "匹配到多个发行包，请传入具体路径:\n  " + "\n  ".join(matches)
-        )
+        raise SystemExit("匹配到多个发行包，请传入具体路径:\n  " + "\n  ".join(matches))
     return matches[0]
 
 
@@ -116,6 +113,7 @@ def run_entry_help(program_dir):
     try:
         result = subprocess.run(
             cmd,
+            check=False,
             cwd=program_dir,
             capture_output=True,
             encoding="utf-8",

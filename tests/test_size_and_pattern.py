@@ -1,32 +1,47 @@
 """白盒单元测试：纯函数 parse_size_string 与 match_pattern。
 
-这两个函数是规则引擎的解析地基：大小字符串的错误解析会静默改变
-规则命中结果（无效输入返回 0），模式匹配的语义偏差会让文件落到
-错误的动作上。纯函数、边界密集，直接单元测试最经济。
+这两个函数是规则引擎的解析地基：大小字符串的错误解析会让规则
+命中错误的目标，模式匹配的语义偏差会让文件落到错误的动作上。
+纯函数、边界密集，直接单元测试最经济。
 """
 
-from src.utils import match_pattern, parse_size_string
+import pytest
+
+from src.core.patterns import InvalidSizeError, match_pattern, parse_size_string
 
 
 class TestParseSizeString:
-    """二进制单位换算（1KB = 1024B）与特殊值。"""
+    """IEC 80000-13 单位换算（KB=1000、KiB=1024）与特殊值。"""
+
+    def test_decimal_units(self):
+        assert parse_size_string("1KB") == 1000
+        assert parse_size_string("1MB") == 1000**2
+        assert parse_size_string("1GB") == 1000**3
+        assert parse_size_string("1TB") == 1000**4
 
     def test_binary_units(self):
-        assert parse_size_string("1KB") == 1024
-        assert parse_size_string("1MB") == 1024**2
-        assert parse_size_string("1GB") == 1024**3
-        assert parse_size_string("1TB") == 1024**4
+        assert parse_size_string("1KiB") == 1024
+        assert parse_size_string("1MiB") == 1024**2
+        assert parse_size_string("1GiB") == 1024**3
+        assert parse_size_string("1TiB") == 1024**4
 
-    def test_decimal_values(self):
-        assert parse_size_string("1.5GB") == int(1.5 * 1024**3)
-        assert parse_size_string("0.5MB") == int(0.5 * 1024 * 1024)
+    def test_fractional_values(self):
+        assert parse_size_string("1.5GB") == int(1.5 * 1000**3)
+        assert parse_size_string("0.5MB") == 500_000
+        assert parse_size_string("1.5GiB") == int(1.5 * 1024**3)
+        assert parse_size_string("0.5MiB") == int(0.5 * 1024 * 1024)
 
     def test_case_insensitive(self):
-        assert parse_size_string("1kb") == 1024
-        assert parse_size_string("10Mb") == 10 * 1024 * 1024
+        assert parse_size_string("1kb") == 1000
+        assert parse_size_string("10Mb") == 10 * 1000**2
+        assert parse_size_string("1kib") == 1024
+        assert parse_size_string("10Mib") == 10 * 1024 * 1024
+
+    def test_space_between_value_and_unit(self):
+        assert parse_size_string("3000 KiB") == 3072000
 
     def test_surrounding_whitespace_stripped(self):
-        assert parse_size_string("  1KB  ") == 1024
+        assert parse_size_string("  1KB  ") == 1000
 
     def test_minus_one_is_special_value(self):
         """-1 是"匹配所有大小"的哨兵值，不是字面大小。"""
@@ -39,13 +54,26 @@ class TestParseSizeString:
     def test_plain_number_accepted(self):
         assert parse_size_string(100) == 100
 
-    def test_empty_and_none_fall_back_to_zero(self):
+    def test_empty_and_none_mean_unlimited(self):
+        """空值 = 未配置 = 不限制，不属于"无法解析"。"""
         assert parse_size_string("") == 0
         assert parse_size_string(None) == 0
 
-    def test_invalid_string_falls_back_to_zero(self):
-        """无效输入静默降级为 0（= 不限制），不抛异常。"""
-        assert parse_size_string("banana") == 0
+    def test_invalid_string_raises(self):
+        """严格模式：无效输入抛 InvalidSizeError，不再静默降级为 0
+        （静默降级会让规则被静默禁用）。"""
+        with pytest.raises(InvalidSizeError):
+            parse_size_string("banana")
+
+    def test_trailing_garbage_raises(self):
+        """ByteSize 内部正则无尾部锚（"10MB extra" 会被截断接受），
+        锚定守卫负责拒绝尾部垃圾。"""
+        with pytest.raises(InvalidSizeError):
+            parse_size_string("10MB extra")
+
+    def test_negative_other_than_sentinel_raises(self):
+        with pytest.raises(InvalidSizeError):
+            parse_size_string("-5GB")
 
 
 class TestMatchPattern:

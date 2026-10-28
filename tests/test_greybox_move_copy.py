@@ -7,7 +7,7 @@
 
 import os
 
-from tests.helpers import NOW, OLD, RECENT, make_tree, snapshot
+from tests.helpers import NOW, RECENT, make_tree, snapshot
 
 MB = 1024 * 1024
 
@@ -22,7 +22,7 @@ def move_task(tmp_path, create_dest=True, **overrides):
         "mode": "move",
         "source": str(tmp_path / "src"),
         "dest": str(tmp_path / "dest"),
-        "mtime_threshold_minutes": 60,
+        "mtime_threshold_seconds": 3600,
         "remove_empty_dirs": False,
     }
     task.update(overrides)
@@ -72,7 +72,7 @@ class TestMtimeThreshold:
     """时间阈值同时约束传输和删除；边界为严格大于（now - mtime > 阈值才处理）。"""
 
     def test_recent_file_stays_old_file_moves(self, run_task, tmp_path):
-        task = move_task(tmp_path)  # 阈值 60 分钟
+        task = move_task(tmp_path)  # 阈值 3600 秒
         make_tree(
             task["source"],
             {"old.txt": b"o", "new.txt": (b"n", RECENT)},
@@ -101,25 +101,80 @@ class TestMtimeThreshold:
         assert snapshot(task["dest"]) == {"edge.txt": 1}
 
     def test_zero_threshold_processes_everything(self, run_task, tmp_path):
-        task = move_task(tmp_path, mtime_threshold_minutes=0)
+        task = move_task(tmp_path, mtime_threshold_seconds=0)
         make_tree(task["source"], {"fresh.txt": (b"f", NOW - 1)})
 
         run_task(task, now=NOW)
 
         assert snapshot(task["dest"]) == {"fresh.txt": 1}
 
+    def test_threshold_defaults_to_zero_when_omitted(self, run_task, tmp_path):
+        """缺省即无时间限制：60 秒前的文件在任何正阈值下都会被扣住，
+        却照常移动，证明缺省值是 0 而非其余正数。"""
+        task = move_task(tmp_path)
+        del task["mtime_threshold_seconds"]
+        make_tree(task["source"], {"fresh.txt": (b"f", RECENT)})
+
+        run_task(task, now=NOW)
+
+        assert snapshot(task["source"]) == {}
+        assert snapshot(task["dest"]) == {"fresh.txt": 1}
+
     def test_delete_rule_also_gated_by_mtime(self, run_task, tmp_path, capture_log):
         """README 明示的设计意图：delete_rules 同受 mtime 阈值约束，
         保护正在写入的文件。"""
-        task = move_task(
-            tmp_path, delete_rules={"ge": {"*.tmp": "-1"}}
-        )
+        task = move_task(tmp_path, delete_rules={"ge": {"*.tmp": "-1"}})
         make_tree(task["source"], {"old.tmp": b"x", "new.tmp": (b"y", RECENT)})
 
         run_task(task, now=NOW)
 
         assert snapshot(task["source"]) == {"new.tmp": 1}
         assert snapshot(task["dest"]) == {}
+
+
+class TestSourceQuietPeriod:
+    """source_quiet_seconds：源目录静默期内整任务跳过，一个文件都不处理。"""
+
+    def test_recent_file_skips_whole_task(self, run_task, tmp_path, capture_log):
+        """静默判定取源目录的递归最新 mtime：任一文件仍是新的，整个任务跳过。"""
+        task = move_task(tmp_path, source_quiet_seconds=300)
+        make_tree(task["source"], {"old.txt": b"o", "fresh.txt": (b"f", RECENT)})
+
+        run_task(task, now=NOW)
+
+        assert snapshot(task["source"]) == {"old.txt": 1, "fresh.txt": 1}
+        assert snapshot(task["dest"]) == {}
+        assert capture_log.has("info", "源目录最近修改于")
+
+    def test_quiet_source_runs_normally(self, run_task, tmp_path):
+        """源目录已静置超过阈值：任务照常执行，新配置不改变既有行为。"""
+        task = move_task(tmp_path, source_quiet_seconds=30)
+        make_tree(task["source"], {"a.txt": b"a"})
+
+        run_task(task, now=NOW)
+
+        assert snapshot(task["source"]) == {}
+        assert snapshot(task["dest"]) == {"a.txt": 1}
+
+    def test_source_quiet_exactly_at_threshold_skips(self, run_task, tmp_path):
+        """边界与 mtime_threshold_seconds 对齐：距今恰好等于阈值仍视为未静默足够久。"""
+        task = move_task(tmp_path, source_quiet_seconds=300)
+        make_tree(task["source"], {"edge.txt": (b"e", NOW - 300)})
+
+        run_task(task, now=NOW)
+
+        assert snapshot(task["source"]) == {"edge.txt": 1}
+        assert snapshot(task["dest"]) == {}
+
+    def test_zero_value_disables_the_check(self, run_task, tmp_path):
+        """0 显式禁用静默检查：刚修改过的文件也照常参与处理
+        （逐文件 mtime 阈值一并设 0 以排除其干扰）。"""
+        task = move_task(tmp_path, source_quiet_seconds=0, mtime_threshold_seconds=0)
+        make_tree(task["source"], {"fresh.txt": (b"f", RECENT)})
+
+        run_task(task, now=NOW)
+
+        assert snapshot(task["dest"]) == {"fresh.txt": 1}
 
 
 class TestRulesEndToEnd:
@@ -269,6 +324,16 @@ class TestEmptyDirCleanup:
 
         assert os.path.isdir(os.path.join(task["source"], "sub"))
 
+    def test_move_keeps_empty_dirs_by_default(self, run_task, tmp_path):
+        """缺省不清理：remove_empty_dirs 显式开启才启用。"""
+        task = move_task(tmp_path)
+        del task["remove_empty_dirs"]
+        make_tree(task["source"], {"sub/a.txt": b"x"})
+
+        run_task(task, now=NOW)
+
+        assert os.path.isdir(os.path.join(task["source"], "sub"))
+
     def test_copy_never_cleans_source_dirs(self, run_task, tmp_path):
         """源目录未被搬空，即使开关打开也不清理。"""
         task = move_task(tmp_path, mode="copy", remove_empty_dirs=True)
@@ -292,12 +357,8 @@ class TestErrorPaths:
         assert snapshot(task["source"]) == {"b.txt": 1}
         assert capture_log.has("warning", "未配置目标目录")
 
-    def test_missing_dest_dir_aborts_before_any_transfer(
-        self, run_task, tmp_path, capture_log
-    ):
-        task = move_task(
-            tmp_path, create_dest=False, dest=str(tmp_path / "nonexistent")
-        )
+    def test_missing_dest_dir_aborts_before_any_transfer(self, run_task, tmp_path, capture_log):
+        task = move_task(tmp_path, create_dest=False, dest=str(tmp_path / "nonexistent"))
         make_tree(task["source"], {"a.txt": b"x", "sub/b.txt": b"y"})
 
         run_task(task, now=NOW)
@@ -313,16 +374,53 @@ class TestErrorPaths:
 
         assert capture_log.has("error", "源目录不存在")
 
-    def test_invalid_task_config_skips_everything(
-        self, run_task, tmp_path, capture_log
-    ):
-        """缺少必填项的任务被整体跳过：错误日志 + 目录树零变化。"""
+    def test_invalid_task_config_skips_everything(self, run_task, tmp_path, capture_log):
+        """配置非法（负阈值）的任务被整体跳过：错误日志 + 目录树零变化。
+        （mtime_threshold_seconds 缺省已合法，负值是仍被加载期拒绝的输入。）"""
         task = move_task(tmp_path)
-        del task["mtime_threshold_minutes"]
+        task["mtime_threshold_seconds"] = -5
         make_tree(task["source"], {"a.txt": b"x"})
 
         run_task(task, now=NOW)
 
         assert snapshot(task["source"]) == {"a.txt": 1}
         assert snapshot(task["dest"]) == {}
-        assert capture_log.has("error", "mtime_threshold_minutes")
+        assert capture_log.has("error", "mtime_threshold_seconds")
+
+    def test_invalid_rule_size_skips_everything(self, run_task, tmp_path, capture_log):
+        """规则容量值无法解析时任务在构造阶段被跳过：错误日志带规则键
+        上下文 + 目录树零变化。"""
+        task = move_task(tmp_path, delete_rules={"lt": {"*.tmp": "banana"}})
+        make_tree(task["source"], {"a.txt": b"x", "b.tmp": b"x"})
+
+        run_task(task, now=NOW)
+
+        assert snapshot(task["source"]) == {"a.txt": 1, "b.tmp": 1}
+        assert snapshot(task["dest"]) == {}
+        assert capture_log.has("error", "规则 '*.tmp' 的容量值无效")
+
+    def test_invalid_source_quiet_value_skips_task(self, run_task, tmp_path, capture_log):
+        """source_quiet_seconds 不可解析时配置校验报错跳过，而不是在比较时
+        抛 TypeError 中断整轮任务（数字字符串经 lax 强转，与
+        http_remotes 数值字段的决策一致）。"""
+        task = move_task(tmp_path, source_quiet_seconds="abc")
+        make_tree(task["source"], {"a.txt": b"x"})
+
+        run_task(task, now=NOW)
+
+        assert snapshot(task["source"]) == {"a.txt": 1}
+        assert snapshot(task["dest"]) == {}
+        assert capture_log.has("error", "source_quiet_seconds")
+
+    def test_unknown_remote_alias_skips_task(self, run_task, tmp_path, capture_log):
+        """远端别名未配置时加载期报错跳过（不回退本地路径），目录树零变化。"""
+        # create_dest=False：dest 是远端写法且任务会在加载期被拒绝，
+        # 本地不存在也不应存在对应目录
+        task = move_task(tmp_path, create_dest=False, dest="{http:ghost}?/vol")
+        make_tree(task["source"], {"a.txt": b"x"})
+
+        run_task(task, now=NOW)
+
+        assert snapshot(task["source"]) == {"a.txt": 1}
+        assert capture_log.has("error", "ghost")
+        assert capture_log.has("error", "跳过该任务")

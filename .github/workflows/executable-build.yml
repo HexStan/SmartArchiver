@@ -15,38 +15,40 @@ jobs:
             target: windows-amd64
           - os: windows-11-arm
             target: windows-arm64
-          - os: macos-15-intel
+          - os: macos-26-intel
             target: macos-amd64
-          - os: macos-15
+          - os: macos-latest
             target: macos-arm64
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
-      - name: Set up Python 3.14
-        uses: actions/setup-python@v5
+      # 安装 uv 并由 uv 托管 Python 3.14（PyInstaller 打包运行中的解释器）
+      - name: Install uv and set up Python 3.14
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           python-version: '3.14'
 
+      # dev 组提供打包后 E2E 测试所需的 pytest（钉版本，替代裸 pip install pytest）；
+      # build 与 dev 组均含 runtime，并集安装
       - name: Install dependencies
-        run: pip install -r requirements.txt -r requirements-build.txt
+        run: uv sync --group build --group dev --locked
 
+      # --no-sync：阻止 uv run 的隐式同步按默认组（仅 dev）把 venv 里的 PyInstaller 裁掉
       - name: Build executable
-        run: python scripts/build_executable.py --target ${{ matrix.target }}
+        run: uv run --no-sync python scripts/build_executable.py --target ${{ matrix.target }}
 
       - name: Smoke test package
-        run: python scripts/smoke_test.py "dist/SmartArchiver-*.zip"
+        run: uv run --no-sync python scripts/smoke_test.py "dist/SmartArchiver-*.zip"
 
       - name: Run packaged E2E tests
-        run: |
-          pip install pytest
-          python -m pytest tests/test_e2e_packaged.py -v
+        run: uv run --no-sync python -m pytest tests/test_e2e_packaged.py -v
         env:
           SMARTARCHIVER_BIN: dist/SmartArchiver
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: SmartArchiver-${{ matrix.target }}
           path: dist/*.zip

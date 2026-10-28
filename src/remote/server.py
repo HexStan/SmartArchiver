@@ -1,19 +1,31 @@
 import os
+import time
 import urllib.parse
+from collections.abc import Callable
+from typing import TYPE_CHECKING
 
 from flask import Flask, jsonify, request
 
-from src import fs_ops
+from src import fs
+from src.platform_info import is_posix
 from src.remote.concurrency import (
     ClientDisconnectedError,
     ConcurrencyGate,
     QueueFullError,
     QueueTimeoutError,
 )
-from src.remote.protocol import UPLOAD_PATH, RemoteAction
+from src.remote.protocol import UPLOAD_CHUNK_SIZE, UPLOAD_PATH, RemoteAction
+
+if TYPE_CHECKING:
+    from src.app.instance import InstancePaths
+    from src.app.lifecycle import LifecycleCoordinator
+    from src.output.logger import Logger
+
+# 收到停止指令后，等待在途请求收尾的最长时间（临时文件由 atomic_writer 清理）
+_STOP_DRAIN_TIMEOUT = 3.0
 
 
-def _parse_queue_timeout():
+def _parse_queue_timeout() -> float:
     """从请求头解析客户端允许的最大排队秒数。"""
     raw = request.headers.get("X-Queue-Timeout", "0")
     try:
@@ -21,29 +33,77 @@ def _parse_queue_timeout():
         if value < 0:
             return 0.0
         return value
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return 0.0
 
 
-def _make_disconnect_checker():
+def _make_disconnect_checker() -> Callable[[], bool]:
     """构造当前请求上下文的断连检测函数（best-effort）。
 
     返回一个无参可调用对象：返回 True 表示客户端可能已断连。
     """
     wsgi_input = request.environ.get("wsgi.input")
 
-    def _check():
+    def _check() -> bool:
         try:
             if wsgi_input is not None:
                 wsgi_input.read(0)
             return False
-        except Exception:
+        except Exception:  # noqa: BLE001
             return True
 
     return _check
 
 
-def create_app(api_key, logger, gate):
+class _UploadSizeMismatch(ValueError):
+    """接收到的字节数与 Content-Length 不一致。"""
+
+
+def _parse_mtime() -> float | None:
+    """解析可选的 X-Mtime 头（源文件 mtime，Unix 秒）。
+
+    头缺失时返回 None；格式非法时抛 ValueError，由调用方返回 400。
+    """
+    raw = request.headers.get("X-Mtime")
+    if not raw:
+        return None
+    return float(raw)
+
+
+def _receive_upload(path: str, mtime: float | None) -> None:
+    """把请求体原子写入 path：临时文件 + 字节数校验 + fsync + os.replace。
+
+    任何失败（中断、字节数不符）都不会触碰最终路径，临时文件被清理。
+    """
+    expected_size = request.content_length
+
+    def _finalize(temp_path: str) -> None:
+        if mtime is not None:
+            os.utime(temp_path, (mtime, mtime))
+        if is_posix():
+            # mkstemp 回退路径默认 0600，还原 open(path, "wb") 的常规权限
+            os.chmod(temp_path, 0o644)
+
+    with fs.atomic_writer(path, _finalize) as f:
+        received = 0
+        while True:
+            # chunk 边界响应停止指令；中止时 atomic_writer 的收尾
+            # 逻辑会清理已写入的临时文件，最终路径不受影响
+            if fs.abort_requested():
+                raise fs.TransferAbortedError("接收被停止指令中止")
+            chunk = request.stream.read(UPLOAD_CHUNK_SIZE)
+            if not chunk:
+                break
+            received += len(chunk)
+            f.write(chunk)
+
+        if expected_size is not None and received != expected_size:
+            raise _UploadSizeMismatch(
+                f"接收字节数与 Content-Length 不一致: 期望 {expected_size}，实际 {received}"
+            )
+
+
+def create_app(api_key: str, logger: Logger, gate: ConcurrencyGate) -> Flask:
     """创建 Flask 应用并注册路由。
 
     Args:
@@ -54,13 +114,13 @@ def create_app(api_key, logger, gate):
     app = Flask(__name__)
 
     @app.before_request
-    def _log_request():
-        client_ip = request.remote_addr
+    def _log_request() -> None:
+        client_ip = request.remote_addr or "unknown"
         logger.info(f"收到来自 {client_ip} 的连接请求")
 
     @app.route("/api/remote", methods=["POST"])
     def handle_remote():
-        client_ip = request.remote_addr
+        client_ip = request.remote_addr or "unknown"
         body = request.get_json(silent=True)
 
         if not body or not isinstance(body, dict):
@@ -92,28 +152,28 @@ def create_app(api_key, logger, gate):
 
                 try:
                     if action == RemoteAction.EXISTS:
-                        return jsonify({"exists": fs_ops.path_exists(path)})
+                        return jsonify({"exists": fs.path_exists(path)})
 
                     elif action == RemoteAction.IS_DIR:
-                        return jsonify({"is_dir": fs_ops.is_dir(path)})
+                        return jsonify({"is_dir": fs.is_dir(path)})
 
                     elif action == RemoteAction.MKDIR:
-                        fs_ops.ensure_dir(path)
+                        fs.ensure_dir(path)
                         logger.success(f"创建目录: {path}")
                         return jsonify({"success": True})
 
                     elif action == RemoteAction.DELETE_FILE:
-                        fs_ops.delete_file(path)
+                        fs.delete_file(path)
                         logger.success(f"删除文件: {path}")
                         return jsonify({"success": True})
 
                     elif action == RemoteAction.DELETE_DIR:
-                        fs_ops.delete_dir(path)
+                        fs.delete_dir(path)
                         logger.success(f"删除目录: {path}")
                         return jsonify({"success": True})
 
                     elif action == RemoteAction.STAT:
-                        st = fs_ops.get_stat(path)
+                        st = fs.get_stat(path)
                         if not st.exists:
                             return jsonify(
                                 {
@@ -133,7 +193,7 @@ def create_app(api_key, logger, gate):
                         )
 
                     elif action == RemoteAction.LIST_DIR:
-                        entries = fs_ops.list_dir(path)
+                        entries = fs.list_dir(path)
                         return jsonify(
                             {
                                 "entries": [
@@ -148,13 +208,13 @@ def create_app(api_key, logger, gate):
                             }
                         )
 
-                except fs_ops.PermissionDeniedError as e:
+                except fs.PermissionDeniedError as e:
                     logger.error(f"权限不足: {path} - {e}")
                     return jsonify({"error": "permission denied"}), 403
-                except fs_ops.PathNotFoundError as e:
+                except fs.PathNotFoundError as e:
                     logger.error(f"路径不存在: {path} - {e}")
                     return jsonify({"error": "path not found"}), 404
-                except fs_ops.FsOpError as e:
+                except fs.FsOpError as e:
                     logger.error(f"操作失败: {path} - {e}")
                     return jsonify({"error": str(e)}), 500
                 except OSError as e:
@@ -163,21 +223,17 @@ def create_app(api_key, logger, gate):
 
         except QueueFullError as e:
             logger.warning(f"来自 {client_ip} 的请求被拒绝: {e}")
-            return jsonify(
-                {"error": "server busy", "detail": str(e), "queued": False}
-            ), 503
+            return jsonify({"error": "server busy", "detail": str(e), "queued": False}), 503
         except QueueTimeoutError as e:
             logger.warning(f"来自 {client_ip} 的请求排队超时: {e}")
-            return jsonify(
-                {"error": "queue timeout", "detail": str(e), "queued": True}
-            ), 503
+            return jsonify({"error": "queue timeout", "detail": str(e), "queued": True}), 503
         except ClientDisconnectedError:
             logger.info(f"来自 {client_ip} 的客户端在排队期间断开连接")
             return jsonify({"error": "client disconnected"}), 499
 
     @app.route(UPLOAD_PATH, methods=["POST"])
     def handle_upload():
-        client_ip = request.remote_addr
+        client_ip = request.remote_addr or "unknown"
 
         req_api_key = request.headers.get("X-Api-Key", "")
         if req_api_key != api_key:
@@ -187,6 +243,11 @@ def create_app(api_key, logger, gate):
         path = request.headers.get("X-Path", "")
         if not path:
             return jsonify({"error": "missing X-Path header"}), 400
+
+        try:
+            mtime = _parse_mtime()
+        except ValueError:
+            return jsonify({"error": "invalid X-Mtime header"}), 400
 
         path = os.path.normpath(urllib.parse.unquote(path))
         queue_timeout = _parse_queue_timeout()
@@ -198,38 +259,30 @@ def create_app(api_key, logger, gate):
                 logger.info(f"来自 {client_ip} 的上传: {path}")
 
                 try:
-                    dest_dir = os.path.dirname(path)
-                    if dest_dir:
-                        fs_ops.ensure_dir(dest_dir)
-
-                    chunk_size = 65536  # 64KB
-                    with open(path, "wb") as f:
-                        while True:
-                            chunk = request.stream.read(chunk_size)
-                            if not chunk:
-                                break
-                            f.write(chunk)
+                    _receive_upload(path, mtime)
 
                     logger.success(f"接收文件: {path}")
                     return jsonify({"success": True})
 
-                except fs_ops.PermissionDeniedError as e:
+                except fs.TransferAbortedError:
+                    logger.warning(f"上传被停止指令中止: {path}")
+                    return jsonify({"error": "aborted by stop"}), 499
+                except _UploadSizeMismatch as e:
+                    logger.error(f"上传失败: {path} - {e}")
+                    return jsonify({"error": str(e)}), 400
+                except fs.PermissionDeniedError as e:
                     logger.error(f"权限不足: {path} - {e}")
                     return jsonify({"error": "permission denied"}), 403
-                except fs_ops.FsOpError as e:
+                except fs.FsOpError as e:
                     logger.error(f"上传失败: {path} - {e}")
                     return jsonify({"error": str(e)}), 500
 
         except QueueFullError as e:
             logger.warning(f"来自 {client_ip} 的上传请求被拒绝: {e}")
-            return jsonify(
-                {"error": "server busy", "detail": str(e), "queued": False}
-            ), 503
+            return jsonify({"error": "server busy", "detail": str(e), "queued": False}), 503
         except QueueTimeoutError as e:
             logger.warning(f"来自 {client_ip} 的上传请求排队超时: {e}")
-            return jsonify(
-                {"error": "queue timeout", "detail": str(e), "queued": True}
-            ), 503
+            return jsonify({"error": "queue timeout", "detail": str(e), "queued": True}), 503
         except ClientDisconnectedError:
             logger.info(f"来自 {client_ip} 的客户端在上传排队期间断开连接")
             return jsonify({"error": "client disconnected"}), 499
@@ -237,23 +290,80 @@ def create_app(api_key, logger, gate):
     return app
 
 
-def run_server(config, logger):
-    api_key = config.get("api_key", "")
-    port = int(config.get("port", "13579"))
+def _start_stop_watcher(
+    logger: Logger,
+    coordinator: LifecycleCoordinator,
+    gate: ConcurrencyGate,
+    instance_name: str,
+    stop_watcher: Callable[[str, Callable[[str], None]], None],
+    runtime_paths: Callable[[str], InstancePaths],
+) -> None:
+    """启动控制指令监视线程：server 模式下任何 stop 都按 fast 处理。
 
-    max_meta = int(config.get("max_concurrent_metadata", "1"))
-    max_up = int(config.get("max_concurrent_uploads", "1"))
-    max_q_meta = int(config.get("max_queue_metadata", "32"))
-    max_q_up = int(config.get("max_queue_uploads", "32"))
+    收到指令后中止进行中的传输（各处理线程在 chunk 边界感知中止信号），
+    等在途请求收尾后直接退出进程——Flask 内建服务器没有干净的停机接口，
+    且"尽快停止"本就允许这种语义。
 
+    ``stop_watcher(instance_name, on_command)`` 与 ``runtime_paths(instance_name)``
+    由组合根注入（app 层）：前者启动控制文件监视线程并把 SIGTERM 接入同一
+    回调，本模块不感知实例控制与信号的实现。
+    """
+
+    def _on_command(_mode: str) -> None:
+        coordinator.request_abort(logger)
+        deadline = time.time() + _STOP_DRAIN_TIMEOUT
+        while gate.active_requests > 0 and time.time() < deadline:
+            time.sleep(0.05)
+        # os._exit 跳过 with 块的收尾，这里手动清理 PID / 控制 / 状态文件
+        # （锁由操作系统随进程退出释放，锁文件本身无需删除）
+        paths = runtime_paths(instance_name)
+        for path in (paths.pid, paths.ctl, paths.state):
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+        logger.info("Smart Archiver 已退出。")
+        os._exit(0)
+
+    stop_watcher(instance_name, _on_command)
+
+
+def run_server(
+    *,
+    api_key: str,
+    port: int,
+    max_concurrent_metadata: int,
+    max_concurrent_uploads: int,
+    max_queue_metadata: int,
+    max_queue_uploads: int,
+    logger: Logger,
+    coordinator: LifecycleCoordinator,
+    instance_name: str,
+    stop_watcher: Callable[[str, Callable[[str], None]], None],
+    runtime_paths: Callable[[str], InstancePaths],
+) -> None:
+    """启动 HTTP 远端 API 服务器。
+
+    配置数值（端口范围、并发与队列边界）已在加载期经 GlobalConfig
+    收口，此处仅装配；由组合根（app.runtime）注入具体值——本模块
+    不感知 app 层的配置模型。
+
+    Args:
+        stop_watcher: 停止指令装配器 ``stop_watcher(instance_name, on_command)``
+            ——启动控制文件监视线程并接入 SIGTERM，由组合根注入（app 层），
+            避免本模块反向依赖 app 包。
+        runtime_paths: 实例运行时文件路径函数 ``runtime_paths(instance_name)``，
+            供 stop 后清理 PID / 控制文件。
+    """
     gate = ConcurrencyGate(
-        max_concurrent_metadata=max_meta,
-        max_concurrent_uploads=max_up,
-        max_queue_metadata=max_q_meta,
-        max_queue_uploads=max_q_up,
+        max_concurrent_metadata=max_concurrent_metadata,
+        max_concurrent_uploads=max_concurrent_uploads,
+        max_queue_metadata=max_queue_metadata,
+        max_queue_uploads=max_queue_uploads,
     )
 
     logger.info(f"监听端口: {port}")
 
     app = create_app(api_key, logger, gate)
+    _start_stop_watcher(logger, coordinator, gate, instance_name, stop_watcher, runtime_paths)
     app.run(host="0.0.0.0", port=port, debug=False, threaded=True)

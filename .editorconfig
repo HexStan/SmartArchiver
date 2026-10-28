@@ -1,0 +1,23 @@
+# 编辑器通用约定：与 .gitattributes（统一 LF）和 ruff format 保持一致。
+# 多数编辑器（VS Code / JetBrains / Vim 等）原生支持，无需插件。
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 4
+
+# YAML / JSON 约定 2 空格缩进
+[*.{yml,yaml,json}]
+indent_size = 2
+
+# Markdown 保留行尾空格（行尾双空格表示硬换行）
+[*.md]
+trim_trailing_whitespace = false
+
+# Makefile 必须使用制表符缩进
+[Makefile]
+indent_style = tab

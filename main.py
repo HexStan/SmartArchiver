@@ -1,196 +1,24 @@
-#!/usr/bin/env python3
+"""入口：前台运行与 start / log / stop / run-once 控制子命令。
+
+- 无子命令：前台运行（客户端模式读 config/config.toml，--server 读
+  config.server.toml）；
+- start：脱离终端运行实例，随后在本终端滚动显示运行日志（窗口可随时关闭；
+  --quiet 时确认实例启动后即返回，不跟随日志）；
+- log：滚动显示运行日志（自动跟随跨天轮转），底部状态栏显示实例运行状态；
+- stop：停止运行中的实例（--fast 立即中止传输 / --slow 本轮结束后停止）；
+- run-once：让处于调度休眠期的实例立即执行一轮任务，随后滚动显示日志
+  （--quiet 时确认指令受理后即返回，未受理按失败退出）。
+
+运行路径（装配与调度循环）见 src/app/runtime.py，控制子命令见 src/app/control.py。
+"""
+
 import argparse
-import datetime
-import os
 import sys
-import time
 
-from croniter import croniter
-
-from src.app_context import AppContext
-from src.app_paths import app_base_dir
-from src.config_manager import ConfigManager
-from src.core import process_task
-from src.history import HistoryManager
-from src.logger import setup_logger
-from src.presentation import fmt_timespan
-from src.utils import SingleInstance
+from src.app import control, runtime
 
 
-def _reload_config_if_changed(manager):
-    cfg = manager.reload()
-    if cfg is None:
-        return
-
-    ctx = AppContext.get()
-    if cfg.used_backup:
-        ctx.logger.warning("新配置加载失败，已回退到备份配置。")
-
-    ctx.update_config(cfg.config, cfg.remote_clients, cfg.ssh_remotes)
-
-
-def run_tasks():
-    ctx = AppContext.get()
-    ctx.logger.info("=" * 80, raw=True)
-    ctx.logger.info("脚本开始执行……")
-    start_time = time.time()
-
-    tasks = ctx.config.get("tasks", [])
-
-    if not tasks:
-        ctx.logger.error("配置文件没有任务可以执行。")
-        sys.exit(1)
-
-    for idx, task in enumerate(tasks):
-        ctx.logger.info(f"-----开始 {len(tasks)} 个任务中的第 {idx + 1} 个-----")
-
-        process_task(task, now=start_time)
-
-        ctx.logger.info("当前任务结束。")
-
-    end_time = time.time()
-    exec_time = end_time - start_time
-    ctx.logger.info(f"所有任务执行完毕，总耗时: {fmt_timespan(exec_time)}。")
-
-    ctx.logger.info(f"{'=' * 80}", raw=True)
-
-
-def _execute_tasks(manager):
-    """在锁保护下执行一次任务，支持配置热重载。"""
-    try:
-        _reload_config_if_changed(manager)
-        ctx = AppContext.get()
-        with SingleInstance(ctx.config.get("lock_file"), ctx.logger):
-            run_tasks()
-            ctx.history_mgr.save()
-    except SystemExit:
-        AppContext.get().logger.warning("获取锁失败，可能有其他实例在运行。")
-    except Exception as e:
-        ctx = AppContext.get()
-        ctx.logger.error(f"发生未知错误: {e}")
-        ctx.history_mgr.save()
-
-
-def _load_and_init(config_path, logger_prefix="smartarchiver"):
-    """加载配置文件并执行初始化流程。"""
-    if not os.path.exists(config_path):
-        print(f"Error: 配置文件 {config_path} 未找到。")
-        sys.exit(1)
-
-    raw_config = ConfigManager._load_toml(config_path)
-
-    max_log_files = raw_config.get("max_log_files", 0)
-    log_level = raw_config.get("log_level", "INFO")
-    log_dir = raw_config.get("log_dir", "./logs")
-    logger = setup_logger(log_dir, max_log_files, log_level, prefix=logger_prefix)
-    history_mgr = HistoryManager(log_dir)
-
-    manager = ConfigManager(config_path, logger)
-    cfg = manager.load(raw_config)
-
-    AppContext.init(
-        logger, history_mgr, cfg.config, cfg.remote_clients, cfg.ssh_remotes
-    )
-    return manager
-
-
-def run_client():
-    config_path = os.path.join(app_base_dir(), "config/config.toml")
-    manager = _load_and_init(config_path)
-
-    ctx = AppContext.get()
-    config = ctx.config
-
-    schedule_config = config.get("schedule", {})
-    mode = schedule_config.get("mode")
-    first_run_delay = schedule_config.get("first_run_delay", -1)
-
-    if not mode:
-        try:
-            with SingleInstance(config.get("lock_file"), ctx.logger):
-                run_tasks()
-        except SystemExit:
-            pass
-        except Exception as e:
-            ctx.logger.error(f"发生未知错误: {e}")
-            sys.exit(1)
-        finally:
-            ctx.history_mgr.save()
-    else:
-        if mode == "cron":
-            cron_expr = schedule_config.get("cron_expr")
-            if not cron_expr:
-                print("cron 模式需要配置 cron_expr。")
-                sys.exit(1)
-
-            ctx.logger.info(f"已设置定时任务 (cron 模式): {cron_expr}。")
-
-            if first_run_delay >= 0:
-                ctx.logger.info(f"等待 {first_run_delay} 秒后开始执行任务。")
-                time.sleep(first_run_delay)
-                _execute_tasks(manager)
-
-            while True:
-                now = datetime.datetime.now()
-                cron = croniter(cron_expr, now)
-                next_run = cron.get_next(datetime.datetime)
-                sleep_seconds = (next_run - now).total_seconds()
-
-                ctx = AppContext.get()
-                ctx.logger.info(
-                    f"下一次执行时间: {next_run.strftime('%Y-%m-%d %H:%M:%S')}。\n"
-                )
-                time.sleep(sleep_seconds)
-
-                _execute_tasks(manager)
-
-        elif mode == "interval":
-            interval_seconds = schedule_config.get("interval_seconds")
-            if (
-                not interval_seconds
-                or not isinstance(interval_seconds, (int, float))
-                or interval_seconds <= 0
-            ):
-                print("interval 模式需要配置有效的 interval_seconds (大于0的数字)。")
-                sys.exit(1)
-
-            ctx.logger.info(
-                f"已设置定时任务 (interval 模式): 每 {interval_seconds} 秒执行一次。"
-            )
-
-            if first_run_delay >= 0:
-                ctx.logger.info(f"等待 {first_run_delay} 秒后开始执行任务。")
-                time.sleep(first_run_delay)
-                _execute_tasks(manager)
-
-            while True:
-                next_run = datetime.datetime.now() + datetime.timedelta(
-                    seconds=interval_seconds
-                )
-                ctx = AppContext.get()
-                ctx.logger.info(
-                    f"下一次执行时间: {next_run.strftime('%Y-%m-%d %H:%M:%S')}。\n"
-                )
-                time.sleep(interval_seconds)
-                _execute_tasks(manager)
-        else:
-            print(f"不支持的定时模式: {mode}")
-            sys.exit(1)
-
-
-def run_server():
-    config_path = os.path.join(app_base_dir(), "config/config.server.toml")
-    _ = _load_and_init(config_path, logger_prefix="smartarchiver-server")
-
-    ctx = AppContext.get()
-
-    from src.remote.server import run_server as start_server
-
-    ctx.logger.info("以服务器模式启动，请从客户端连接。")
-    start_server(ctx.config, ctx.logger)
-
-
-def _ensure_utf8_stdio():
+def _ensure_utf8_stdio() -> None:
     """管道/重定向场景下 stdout/stderr 默认跟随系统 ANSI 代码页，中文会直接
     UnicodeEncodeError（如 Windows 的 cp1252）；交互控制台走 WindowsConsoleIO，
     编码本就是 UTF-8，不受影响。此处将非 UTF-8 的流统一强制为 UTF-8，
@@ -203,21 +31,75 @@ def _ensure_utf8_stdio():
             stream.reconfigure(encoding="utf-8")
 
 
-def main():
+def main() -> None:
     _ensure_utf8_stdio()
 
-    parser = argparse.ArgumentParser(description="SmartArchiver - 智能文件归档工具")
+    parser = argparse.ArgumentParser(
+        description="SmartArchiver - 智能文件归档工具",
+        epilog="子命令: start（脱离终端运行）/ log（滚动显示日志）/ stop（停止实例）"
+        "/ run-once（立即执行一轮）",
+    )
     parser.add_argument(
         "--server",
         action="store_true",
         help="以服务器模式启动，读取 config.server.toml，仅提供远程 API 服务",
     )
+    subparsers = parser.add_subparsers(dest="command", metavar="子命令")
+
+    start_parser = subparsers.add_parser("start", help="脱离终端运行实例，并滚动显示运行日志")
+    start_parser.add_argument(
+        "--quiet",
+        action="store_true",
+        help="不滚动显示日志，确认实例已启动（持有实例锁）后即返回；超时未确认则报错退出",
+    )
+
+    log_parser = subparsers.add_parser(
+        "log", help="滚动显示运行日志（自动跟随跨天轮转的新日志文件）"
+    )
+    log_parser.add_argument(
+        "-n",
+        "--lines",
+        type=int,
+        default=100,
+        metavar="N",
+        help="初始显示的最近日志行数（默认 100）",
+    )
+
+    stop_parser = subparsers.add_parser("stop", help="停止正在运行的实例")
+    stop_group = stop_parser.add_mutually_exclusive_group()
+    stop_group.add_argument(
+        "--fast",
+        action="store_true",
+        help="立即中止文件传输并退出（5 秒内未退出则强制结束）",
+    )
+    stop_group.add_argument("--slow", action="store_true", help="等待本轮任务结束后再退出")
+
+    run_once_parser = subparsers.add_parser(
+        "run-once", help="让处于调度休眠期的实例立即执行一轮任务，并滚动显示运行日志"
+    )
+    run_once_parser.add_argument(
+        "--quiet",
+        action="store_true",
+        help="不滚动显示日志，指令受理确认后即返回；未受理则以非零码退出",
+    )
+
     args = parser.parse_args()
 
-    if args.server:
-        run_server()
-    else:
-        run_client()
+    if args.command is None:
+        if args.server:
+            runtime.run_server()
+        else:
+            runtime.run_client()
+    elif args.command == "start":
+        control.cmd_start(args.server, args.quiet)
+    elif args.command == "log":
+        if args.lines < 0:
+            parser.error("--lines 不能为负数")
+        control.cmd_log(args.server, args.lines)
+    elif args.command == "stop":
+        control.cmd_stop(args.server, args.fast, args.slow)
+    elif args.command == "run-once":
+        control.cmd_run_once(args.server, args.quiet)
 
 
 if __name__ == "__main__":

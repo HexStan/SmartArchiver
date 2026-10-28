@@ -8,7 +8,7 @@ CI 中由 executable-build.yml 在构建后设置该变量执行。
 1. TOML 配置形状 → 任务字典：灰盒直接传入 Python 字典，绕过了 ConfigManager；
    这里走真实的 config.toml 加载路径，钉死规则块在 TOML 中的形状；
 2. 打包布局与入口启动：冻结形态下应用根目录 = 可执行文件所在目录
-   （src/app_paths.py），配置必须写在程序目录的 config/ 下。
+   （src/app/paths.py），配置必须写在程序目录的 config/ 下。
 
 驱动子进程属于进程边界，符合 tests/README.md 原则三。
 
@@ -24,6 +24,7 @@ import subprocess
 
 import pytest
 
+from src.platform_info import exe_name
 from tests.helpers import OLD, make_tree, snapshot
 
 PROGRAM_DIR = os.environ.get("SMARTARCHIVER_BIN")
@@ -37,7 +38,7 @@ pytestmark = pytest.mark.skipif(
 
 def _entry_name():
     """打包入口名：Windows 为 SmartArchiver.exe，其余平台为裸二进制。"""
-    return "SmartArchiver.exe" if os.name == "nt" else "SmartArchiver"
+    return exe_name("SmartArchiver")
 
 
 def _run_binary(program_dir, timeout=120):
@@ -48,6 +49,7 @@ def _run_binary(program_dir, timeout=120):
     env["PYTHONUTF8"] = "1"
     return subprocess.run(
         [os.path.join(program_dir, _entry_name())],
+        check=False,
         cwd=program_dir,
         capture_output=True,
         encoding="utf-8",
@@ -90,15 +92,15 @@ class TestMoveViaBinary:
         _write_config(
             program_dir,
             f"""\
-max_retries = 1
 log_dir = "./logs"
 
 [[tasks]]
 mode = "move"
 source = "{src}"
 dest = "{dest}"
-mtime_threshold_minutes = 60
+mtime_threshold_seconds = 3600
 remove_empty_dirs = true
+max_retries = 1
 """,
         )
 
@@ -128,15 +130,15 @@ remove_empty_dirs = true
         _write_config(
             program_dir,
             f"""\
-max_retries = 1
 log_dir = "./logs"
 
 [[tasks]]
 mode = "move"
 source = "{src}"
 dest = "{dest}"
-mtime_threshold_minutes = 60
+mtime_threshold_seconds = 3600
 remove_empty_dirs = false
+max_retries = 1
 
 [tasks.include_rules]
 ge."media/" = -1
@@ -165,7 +167,6 @@ class TestRotateViaBinary:
         _write_config(
             program_dir,
             f"""\
-max_retries = 1
 log_dir = "./logs"
 
 [[tasks]]
@@ -175,6 +176,7 @@ dest = "{dest}"
 conflict_policy = "skip"
 remove_empty_dirs = false
 count_limit = 3
+max_retries = 1
 """,
         )
 

@@ -31,7 +31,7 @@ class TestGlobalLimits:
         make_tree(
             task["source"],
             {
-                "a.bin": (b"a" * 3000, OLD),        # 最旧
+                "a.bin": (b"a" * 3000, OLD),  # 最旧
                 "b.bin": (b"b" * 2000, OLD + 100),
                 "c.bin": (b"c" * 1000, OLD + 200),
             },
@@ -75,6 +75,26 @@ class TestGlobalLimits:
         assert snapshot(task["source"]) == {"a.txt": 1}
         assert capture_log.has("error", "至少一项")
 
+    def test_invalid_size_limit_skips_task(self, run_task, tmp_path, capture_log):
+        """容量配置无法解析时任务报错跳过：错误日志 + 目录树零变化。"""
+        task = rotate_task(tmp_path, size_limit="banana")
+        make_tree(task["source"], {"a.txt": b"x"})
+
+        run_task(task, now=NOW)
+
+        assert snapshot(task["source"]) == {"a.txt": 1}
+        assert capture_log.has("error", "容量字符串 'banana' 无法解析")
+
+    def test_invalid_count_limit_skips_task(self, run_task, tmp_path, capture_log):
+        """数量配置无法解析时任务报错跳过：错误日志 + 目录树零变化。"""
+        task = rotate_task(tmp_path, count_limit="banana")
+        make_tree(task["source"], {"a.txt": b"x"})
+
+        run_task(task, now=NOW)
+
+        assert snapshot(task["source"]) == {"a.txt": 1}
+        assert capture_log.has("error", "count_limit 的数量配置值 'banana' 无效")
+
     def test_include_rules_rejected_in_rotate(self, run_task, tmp_path, capture_log):
         task = rotate_task(tmp_path, size_limit="1KB")
         task["include_rules"] = {"ge": {"*.log": "-1"}}
@@ -99,12 +119,39 @@ class TestGlobalLimits:
         assert snapshot(task["source"]) == {"b.txt": 1}
 
 
+class TestSourceQuietPeriod:
+    """source_quiet_seconds：源目录静默期内整任务跳过，连"无需轮转"的
+    限额评估都不做。"""
+
+    def test_source_in_quiet_period_skips_rotation(self, run_task, tmp_path, capture_log):
+        task = rotate_task(
+            tmp_path, dest=str(tmp_path / "dest"), count_limit=1, source_quiet_seconds=300
+        )
+        make_tree(task["source"], {"a.txt": (b"a", RECENT), "b.txt": (b"b", RECENT + 1)})
+
+        run_task(task, now=NOW)
+
+        assert snapshot(task["source"]) == {"a.txt": 1, "b.txt": 1}
+        assert snapshot(task["dest"]) == {}
+        assert capture_log.has("info", "源目录最近修改于")
+
+    def test_quiet_source_rotates_normally(self, run_task, tmp_path):
+        """源目录已静置超过阈值：轮转照常执行。"""
+        task = rotate_task(
+            tmp_path, dest=str(tmp_path / "dest"), count_limit=1, source_quiet_seconds=30
+        )
+        make_tree(task["source"], {"a.txt": b"a", "b.txt": b"b"})
+
+        run_task(task, now=NOW)
+
+        assert snapshot(task["dest"]) == {"a.txt": 1}
+        assert snapshot(task["source"]) == {"b.txt": 1}
+
+
 class TestRotationWithoutDest:
     def test_delete_rules_delete_in_place_of_transfer(self, run_task, tmp_path):
         """无 dest 时轮转产生的动作走 delete_rules 直接删除。"""
-        task = rotate_task(
-            tmp_path, count_limit=2, delete_rules={"ge": {"*": "-1"}}
-        )
+        task = rotate_task(tmp_path, count_limit=2, delete_rules={"ge": {"*": "-1"}})
         make_tree(
             task["source"],
             {f"f{i}.txt": (b"x", OLD + i) for i in range(4)},
@@ -114,9 +161,7 @@ class TestRotationWithoutDest:
 
         assert snapshot(task["source"]) == {"f2.txt": 1, "f3.txt": 1}
 
-    def test_no_dest_and_no_delete_rules_changes_nothing(
-        self, run_task, tmp_path, capture_log
-    ):
+    def test_no_dest_and_no_delete_rules_changes_nothing(self, run_task, tmp_path, capture_log):
         """无可处理动作（无 dest、无 delete_rules）时文件原地不动，
         分组仍超限 → 输出警告日志。"""
         task = rotate_task(tmp_path, count_limit=1)

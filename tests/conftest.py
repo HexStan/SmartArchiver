@@ -8,10 +8,11 @@
 
 import pytest
 
-from src.app_context import AppContext
-from src.core.backend import create_dest_backend
-from src.core.registry import get_handler_class
-from src.history import HistoryManager
+from src.app.config import GlobalConfig
+from src.app.context import AppContext
+from src.core.history import HistoryManager
+from src.core.registry import create_handler
+from src.core.task_plan import resolve_tasks
 
 
 class CaptureLogger:
@@ -58,7 +59,7 @@ def app_context(tmp_path, capture_log):
     history_dir = tmp_path / "history"
     history_dir.mkdir()
     history = HistoryManager(str(history_dir))
-    AppContext.init(capture_log, history, {"max_retries": 3})
+    AppContext.init(capture_log, history, GlobalConfig())
     yield AppContext.get()
     AppContext._instance = None
 
@@ -71,16 +72,31 @@ def run_task(app_context):
 
         handler = run_task({"mode": "move", "source": ..., ...}, now=NOW)
 
-    返回 handler 实例，可读取 stats 做补充断言；主断言应落在目录树快照上。
-    远程后端测试通过 remote_clients / ssh_remotes 注入（见 test_greybox_sync.py）。
+    与生产装配路径对齐：任务字典先经加载期解析（resolve_tasks——任务
+    模型校验、dest 装配校验，错误日志在此给出，被拒绝的任务返回 None），
+    再经 create_handler 构造并执行。返回 handler 实例，可读取 stats 做
+    补充断言。远端连接参数通过 remote_clients / ssh_remotes 注入（写入
+    AppContext，供加载期 dest 别名校验与 core.dest 转发层取用，见
+    test_greybox_sync.py）。
     """
 
     def _run(task, now=None, remote_clients=None, ssh_remotes=None):
-        handler_cls = get_handler_class(task["mode"].lower())
-        backend = create_dest_backend(
-            task.get("dest", ""), remote_clients or {}, ssh_remotes or {}
-        )
-        handler = handler_cls(task, backend, now)
+        ctx = AppContext.get()
+        if remote_clients is not None:
+            ctx.remote_clients = remote_clients
+        if ssh_remotes is not None:
+            ctx.ssh_remotes = ssh_remotes
+        spec = resolve_tasks(
+            [task],
+            logger=ctx.logger,
+            http_aliases=ctx.remote_clients.keys(),
+            ssh_aliases=ctx.ssh_remotes.keys(),
+        )[0]
+        # 与生产 process_task 共用同一条装配路径，错误路径测试才是在测
+        # 生产行为而不是测试替身。
+        handler = create_handler(spec, now=now)
+        if handler is None:
+            return None
         handler.execute()
         return handler
 

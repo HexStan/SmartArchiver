@@ -7,7 +7,9 @@
 import threading
 import time
 from collections import deque
+from collections.abc import Callable, Generator
 from contextlib import contextmanager
+from typing import TypedDict
 
 
 class QueueFullError(Exception):
@@ -22,6 +24,14 @@ class ClientDisconnectedError(Exception):
     """客户端在排队期间断开连接。"""
 
 
+class _Waiter(TypedDict):
+    """等待队列元素。"""
+
+    event: threading.Event
+    addr: str
+    arrived: float
+
+
 class _Gate:
     """单个请求类型的门控（一个信号量 + 一个 FIFO 等待队列）。
 
@@ -30,15 +40,28 @@ class _Gate:
     - 等待者通过 Event 获知自己已被授予槽位，无需再次竞争信号量
     """
 
-    def __init__(self, max_concurrent, max_queue):
+    def __init__(self, max_concurrent: int, max_queue: int) -> None:
         self._sem = threading.BoundedSemaphore(max_concurrent)
         self._max_queue = max_queue
         self._lock = threading.Lock()
-        # deque 元素: {"event": threading.Event, "addr": str, "arrived": float}
-        self._waiters = deque()
+        self._waiters: deque[_Waiter] = deque()
         self._queue_count = 0
+        self._active = 0
 
-    def _wake_next(self):
+    def _enter_active(self) -> None:
+        with self._lock:
+            self._active += 1
+
+    def _exit_active(self) -> None:
+        with self._lock:
+            self._active -= 1
+
+    @property
+    def active(self) -> int:
+        """正在处理中的请求数（不含排队等待）。"""
+        return self._active
+
+    def _wake_next(self) -> None:
         """尝试将信号量授予队列中的下一个等待者。
 
         调用方必须已经 release 信号量（或准备将信号量直接转交）。
@@ -56,7 +79,7 @@ class _Gate:
                 # 已增加可用计数，队头等待者会在下次 release 时被唤醒）
                 return
 
-    def _cleanup(self, event, got_slot):
+    def _cleanup(self, event: threading.Event, got_slot: bool) -> None:
         """从队列中移除等待者，若已获槽位则释放信号量并唤醒下一个。
 
         Args:
@@ -74,7 +97,12 @@ class _Gate:
             self._wake_next()
 
     @contextmanager
-    def acquire(self, client_addr, queue_timeout, check_disconnect=None):
+    def acquire(
+        self,
+        client_addr: str,
+        queue_timeout: float,
+        check_disconnect: Callable[[], bool] | None = None,
+    ) -> Generator[None]:
         """尝试获取处理槽位。
 
         Args:
@@ -93,8 +121,10 @@ class _Gate:
         # 1. 尝试立即获取信号量
         if self._sem.acquire(blocking=False):
             try:
+                self._enter_active()
                 yield
             finally:
+                self._exit_active()
                 self._sem.release()
                 self._wake_next()
             return
@@ -106,13 +136,11 @@ class _Gate:
         # 3. 进入等待队列
         event = threading.Event()
         arrived = time.time()
-        entry = {"event": event, "addr": client_addr, "arrived": arrived}
+        entry: _Waiter = {"event": event, "addr": client_addr, "arrived": arrived}
 
         with self._lock:
             if self._queue_count >= self._max_queue:
-                raise QueueFullError(
-                    f"队列已满 ({self._queue_count}/{self._max_queue})"
-                )
+                raise QueueFullError(f"队列已满 ({self._queue_count}/{self._max_queue})")
             self._waiters.append(entry)
             self._queue_count += 1
 
@@ -122,20 +150,16 @@ class _Gate:
             while not event.is_set():
                 elapsed = time.time() - arrived
                 if elapsed >= queue_timeout:
-                    raise QueueTimeoutError(
-                        f"排队超时 ({queue_timeout}s)"
-                    )
+                    raise QueueTimeoutError(f"排队超时 ({queue_timeout}s)")
 
                 # 检查客户端断连
                 if check_disconnect is not None:
                     try:
                         if check_disconnect():
-                            raise ClientDisconnectedError(
-                                f"客户端 {client_addr} 已断开连接"
-                            )
+                            raise ClientDisconnectedError(f"客户端 {client_addr} 已断开连接")
                     except ClientDisconnectedError:
                         raise
-                    except Exception:
+                    except Exception:  # noqa: BLE001, S110
                         # check_disconnect 自身异常视为未断连
                         pass
 
@@ -145,12 +169,14 @@ class _Gate:
             # 5. Event 已被 _wake_next 设置 → 信号量已由 _wake_next 为我们获取
             got_slot = True
             try:
+                self._enter_active()
                 yield
             finally:
+                self._exit_active()
                 self._sem.release()
                 self._wake_next()
 
-        except (QueueTimeoutError, ClientDisconnectedError):
+        except QueueTimeoutError, ClientDisconnectedError:
             self._cleanup(event, got_slot)
             raise
         except Exception:
@@ -166,36 +192,47 @@ class ConcurrencyGate:
 
     def __init__(
         self,
-        max_concurrent_metadata,
-        max_concurrent_uploads,
-        max_queue_metadata,
-        max_queue_uploads,
-    ):
+        max_concurrent_metadata: int,
+        max_concurrent_uploads: int,
+        max_queue_metadata: int,
+        max_queue_uploads: int,
+    ) -> None:
         self._metadata_gate = _Gate(max_concurrent_metadata, max_queue_metadata)
         self._upload_gate = _Gate(max_concurrent_uploads, max_queue_uploads)
 
     @contextmanager
-    def metadata_context(self, client_addr, queue_timeout, check_disconnect=None):
+    def metadata_context(
+        self,
+        client_addr: str,
+        queue_timeout: float,
+        check_disconnect: Callable[[], bool] | None = None,
+    ) -> Generator[None]:
         """元数据请求的并发控制上下文管理器。"""
-        with self._metadata_gate.acquire(
-            client_addr, queue_timeout, check_disconnect
-        ):
+        with self._metadata_gate.acquire(client_addr, queue_timeout, check_disconnect):
             yield
 
     @contextmanager
-    def upload_context(self, client_addr, queue_timeout, check_disconnect=None):
+    def upload_context(
+        self,
+        client_addr: str,
+        queue_timeout: float,
+        check_disconnect: Callable[[], bool] | None = None,
+    ) -> Generator[None]:
         """上传请求的并发控制上下文管理器。"""
-        with self._upload_gate.acquire(
-            client_addr, queue_timeout, check_disconnect
-        ):
+        with self._upload_gate.acquire(client_addr, queue_timeout, check_disconnect):
             yield
 
     @property
-    def metadata_queue_depth(self):
+    def metadata_queue_depth(self) -> int:
         """当前元数据队列长度（仅用于信息展示）。"""
         return self._metadata_gate._queue_count
 
     @property
-    def upload_queue_depth(self):
+    def upload_queue_depth(self) -> int:
         """当前上传队列长度（仅用于信息展示）。"""
         return self._upload_gate._queue_count
+
+    @property
+    def active_requests(self) -> int:
+        """正在处理中的请求数（不含排队等待），供停止流程等待在途请求收尾。"""
+        return self._metadata_gate.active + self._upload_gate.active

@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """构建 SmartArchiver 可执行文件（PyInstaller onedir + 内置 rclone）。
 
 用法:
@@ -20,22 +19,28 @@ import platform
 import shutil
 import subprocess
 import sys
+import tomllib
 import urllib.request
 import zipfile
 
-# 内置 rclone 的版本与官方下载地址（Windows/macOS × AMD64/ARM64）
-RCLONE_VERSION = "1.75.2"
-RCLONE_BASE_URL = f"https://downloads.rclone.org/v{RCLONE_VERSION}"
-
-RCLONE_URLS = {
-    "windows-amd64": f"{RCLONE_BASE_URL}/rclone-v{RCLONE_VERSION}-windows-amd64.zip",
-    "windows-arm64": f"{RCLONE_BASE_URL}/rclone-v{RCLONE_VERSION}-windows-arm64.zip",
-    "macos-amd64": f"{RCLONE_BASE_URL}/rclone-v{RCLONE_VERSION}-osx-amd64.zip",
-    "macos-arm64": f"{RCLONE_BASE_URL}/rclone-v{RCLONE_VERSION}-osx-arm64.zip",
-}
+# 支持的构建目标（Windows/macOS × AMD64/ARM64）
+TARGETS = (
+    "macos-amd64",
+    "macos-arm64",
+    "windows-amd64",
+    "windows-arm64",
+)
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SPEC_FILE = os.path.join(REPO_ROOT, "SmartArchiver.spec")
+
+
+def rclone_url(target, rclone_version):
+    """rclone 官方压缩包下载地址（macOS 在官方发布包命名中为 osx）。"""
+    return (
+        f"https://downloads.rclone.org/v{rclone_version}"
+        f"/rclone-v{rclone_version}-{target.replace('macos', 'osx')}.zip"
+    )
 
 
 def detect_target():
@@ -55,9 +60,20 @@ def detect_target():
     )
 
 
-def read_version():
-    with open(os.path.join(REPO_ROOT, "VERSION"), encoding="utf-8") as f:
-        return f.read().strip()
+def read_pyproject():
+    """加载 pyproject.toml（应用版本与内置 rclone 版本的唯一出处）。"""
+    with open(os.path.join(REPO_ROOT, "pyproject.toml"), "rb") as f:
+        return tomllib.load(f)
+
+
+def read_version(pyproject):
+    """从 [project].version 读取版本号。"""
+    return pyproject["project"]["version"]
+
+
+def read_rclone_version(pyproject):
+    """从 [tool.smartarchiver].rclone_version 读取内置 rclone 版本（与 Docker 镜像共用）。"""
+    return pyproject["tool"]["smartarchiver"]["rclone_version"]
 
 
 def download(url, dest, retries=3):
@@ -65,23 +81,24 @@ def download(url, dest, retries=3):
         try:
             print(f"下载 rclone（第 {attempt}/{retries} 次）: {url}")
             part = dest + ".part"
-            request = urllib.request.Request(
-                url, headers={"User-Agent": "SmartArchiver-build"}
-            )
+            request = urllib.request.Request(url, headers={"User-Agent": "SmartArchiver-build"})
             with urllib.request.urlopen(request) as resp, open(part, "wb") as f:
                 f.write(resp.read())
             os.replace(part, dest)
             return
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             if attempt == retries:
                 raise SystemExit(f"下载失败: {url}\n{e}")
             print(f"下载失败，将重试: {e}")
 
 
-def stage_rclone(target):
-    """下载并解包对应平台的 rclone，返回暂存的二进制路径（已暂存则复用）。"""
+def stage_rclone(target, rclone_version):
+    """下载并解包对应平台的 rclone，返回暂存的二进制路径（已暂存则复用）。
+
+    暂存目录按版本隔离，版本升级后自动重新下载，不会复用旧版二进制。
+    """
     exe_name = "rclone.exe" if target.startswith("windows") else "rclone"
-    stage_dir = os.path.join(REPO_ROOT, "build", "rclone", target)
+    stage_dir = os.path.join(REPO_ROOT, "build", "rclone", f"v{rclone_version}", target)
     os.makedirs(stage_dir, exist_ok=True)
     staged = os.path.join(stage_dir, exe_name)
 
@@ -90,13 +107,11 @@ def stage_rclone(target):
         return staged
 
     zip_path = os.path.join(stage_dir, "rclone.zip")
-    download(RCLONE_URLS[target], zip_path)
+    download(rclone_url(target, rclone_version), zip_path)
 
     with zipfile.ZipFile(zip_path) as zf:
         # 压缩包内为 rclone-vX.Y.Z-平台/rclone[.exe] 的嵌套结构
-        member = next(
-            n for n in zf.namelist() if os.path.basename(n) == exe_name
-        )
+        member = next(n for n in zf.namelist() if os.path.basename(n) == exe_name)
         zf.extract(member, stage_dir)
     shutil.move(os.path.join(stage_dir, member), staged)
     os.remove(zip_path)
@@ -111,9 +126,7 @@ def stage_rclone(target):
 def verify_rclone(rclone_bin):
     """执行 rclone version 验证二进制可用。"""
     try:
-        result = subprocess.run(
-            [rclone_bin, "version"], capture_output=True, text=True, check=True
-        )
+        result = subprocess.run([rclone_bin, "version"], capture_output=True, text=True, check=True)
     except (OSError, subprocess.CalledProcessError) as e:
         raise SystemExit(f"内置 rclone 无法运行: {e}")
 
@@ -135,9 +148,7 @@ def stage_example_configs():
     os.makedirs(config_dst, exist_ok=True)
     for name in os.listdir(config_src):
         if name.endswith(".example.toml"):
-            shutil.copy2(
-                os.path.join(config_src, name), os.path.join(config_dst, name)
-            )
+            shutil.copy2(os.path.join(config_src, name), os.path.join(config_dst, name))
 
 
 def run_pyinstaller(rclone_bin):
@@ -145,8 +156,12 @@ def run_pyinstaller(rclone_bin):
     env["RCLONE_STAGE"] = rclone_bin
 
     cmd = [
-        sys.executable, "-m", "PyInstaller",
-        SPEC_FILE, "--noconfirm", "--clean",
+        sys.executable,
+        "-m",
+        "PyInstaller",
+        SPEC_FILE,
+        "--noconfirm",
+        "--clean",
     ]
     print("+ " + " ".join(cmd))
     subprocess.run(cmd, cwd=REPO_ROOT, env=env, check=True)
@@ -179,23 +194,28 @@ def main():
 
     parser = argparse.ArgumentParser(description="构建 SmartArchiver 可执行文件")
     parser.add_argument(
-        "--target", choices=sorted(RCLONE_URLS),
+        "--target",
+        choices=TARGETS,
         help="目标平台，缺省自动识别当前平台",
     )
     args = parser.parse_args()
 
     target = args.target or detect_target()
-    version = read_version()
-    print(f"构建目标: {target}，版本: {version}")
+    pyproject = read_pyproject()
+    version = read_version(pyproject)
+    rclone_version = read_rclone_version(pyproject)
+    print(f"构建目标: {target}，版本: {version}，内置 rclone: {rclone_version}")
 
-    rclone_bin = stage_rclone(target)
+    rclone_bin = stage_rclone(target, rclone_version)
     verify_rclone(rclone_bin)
     clean_dist()
     run_pyinstaller(rclone_bin)
     stage_example_configs()
     zip_path = make_zip(target, version)
 
-    print(f"构建完成:\n  程序目录: dist{os.sep}SmartArchiver\n  发行包: {os.path.relpath(zip_path, REPO_ROOT)}")
+    print(
+        f"构建完成:\n  程序目录: dist{os.sep}SmartArchiver\n  发行包: {os.path.relpath(zip_path, REPO_ROOT)}"
+    )
 
 
 if __name__ == "__main__":

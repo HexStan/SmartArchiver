@@ -2,76 +2,20 @@ import os
 import time
 from abc import ABC, abstractmethod
 
-from src.app_context import AppContext
-from src.core.filters import FileFilterPolicy
-from src.core.types import FileAction, MoverStats
-from src.fs_ops import delete_file as _fs_delete
-from src.fs_ops import is_file_locked
-from src.presentation import fmt_size as _fmt_size
-from src.utils import parse_size_string
-
-# ============================================================
-# 配置验证
-# ============================================================
-
-
-def validate_task_config(task, task_mode):
-    """验证任务配置是否完整。"""
-    ctx = AppContext.get()
-
-    if task_mode == "sync":
-        required_fields = ["mode", "source", "dest"]
-        tool = task.get("tool", "auto").lower()
-        if tool not in ("auto", "rsync", "rclone"):
-            ctx.logger.error(
-                f"sync 模式的 tool 配置值无效: '{task.get('tool')}'，"
-                f"可选值: auto、rsync、rclone，跳过该任务。"
-            )
-            return False
-    elif task_mode == "rotate":
-        required_fields = [
-            "mode",
-            "source",
-            "remove_empty_dirs",
-        ]
-        size_limit = parse_size_string(str(task.get("size_limit", "0")))
-        count_limit = int(task.get("count_limit", 0))
-        rotate_rules = task.get("rotate_rules", {})
-        rotate_size_rules = rotate_rules.get("size", {})
-        rotate_count_rules = rotate_rules.get("count", {})
-
-        if (
-            size_limit == 0
-            and count_limit == 0
-            and not rotate_size_rules
-            and not rotate_count_rules
-        ):
-            ctx.logger.error(
-                "rotate 模式下必须配置 size_limit、count_limit、"
-                "rotate_rules.size 或 rotate_rules.count 中的至少一项，跳过该任务。"
-            )
-            return False
-    else:
-        required_fields = [
-            "mode",
-            "source",
-            "mtime_threshold_minutes",
-            "remove_empty_dirs",
-        ]
-
-    missing_fields = [field for field in required_fields if field not in task]
-    if missing_fields:
-        ctx.logger.error(
-            f"任务配置缺少必填项: {'、'.join(missing_fields)}，跳过该任务。"
-        )
-        return False
-
-    if task_mode in ("rotate", "sync") and task.get("include_rules"):
-        ctx.logger.error(f"{task_mode} 模式下不支持配置 include_rules，跳过该任务。")
-        return False
-
-    return True
-
+from src.app.context import AppContext
+from src.core import dest
+from src.core.history import TaskIdentity
+from src.core.task_config import (
+    MoveCopyTaskConfig,
+    RotateTaskConfig,
+    TransferTaskConfig,
+)
+from src.core.task_plan import TaskSpec
+from src.core.types import FileAction, MoverStats, TaskOutcome
+from src.fs import TransferAbortedError, get_dir_size_and_mtime, is_file_locked
+from src.fs import delete_file as _fs_delete
+from src.output.presentation import fmt_size as _fmt_size
+from src.output.presentation import fmt_timespan, print_task_header
 
 # ============================================================
 # 文件检查器
@@ -79,17 +23,28 @@ def validate_task_config(task, task_mode):
 
 
 class FileChecker:
-    """文件检查器：负责历史失败次数、时间阈值、文件锁检查。"""
+    """文件检查器：负责历史失败次数、时间阈值、文件锁检查。
 
-    def __init__(self, task, now=None):
+    失败历史按任务身份 (mode, source, dest) 隔离计数；max_retries
+    为任务级配置，随类型化任务配置注入。
+    """
+
+    def __init__(self, config: TransferTaskConfig, now: float | None = None) -> None:
         self.now = now or time.time()
-        ctx = AppContext.get()
-        self.max_retries = ctx.config.get("max_retries", 3)
+        self.identity = TaskIdentity(config.mode, config.source, config.dest)
+        self.max_retries = config.max_retries
 
-    def should_skip(self, src_path, rel_path, mtime, mtime_threshold_seconds, stats):
+    def should_skip(
+        self,
+        src_path: str,
+        rel_path: str,
+        mtime: float,
+        mtime_threshold_seconds: float,
+        stats: MoverStats,
+    ) -> bool:
         ctx = AppContext.get()
-        should_skip, fail_count = ctx.history_mgr.should_skip(
-            src_path, self.max_retries
+        should_skip, _fail_count = ctx.history_mgr.should_skip(
+            self.identity, src_path, self.max_retries
         )
         if should_skip:
             stats.record_dropped()
@@ -115,29 +70,42 @@ class FileChecker:
 class ActionExecutor:
     """动作执行器：负责目标目录验证、冲突处理和动作分发。
 
-    整合了原 actions.py 中 transfer_file 和 delete_file 的业务逻辑。
+    目标侧 I/O 一律经由 core.dest 转发层（dest_root 为原始 dest 协议串）。
+    源/目标、冲突策略与失败历史的任务身份均取自类型化任务配置
+    （conflict_policy 在加载期已校验取值）。
     """
 
-    def __init__(self, task, dest_backend):
-        self.source_root = task.get("source")
-        self.dest_root = task.get("dest")
-        self.dest_backend = dest_backend
-        self.conflict_policy = task.get("conflict_policy", "skip").lower()
+    def __init__(self, config: TransferTaskConfig) -> None:
+        self.source_root = config.source
+        self.dest_root = config.dest
+        self.conflict_policy = config.conflict_policy
+        self.identity = TaskIdentity(config.mode, config.source, config.dest)
         self._dest_checked = False
         self._dest_valid = False
 
-    def execute(self, action, src_path, rel_path, size, stats, is_copy):
+    def execute(
+        self,
+        action: FileAction,
+        src_path: str,
+        rel_path: str,
+        size: int,
+        stats: MoverStats,
+        is_copy: bool,
+    ) -> bool:
         """根据 FileAction 分发到对应的处理方法。"""
         ctx = AppContext.get()
 
         if action == FileAction.TRANSFER:
+            # dest 允许为空：为空时 TRANSFER 没有可写入的目标，逐文件
+            # warning 跳过，DELETE / SKIP 等其余动作不受影响。
+            # 此处不预设 dest 为空的用途，交由配置组合决定。
             if not self.dest_root:
                 ctx.logger.warning(f"跳过文件 (未配置目标目录): {rel_path}")
                 return True
 
             if not self._dest_checked:
                 self._dest_checked = True
-                if not self.dest_backend.is_dir(self.dest_backend.root_path):
+                if not dest.is_dir(self.dest_root):
                     ctx.logger.critical("!!! 致命错误: 目标目录不存在 !!!")
                     self._dest_valid = False
                     return False
@@ -160,14 +128,16 @@ class ActionExecutor:
 
         return True
 
-    def _transfer(self, src_path, file_size, rel_path, stats, is_copy):
+    def _transfer(
+        self, src_path: str, file_size: int, rel_path: str, stats: MoverStats, is_copy: bool
+    ) -> None:
         """执行文件传输（复制或移动），处理冲突策略。"""
         ctx = AppContext.get()
-        dest_path = self.dest_backend.build_dest_path(rel_path)
+        dest_path = dest.build_dest_path(self.dest_root, rel_path)
         action_name = "复制" if is_copy else "移动"
 
         try:
-            file_exists = self.dest_backend.exists(dest_path)
+            file_exists = dest.exists(dest_path)
             new_dest_path = dest_path
 
             if file_exists:
@@ -177,50 +147,51 @@ class ActionExecutor:
                     return
 
                 elif self.conflict_policy == "copy":
-                    new_dest_path = self.dest_backend.get_unique_dest(dest_path)
+                    new_dest_path = dest.unique_dest(dest_path)
 
                 elif self.conflict_policy == "overwrite":
-                    self.dest_backend.remove_file(dest_path)
-
-                else:
-                    return
-
-            if is_copy:
-                self.dest_backend.copy_file(src_path, new_dest_path)
-            else:
-                self.dest_backend.move_file(src_path, new_dest_path)
-
-            stats.record_success(bytes_transferred=file_size)
-            ctx.history_mgr.record_success(src_path)
+                    # 目标由后端原子替换（os.replace / 服务端 rename），
+                    # 预删除会留下"目标短暂缺失"的窗口
+                    pass
 
             size_str = _fmt_size(file_size, binary=True)
             if file_exists and self.conflict_policy == "overwrite":
-                ctx.logger.success(f"覆盖同名文件: {rel_path} ({size_str})")
+                ctx.logger.info(f"正在覆盖同名文件: {rel_path} ({size_str})")
             elif file_exists and self.conflict_policy == "copy":
-                new_rel = os.path.relpath(new_dest_path, self.dest_backend.root_path)
-                ctx.logger.success(f"目标存在，创建副本: {new_rel} ({size_str})")
+                new_rel = dest.relpath(self.dest_root, new_dest_path)
+                ctx.logger.info(f"目标存在，正在创建副本: {new_rel} ({size_str})")
             else:
-                ctx.logger.success(f"{action_name}文件: {rel_path} ({size_str})")
+                ctx.logger.info(f"正在{action_name}文件: {rel_path} ({size_str})")
 
-        except Exception as e:
-            count = ctx.history_mgr.record_failure(src_path)
-            ctx.logger.error(f"{action_name}文件失败 ({count} 次): {rel_path}\n{e}")
+            if is_copy:
+                dest.copy_file(src_path, new_dest_path)
+            else:
+                dest.move_file(src_path, new_dest_path)
+
+            stats.record_success(bytes_transferred=file_size)
+            ctx.history_mgr.record_success(self.identity, src_path)
+
+        except TransferAbortedError:
+            # stop --fast：任务被丢弃，不计入失败次数，向上传播以中止任务
+            raise
+        except Exception as e:  # noqa: BLE001
+            count = ctx.history_mgr.record_failure(self.identity, src_path)
+            ctx.logger.error(f"{action_name}文件失败 ({count} 次): {e}")
             stats.record_error()
 
-    def _delete(self, src_path, file_size, stats):
+    def _delete(self, src_path: str, file_size: int, stats: MoverStats) -> None:
         """执行文件删除。"""
         ctx = AppContext.get()
         rel_path = os.path.relpath(src_path, self.source_root)
         try:
+            size_str = _fmt_size(file_size, binary=True)
+            ctx.logger.info(f"正在删除文件: {rel_path}  ({size_str})")
             _fs_delete(src_path)
-            ctx.logger.success(
-                f"删除文件: {rel_path}  ({_fmt_size(file_size, binary=True)})"
-            )
-            ctx.history_mgr.record_success(src_path)
+            ctx.history_mgr.record_success(self.identity, src_path)
             stats.record_deleted()
         except OSError as e:
-            count = ctx.history_mgr.record_failure(src_path)
-            ctx.logger.error(f"删除文件失败 ({count} 次): {rel_path}\nError: {e}")
+            count = ctx.history_mgr.record_failure(self.identity, src_path)
+            ctx.logger.error(f"删除文件失败 ({count} 次): {e}")
 
 
 # ============================================================
@@ -229,30 +200,102 @@ class ActionExecutor:
 
 
 class BaseTaskHandler(ABC):
-    def __init__(self, task, dest_backend, now=None):
-        self.task = task
+    def __init__(
+        self,
+        spec: TaskSpec,
+        now: float | None = None,
+    ) -> None:
+        config = spec.config
+        assert config is not None, "config 为 None 的 TaskSpec 不应进入处理器构造"
+        self.task = config
+        self.depends_on = spec.depends_on
         self.now = now or time.time()
         self.stats = MoverStats()
-        self.source_root = task.get("source")
-        self.dest_root = task.get("dest")
-        self.dest_backend = dest_backend
-        self.task_mode = task.get("mode", "").lower()
-        self.remove_empty_dirs = task.get("remove_empty_dirs", False)
+        self.source_root: str = config.source
+        # 原始 dest 协议串（可能带 {类型:别名}? 前缀），目标侧 I/O 经 core.dest
+        self.dest_root: str = config.dest
+        self.task_mode: str = config.mode
 
-        merged_config = {
-            "include_rules": task.get("include_rules", {})
-            if self.task_mode in ("move", "copy")
-            else {},
-            "exclude_rules": task.get("exclude_rules", {}),
-            "delete_rules": task.get("delete_rules", {}),
-        }
-        self.policy = FileFilterPolicy(merged_config)
-        self.checker = FileChecker(task, now)
-        self.executor = ActionExecutor(task, dest_backend)
+    def execute(self) -> TaskOutcome:
+        """模板方法：任务头 → 源目录静默期检查 → 子类执行。
 
-    def validate(self):
-        return validate_task_config(self.task, self.task_mode)
+        三种处理器共有的前导步骤收敛于此，新增模式自动获得同一入口行为。
+        返回本轮执行的定性结果（TaskOutcome）：配置校验失败的任务在加载期
+        已被拒绝（不会构造处理器）；静默期跳过只是"本轮无事可做"，记
+        COMPLETED（依赖方照常执行）；子类执行是否完整跑完由 _execute()
+        的布尔结果定性。
+        """
+        ctx = AppContext.get()
+
+        print_task_header(
+            logger=ctx.logger,
+            task_id=self.task.id,
+            name=self.task.name,
+            depends_on=self.depends_on,
+            mode=self.task.mode,
+            source=self.task.source,
+            dest=self.task.dest,
+            source_quiet_seconds=self.task.source_quiet_seconds,
+            mtime_threshold_seconds=(
+                self.task.mtime_threshold_seconds
+                if isinstance(self.task, MoveCopyTaskConfig)
+                else None
+            ),
+            size_limit=self.task.size_limit if isinstance(self.task, RotateTaskConfig) else 0,
+            count_limit=self.task.count_limit if isinstance(self.task, RotateTaskConfig) else 0,
+        )
+
+        if self._source_in_quiet_period():
+            return TaskOutcome.COMPLETED
+
+        return TaskOutcome.COMPLETED if self._execute() else TaskOutcome.FAILED
 
     @abstractmethod
-    def execute(self):
-        pass
+    def _execute(self) -> bool:
+        """子类执行体；返回 False 表示本轮执行被致命中断（记 FAILED）。
+
+        文件级错误不在此列——单文件失败由重试/历史机制兜底，任务完整
+        跑完仍算 COMPLETED。停止指令导致的中断同样返回 False，此后任务
+        循环会因停止检查整体退出，结果仅保持"中断 = 未完成"的一致性。
+        """
+        ...
+
+    def _source_in_quiet_period(self) -> bool:
+        """source_quiet_seconds 检查：源目录仍在静默期内则整任务跳过。
+
+        以源目录的递归最新修改时间（get_dir_size_and_mtime，含目录自身
+        与全部普通文件）为基准，距 now 不超过静默秒数即视为"仍在写入中"，
+        本轮跳过；0 或缺省不启用，不产生额外遍历。源目录不存在时 mtime
+        为 0、age 远超阈值，自然落入既有的"源目录不存在"错误路径。
+        """
+        quiet_seconds = self.task.source_quiet_seconds
+        if not quiet_seconds:
+            return False
+
+        _total_size, latest_mtime = get_dir_size_and_mtime(self.source_root)
+        quiet_age = self.now - latest_mtime
+        # 边界与 FileChecker 的 mtime_threshold_seconds 对齐：恰好等于阈值
+        # 仍视为"未静默足够久"
+        if quiet_age > quiet_seconds:
+            return False
+
+        AppContext.get().logger.info(f"源目录最近修改于 {fmt_timespan(quiet_age)} 前，跳过该任务。")
+        return True
+
+
+class TransferTaskHandler(BaseTaskHandler):
+    """逐文件传输类任务（move/copy/rotate）的装配层。
+
+    依赖 TransferTaskConfig 特有字段的能力收敛于此：失败历史检查器
+    （FileChecker，含任务级 max_retries 与任务身份）与动作执行器
+    （ActionExecutor）。sync 模式整树交给外部工具，不走本层，也
+    不携带这些能力。
+    """
+
+    def __init__(self, spec: TaskSpec, now: float | None = None) -> None:
+        super().__init__(spec, now)
+        # 注册表分派保证（task_config.TASK_MODELS 与 registry 由同一组模式名驱动）
+        assert isinstance(self.task, TransferTaskConfig), "传输类模式的配置模型分派错误"
+        self.remove_empty_dirs: bool = self.task.remove_empty_dirs
+        self.checker = FileChecker(self.task, now=self.now)
+        self.executor = ActionExecutor(self.task)

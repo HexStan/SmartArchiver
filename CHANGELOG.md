@@ -6,6 +6,167 @@
 
 ---
 
+## [0.39.2] - 2026-10-29
+
+### 破坏性变更
+
+- 配置项 `lock_file` 更名为 `instance_name`（无后缀的实例标识名），旧键不再生效；锁/控制/PID 文件统一由程序存放在系统临时目录，仅接受纯名称、不再支持自定义路径。实例标识是同一份程序副本的身份证：锁文件（`<标识>.lock`）、控制文件（`<标识>.ctl`）、PID 文件（`<标识>.pid`）与日志文件前缀均由它派生，多副本部署时锁、控制通道与日志完全隔离。
+- 定时调度模式下实例锁的持有范围从“每轮任务执行期间”扩展为“整个进程生命周期”：调度空闲期同样阻止第二个实例运行，`stop` 子命令也能在此期间定位到实例。
+- 容量阈值解析遵循 IEC 80000-13 单位语义：`KB`/`MB`/`GB`/`TB` 按十进制（1 KB = 1000 B），`KiB`/`MiB`/`GiB`/`TiB` 按二进制（1 KiB = 1024 B）。
+- 配置项 `mtime_threshold_minutes` 重命名为 `mtime_threshold_seconds`，单位由分钟改为秒；旧键不再生效，未改名时取默认值 `0`（无时间限制）。
+- 全局配置项 `max_retries` 下放为任务级选配项（move / copy / rotate 可用），全局键不再生效，未配置时使用默认值 3。
+- sync 模式配置项 `create_backups` 改为 `backup_dir`（备份目录路径）：
+  - 同步中被替换/删除的文件移入 `[backup_dir]/[时间戳]` 目录，不再固定使用目标目录下的 `.smart-archiver.backups`。
+  - `backup_dir` 不能位于 `source` / `dest` 之下（否则任务在加载时报错跳过）。
+  - `dest` 目录为 SSH 远端时，须为远端主机上的绝对路径。
+  - 旧键不再生效。
+- 原本在 sync 模式中，与排除规则匹配的文件在 dest 中会被保留，现在会删除，保证 dest 与 source 完全一致。
+
+### 新增
+
+- 实例锁支持 Windows（通过 `msvcrt.locking`），覆盖 Linux / macOS / Windows 全平台，且默认启用；server 模式启动时同样持有实例锁，防止多个服务实例同时运行。
+- 新增运行子命令 `start` / `log` / `stop` / `run-once`：
+  - 命令一览：
+    - `start`：以脱离终端的方式运行实例（关闭终端不受影响），随后在本窗口滚动显示运行日志；`--quiet`：不跟随日志，分别确认实例已启动、指令已受理后输出一行确认即返回，否则输出提示并以非零退出码结束，适合脚本调用。
+    - `log [-n N]`：滚动显示运行日志（默认最近 100 行），自动跟随跨天轮转产生的新日志文件。
+    - `stop`：当前文件传输完成后停止；`--slow`：本轮任务结束后停止；`--fast`：立即中止当前文件传输、清理已写入的临时文件并退出，5 秒内未退出则按进程树强制结束。`--fast` 与 `--slow` 互斥。
+    - `run-once`：让处于调度休眠期（等待下次运行，含首轮延迟等待期）的客户端实例立即执行一轮任务并滚动显示运行日志，下次运行时间按执行后的时刻重新计算；实例不存在、正在执行任务或未配置 `[schedule]` 时拒绝执行；`--quiet`：与 `start --quiet` 类似，不跟随日志，确认指令已受理后输出一行确认即返回。
+  - 除 `run-once` 以外，即使未配置 `[schedule]` 也可使用。
+  - 停止指令经由系统临时目录的控制文件传递，运行实例内的监视线程实时响应；空闲等待调度期间收到任何 stop 指令立即退出。
+  - `stop --fast` 对 sync 模式的特殊处理：rsync/rclone 及其子进程整树终止，不留孤儿进程（基于 psutil）。
+  - 可与 `--server` 组合，如 `--server start`；`stop` 不接受参数，行为与客户端模式下的`stop --fast`大致等价。
+- 文件传输与远端上传改为原子写入：先写入目标同目录的临时文件再原子替换，传输中断或失败不再留下不完整的目标文件。
+- 新增任务级选配配置项 `source_quiet_seconds`（全模式生效）：源目录的最新修改时间距今不超过该秒数时，本轮整个任务跳过。适合定时高频运行时等待正在写入的目录静置后再归档。
+- 新增任务依赖机制：任务可用选配项 `id` 作为唯一标识，`depends_on` 列出的全部前置任务在同一轮执行中完成后，后置任务才会执行；前置任务失败或被跳过时，后置任务级联跳过。
+- sync 模式新增任务级选配配置项 `exclude_from`：排除规则文件路径列表（可配置多个），原样透传给 rsync / rclone 的 `--exclude-from` 选项，适合维护大量排除条目或在多个任务间复用；运行时任一文件缺失，任务报错跳过。
+- 给 Docker 镜像加入了 rclone，版本与可执行文件自带的rclone对齐。现在 Docker 版本也可指定使用 rclone 来同步。
+
+### 修复
+
+- HTTP 远端路径为 Windows 盘符路径时被错误补上前导斜杠的问题。
+- 远端别名未配置或类型未知时，会回退为本地路径的问题。
+- rclone 同步时，日志出现双重时间戳的问题。
+- 在 macOS 平台上，当一个目录内存在多个修改时间相同的文件时，排列顺序与其他平台不一致，导致可能会出现的误删问题。
+- 使用 rclone 同步时会输出无用的 `NOTICE` 日志的问题。
+
+### 变更
+
+- 任务配置中的无效容量/数量值不再静默按 0 处理或引发未知错误，统一记录错误日志并跳过对应任务。
+- 优化了容器 / 系统停服的退出流程，退出行为与 `stop --fast` 等效。
+- 增强了 `dest` 路径的解析流程，避免了一些可能发生的边界问题。
+- 文件传输、文件删除、空目录清理与旧备份清理改为操作开始前播报，同步精简出错日志。
+- 优化了目标路径合法性检验和异常处理逻辑，现在错配目标类型会在任务初始化阶段报错，不再增加错误计数。
+- 增大 HTTP 文件传输的分块大小至 1MB 以优化传输性能。
+- 配置合法性校验环节前移至启动期，大部分配置填写问题将在启动后立即显示。
+- `http_remotes` / `ssh_remotes` 的无效条目（缺必填、格式错误、数值越界）改为记警告日志并跳过，不再静默忽略；重复别名改为先出现者生效。
+- 提高了 rclone 同步时的输出信息透明度。
+- 消除了 rclone 同步时不必要的输出信息。
+- rclone 同步时的同时传输文件数量修改为 1。
+- `mtime_threshold_seconds` 改为选填配置项，不配置此项时默认为 `0`（无时间限制）。
+- `remove_empty_dirs` 改为选填配置项，不配置此项时默认为 `false`。
+- 优化了 `tasks = [{ mode = "sync", tool = "auto" }]` 设置下的工具选择逻辑。
+- 优化了 HTTP 传输时的文件信息获取逻辑。
+
+### 迁移指南
+
+#### 1. `lock_file` 改为 `instance_name`
+
+旧配置：
+
+```toml
+lock_file = "/tmp/smartarchiver.lock"
+```
+
+改为：
+
+```toml
+instance_name = "smartarchiver"
+```
+
+未修改时旧键会被忽略（不产生任何效果），程序回退默认实例标识；需要同时运行多个实例时，为每份程序配置不同的 `instance_name`。
+
+#### 2. 容量单位语义遵循 IEC 80000-13
+
+容量阈值单位现分为十进制与二进制两套：`KB`/`MB`/`GB`/`TB` 按十进制（1 KB = 1000 B），`KiB`/`MiB`/`GiB`/`TiB` 按二进制（1 KiB = 1024 B）。旧版本不区分两套单位，一律按二进制（1024 进制）解析，因此升级后 `GB`/`TB` 等十进制单位表示的阈值会小于升级前（如 `1GB` 由 2³⁰ B 变为 10⁹ B）。受影响的配置项包括 rotate 的 `size_limit`、`rotate_rules.size` 以及规则中的 `lt`/`ge` 大小阈值。
+
+希望保持升级前的阈值时，把单位改为对应的二进制单位。
+
+旧配置：
+
+```toml
+size_limit = "10GB"    # 旧语义：10 × 1024³ B
+```
+
+改为：
+
+```toml
+size_limit = "10GiB"   # 新语义：10 × 1024³ B，与升级前一致
+```
+
+同时，旧版本对无法解析的容量值（如单位拼写错误）静默按 0 处理，新版会记录错误并跳过任务；升级后如出现此类日志，请将对应值修正为合法的容量字符串。
+
+#### 3. `mtime_threshold_minutes` 改为 `mtime_threshold_seconds`
+
+move / copy 模式的修改时间阈值配置项重命名，单位由分钟改为秒，旧键不再生效。
+
+旧配置：
+
+```toml
+mtime_threshold_minutes = 180    # 180 分钟 = 3 小时
+```
+
+改为：
+
+```toml
+mtime_threshold_seconds = 10800  # 10800 秒 = 3 小时，与升级前一致
+```
+
+未改名时旧键会被忽略，修改时间阈值取默认值 `0`（无时间限制）。
+
+#### 4. `max_retries` 下放为任务级配置
+
+全局 `max_retries` 键不再生效，改为在每个任务块内选配，未迁移时会被静默忽略。
+
+旧配置（全局）：
+
+```toml
+max_retries = 5
+```
+
+改为（任务级，仅需要调整容忍度的任务需配置）：
+
+```toml
+[[tasks]]
+mode = "move"
+source = "/data/inbox"
+dest = "/data/archive"
+max_retries = 5
+```
+
+#### 5. sync 模式 `create_backups` 改为 `backup_dir`
+
+`create_backups` 不再支持，改为显式指定备份目录；旧键会被忽略（不产生任何效果），未迁移时同步中被替换/删除的文件将直接删除、不做备份。
+
+旧配置：
+
+```toml
+create_backups = true
+```
+
+改为（在任务块内指定备份目录）：
+
+```toml
+backup_dir = "/data/sync-backups"
+```
+
+注意：
+
+- `backup_dir` 不能位于 `source` / `dest` 之下。
+- `dest` 目录为 SSH 远端时，须为远端主机上的绝对路径（以 `/` 开头）。
+- 旧版本的备份存放在 dest 下的 `.smart-archiver.backups/`，新配置禁止 `backup_dir` 位于 dest 之下，无法直接沿用该位置；且升级后的首次同步会把该目录当作多余内容从 dest 删除。如需保留其中的历史备份，请在升级前手动移出 dest。
+
+---
+
 ## [0.29.3] - 2026-10-15
 
 ### 新增
@@ -27,7 +188,7 @@
 - 合并 `move` 和 `whitelist_move` 为 `move` 模式，合并 `copy` 和 `whitelist_copy` 为 `copy` 模式。`whitelist_move`/`whitelist_copy` 不再支持，工作方式现统一为原 whitelist 系列的行为。
 - 配置项 `keep_rules` 重命名为 `exclude_rules`，`whitelist_rules` 重命名为 `include_rules`。
 - 删去 `preferred_rule` 配置项。规则引擎现采用顺序流水线：`include_rules` → `exclude_rules` → `delete_rules` → TRANSFER，命中即停止，不再有并行检查和冲突消解。
-- `include_rules` 为选填：未配置时所有文件均视为"已纳入"（等价于旧 `move`/`copy` 的默认行为）；配置后仅匹配的文件被处理（等价于旧 whitelist 模式）。
+- `include_rules` 为选填：未配置时所有文件均视为“已纳入”（等价于旧 `move`/`copy` 的默认行为）；配置后仅匹配的文件被处理（等价于旧 whitelist 模式）。
 - 配置项 `run_immediately` 被 `first_run_delay` 取代：`-1` 表示等待至下个调度点（默认），`0` 表示立即执行，正数表示延迟指定秒数后执行首次任务。
 
 ### 修复
@@ -67,7 +228,7 @@
 ### 变更
 
 - 删除空目录与清理旧备份的日志级别从 `debug` 提升至 `info`，使操作记录在默认日志级别下即可见。
-- 日志中的 "CRUCIAL" 信息改为中文 "致命错误"，提升可读性。
+- 日志中的 “CRUCIAL” 信息改为中文 “致命错误”，提升可读性。
 
 ---
 
@@ -275,6 +436,7 @@
 
 ---
 
+[0.39.2]: https://github.com/HexStan/SmartArchiver/releases/tag/v0.39.2
 [0.29.3]: https://github.com/HexStan/SmartArchiver/releases/tag/v0.29.3
 [0.28.2]: https://github.com/HexStan/SmartArchiver/releases/tag/v0.28.2
 [0.24.2]: https://github.com/HexStan/SmartArchiver/releases/tag/v0.24.2

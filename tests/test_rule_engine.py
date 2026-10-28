@@ -12,6 +12,7 @@
 """
 
 from src.core.filters import FileFilterPolicy
+from src.core.task_config import RuleSetConfig
 from src.core.types import FileAction
 
 TRANSFER = FileAction.TRANSFER
@@ -23,12 +24,12 @@ KB = 1024
 
 
 def build_policy(include=None, exclude=None, delete=None):
+    """FileFilterPolicy 消费加载期解析完成的规则模型（RuleSetConfig），
+    测试以原始 dict 经模型构造对齐生产装配路径。"""
     return FileFilterPolicy(
-        {
-            "include_rules": include or {},
-            "exclude_rules": exclude or {},
-            "delete_rules": delete or {},
-        }
+        RuleSetConfig.model_validate(include or {}),
+        RuleSetConfig.model_validate(exclude or {}),
+        RuleSetConfig.model_validate(delete or {}),
     )
 
 
@@ -90,19 +91,19 @@ class TestThresholdBoundary:
     """阈值边界契约：lt 为严格小于，ge 为大于等于。"""
 
     def test_lt_at_exact_threshold_misses(self):
-        policy = build_policy(exclude={"lt": {"*.log": "1MB"}})
+        policy = build_policy(exclude={"lt": {"*.log": "1MiB"}})
         assert policy.decide("app.log", 1 * MB) == TRANSFER
 
     def test_lt_below_threshold_hits(self):
-        policy = build_policy(exclude={"lt": {"*.log": "1MB"}})
+        policy = build_policy(exclude={"lt": {"*.log": "1MiB"}})
         assert policy.decide("app.log", 1 * MB - 1) == SKIP
 
     def test_ge_at_exact_threshold_hits(self):
-        policy = build_policy(exclude={"ge": {"*.log": "1MB"}})
+        policy = build_policy(exclude={"ge": {"*.log": "1MiB"}})
         assert policy.decide("app.log", 1 * MB) == SKIP
 
     def test_ge_below_threshold_misses(self):
-        policy = build_policy(exclude={"ge": {"*.log": "1MB"}})
+        policy = build_policy(exclude={"ge": {"*.log": "1MiB"}})
         assert policy.decide("app.log", 1 * MB - 1) == TRANSFER
 
     def test_zero_size_with_lt_threshold_hits(self):
@@ -249,12 +250,8 @@ class TestParentDirCascade:
     def test_parent_threshold_uses_parent_size(self):
         """级联判断用父目录整体大小，而不是文件自身大小。"""
         policy = build_policy(exclude={"lt": {"backup/": "1KB"}})
-        hit = policy.decide(
-            "backup/file.txt", 500, parent_dir_sizes={"backup": 500}
-        )
-        miss = policy.decide(
-            "backup/file.txt", 500, parent_dir_sizes={"backup": 2000}
-        )
+        hit = policy.decide("backup/file.txt", 500, parent_dir_sizes={"backup": 500})
+        miss = policy.decide("backup/file.txt", 500, parent_dir_sizes={"backup": 2000})
         assert hit == SKIP
         assert miss == TRANSFER
 
@@ -269,10 +266,7 @@ class TestParentDirCascade:
     def test_deeply_nested_parent_cascade(self):
         policy = build_policy(exclude={"ge": {"backup/": "-1"}})
         sizes = {"backup": 10000, "backup/sub": 5000}
-        assert (
-            policy.decide("backup/sub/deep/file.txt", 500, parent_dir_sizes=sizes)
-            == SKIP
-        )
+        assert policy.decide("backup/sub/deep/file.txt", 500, parent_dir_sizes=sizes) == SKIP
 
     def test_no_parent_entry_no_cascade(self):
         policy = build_policy(exclude={"ge": {"other/": "-1"}})
@@ -288,9 +282,7 @@ class TestParentDirCascade:
         """目录自身的决策不受 parent_dir_sizes 影响。"""
         policy = build_policy(exclude={"lt": {"backup/": "1KB"}})
         sizes = {"parent": 0}
-        assert (
-            policy.decide("backup", 500, is_dir=True, parent_dir_sizes=sizes) == SKIP
-        )
+        assert policy.decide("backup", 500, is_dir=True, parent_dir_sizes=sizes) == SKIP
 
 
 class TestGlobSemantics:
