@@ -11,6 +11,12 @@
 - 容量阈值解析遵循 IEC 80000-13 单位语义：`KB`/`MB`/`GB`/`TB` 按十进制（1 KB = 1000 B），`KiB`/`MiB`/`GiB`/`TiB` 按二进制（1 KiB = 1024 B）。
 - 配置项 `mtime_threshold_minutes` 重命名为 `mtime_threshold_seconds`，单位由分钟改为秒；旧键不再生效，未改名时取默认值 `0`（无时间限制）。
 - 全局配置项 `max_retries` 下放为任务级选配项（move / copy / rotate 可用），全局键不再生效，未配置时使用默认值 3。
+- sync 模式配置项 `create_backups` 改为 `backup_dir`（备份目录路径）：
+  - 同步中被替换/删除的文件移入 `[backup_dir]/[时间戳]` 目录，不再固定使用目标目录下的 `.smart-archiver.backups`。
+  - `backup_dir` 不能位于 `source` / `dest` 之下（否则任务在加载时报错跳过）。
+  - `dest` 目录为 SSH 远端时，须为远端主机上的绝对路径。
+  - 旧键不再生效。
+- 原本在 sync 模式中，与排除规则匹配的文件在 dest 中会被保留，现在会删除，保证 dest 与 source 完全一致。
 
 ### 新增
 
@@ -29,7 +35,7 @@
 - 新增任务级选配配置项 `source_quiet_seconds`（全模式生效）：源目录的最新修改时间距今不超过该秒数时，本轮整个任务跳过。适合定时高频运行时等待正在写入的目录静置后再归档。
 - 新增任务依赖机制：任务可用选配项 `id` 作为唯一标识，`depends_on` 列出的全部前置任务在同一轮执行中完成后，后置任务才会执行；前置任务失败或被跳过时，后置任务级联跳过。
 - sync 模式新增任务级选配配置项 `exclude_from`：排除规则文件路径列表（可配置多个），原样透传给 rsync / rclone 的 `--exclude-from` 选项，适合维护大量排除条目或在多个任务间复用；运行时任一文件缺失，任务报错跳过。
-- 给 Docker 镜像加入了 rclone，版本与可执行文件自带的rclone对齐。现在 Docker 版本也可指定使用 rclone 来同步。 
+- 给 Docker 镜像加入了 rclone，版本与可执行文件自带的rclone对齐。现在 Docker 版本也可指定使用 rclone 来同步。
 
 ### 修复
 
@@ -131,6 +137,28 @@ source = "/data/inbox"
 dest = "/data/archive"
 max_retries = 5
 ```
+
+#### 5. sync 模式 `create_backups` 改为 `backup_dir`
+
+`create_backups` 不再支持，改为显式指定备份目录；旧键会被忽略（不产生任何效果），未迁移时同步中被替换/删除的文件将直接删除、不做备份。
+
+旧配置：
+
+```toml
+create_backups = true
+```
+
+改为（在任务块内指定备份目录）：
+
+```toml
+backup_dir = "/data/sync-backups"
+```
+
+注意：
+
+- `backup_dir` 不能位于 `source` / `dest` 之下。
+- `dest` 目录为 SSH 远端时，须为远端主机上的绝对路径（以 `/` 开头）。
+- 旧版本的备份存放在 dest 下的 `.smart-archiver.backups/`，新配置禁止 `backup_dir` 位于 dest 之下，无法直接沿用该位置；且升级后的首次同步会把该目录当作多余内容从 dest 删除。如需保留其中的历史备份，请在升级前手动移出 dest。
 
 ---
 
