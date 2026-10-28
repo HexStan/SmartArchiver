@@ -1,6 +1,7 @@
 """路径查询与目录枚举：只读探测、元数据获取、目录创建与体量统计。"""
 
 import os
+import stat
 from dataclasses import dataclass
 
 from src.fs.errors import FsOpError, PermissionDeniedError
@@ -48,23 +49,27 @@ def is_dir(path: str) -> bool:
 def get_stat(path: str) -> StatResult:
     """获取路径的元数据。
 
-    返回 StatResult，其中 exists 字段指示路径是否存在。
+    返回 StatResult，其中 exists 字段指示路径是否存在；
+    除"路径不存在"外的错误（如权限不足）按对应 FsOpError 抛出。
     """
-    if not os.path.exists(path):
-        return StatResult(exists=False)
-
     try:
         st = os.stat(path)
-        return StatResult(
-            size=st.st_size,
-            mtime=st.st_mtime,
-            is_dir=os.path.isdir(path),
-            exists=True,
-        )
+    except FileNotFoundError:
+        return StatResult(exists=False)
+    except ValueError:
+        # 路径含非法字符（如 NUL）等不可能存在的形式，与 os.path.exists 语义对齐，视同不存在
+        return StatResult(exists=False)
     except PermissionError:
         raise PermissionDeniedError(f"权限不足，无法读取: {path}")
     except OSError as e:
         raise FsOpError(f"无法获取文件信息: {path} — {e}")
+
+    return StatResult(
+        size=st.st_size,
+        mtime=st.st_mtime,
+        is_dir=stat.S_ISDIR(st.st_mode),
+        exists=True,
+    )
 
 
 def list_dir(path: str) -> list[DirEntry]:
