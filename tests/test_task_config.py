@@ -229,8 +229,12 @@ class TestSyncTask:
         assert task.tool == "auto"
         assert task.exclude == []
         assert task.exclude_from == []
-        assert task.create_backups is False
+        assert task.backup_dir == ""
         assert task.max_backups == 0
+
+    def test_backup_dir_kept(self):
+        task = SyncTaskConfig.model_validate(_sync(backup_dir="./backups"))
+        assert task.backup_dir == "./backups"
 
     def test_dest_required(self):
         data = _sync()

@@ -4,7 +4,8 @@
 unique_dest 决定文件最终落在哪里、冲突副本叫什么名字——路径错了
 就是数据放错地方，这是数据安全边界，值得对每个分支单独钉死。
 本地目标的传输行为已由 test_greybox_move_copy.py 从入口覆盖；
-加载期的 dest 模式兼容性校验（validate_dest）也在此白盒钉死。
+加载期的 dest 模式兼容性校验（validate_dest）与 sync 的 backup_dir
+位置校验（validate_backup_dir）也在此白盒钉死。
 """
 
 import os
@@ -276,6 +277,89 @@ class TestValidateDest:
         reason = dest.validate_dest("{ssh:vps}?/data", mode, http_aliases=(), ssh_aliases={"vps"})
         assert reason is not None
         assert "不支持 SSH 远端目标" in reason
+
+
+class TestValidateBackupDir:
+    """sync 任务 backup_dir 的加载期校验（纯函数：合法返回 None，否则返回消息）。
+
+    本地路径的包含判断统一走 tmp_path 真实绝对路径，保证在任意平台上
+    行为一致（Windows 的大小写/斜杠归一单独用例钉死）。
+    """
+
+    def test_empty_backup_dir_is_accepted(self, tmp_path):
+        assert dest.validate_backup_dir(str(tmp_path / "dest"), str(tmp_path / "src"), "") is None
+
+    def test_backup_dir_outside_source_and_dest_is_accepted(self, tmp_path):
+        reason = dest.validate_backup_dir(
+            str(tmp_path / "dest"), str(tmp_path / "src"), str(tmp_path / "backups")
+        )
+        assert reason is None
+
+    def test_backup_dir_equal_to_dest_rejected(self, tmp_path):
+        d = str(tmp_path / "dest")
+        reason = dest.validate_backup_dir(d, str(tmp_path / "src"), d)
+        assert reason is not None
+        assert "dest 之下" in reason
+
+    def test_backup_dir_under_dest_rejected(self, tmp_path):
+        reason = dest.validate_backup_dir(
+            str(tmp_path / "dest"), str(tmp_path / "src"), str(tmp_path / "dest" / "backups")
+        )
+        assert reason is not None
+        assert "dest 之下" in reason
+
+    def test_backup_dir_under_source_rejected(self, tmp_path):
+        reason = dest.validate_backup_dir(
+            str(tmp_path / "dest"), str(tmp_path / "src"), str(tmp_path / "src" / "backups")
+        )
+        assert reason is not None
+        assert "source 之下" in reason
+
+    def test_relative_backup_dir_resolved_against_cwd(self, tmp_path, monkeypatch):
+        """相对 backup_dir 与 source/dest 同规则按工作目录解析后再比较。"""
+        monkeypatch.chdir(tmp_path)
+        assert dest.validate_backup_dir("dest", "src", "backups") is None
+        reason = dest.validate_backup_dir("dest", "src", os.path.join("dest", "backups"))
+        assert reason is not None
+        assert "dest 之下" in reason
+
+    @pytest.mark.skipif(sys.platform != "win32", reason="Windows 专有：大小写与斜杠归一")
+    def test_windows_case_and_slash_normalized(self, tmp_path):
+        dest_dir = str(tmp_path / "dest")
+        backup_dir = dest_dir.replace("\\", "/").upper() + "/backups"
+        reason = dest.validate_backup_dir(dest_dir, str(tmp_path / "src"), backup_dir)
+        assert reason is not None
+        assert "dest 之下" in reason
+
+    def test_ssh_relative_backup_dir_rejected(self):
+        reason = dest.validate_backup_dir("{ssh:vps}?/data", "/src", "backups")
+        assert reason is not None
+        assert "绝对路径" in reason
+
+    def test_ssh_backup_dir_under_remote_dest_rejected(self):
+        reason = dest.validate_backup_dir("{ssh:vps}?/data", "/src", "/data/backups")
+        assert reason is not None
+        assert "dest 之下" in reason
+
+    def test_ssh_backup_dir_equal_to_remote_dest_rejected(self):
+        reason = dest.validate_backup_dir("{ssh:vps}?/data", "/src", "/data")
+        assert reason is not None
+        assert "dest 之下" in reason
+
+    def test_ssh_backup_dir_outside_remote_dest_accepted(self):
+        assert dest.validate_backup_dir("{ssh:vps}?/data", "/src", "/backups") is None
+
+    def test_ssh_remote_root_dest_rejects_any_backup_dir(self):
+        """dest 为远端根目录时任何绝对路径都在其下。"""
+        reason = dest.validate_backup_dir("{ssh:vps}?/", "/src", "/backups")
+        assert reason is not None
+        assert "dest 之下" in reason
+
+    @pytest.mark.parametrize("backup_dir", ["{ssh:vps}?/backups", "{http:nas}?/backups"])
+    def test_prefix_syntax_rejected(self, tmp_path, backup_dir):
+        reason = dest.validate_backup_dir(str(tmp_path / "dest"), str(tmp_path / "src"), backup_dir)
+        assert reason is not None
+        assert "协议前缀" in reason
 
 
 class _RecordingClient:

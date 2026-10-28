@@ -26,7 +26,7 @@ from typing import TYPE_CHECKING, Any, NamedTuple
 from pydantic import ValidationError
 
 from src.core import dest
-from src.core.task_config import TASK_MODELS, TaskConfig
+from src.core.task_config import TASK_MODELS, SyncTaskConfig, TaskConfig
 from src.validation import ALIAS_PATTERN, format_validation_error
 
 if TYPE_CHECKING:
@@ -155,9 +155,9 @@ def resolve_tasks(
     第一遍逐任务做 id 规范化与注册（仅合法 id，先到先得——注册反映
     "配置中声明的 id"，与任务自身合法性解耦：被拒绝任务声明的 id 仍可
     被引用，运行期依赖门禁自然级联）、mode 分派、depends_on 类型归一、
-    配置模型校验与 dest 装配校验；第二遍在全部合法 id 注册完毕后做
-    引用校验（存在性 / 自引用 / 前向引用）。两遍产出与 raw_tasks 一一
-    对应的 draft，最终按序返回。
+    配置模型校验与 dest / backup_dir 装配校验；第二遍在全部合法 id 注册
+    完毕后做引用校验（存在性 / 自引用 / 前向引用）。两遍产出与
+    raw_tasks 一一对应的 draft，最终按序返回。
     """
     drafts: list[TaskSpec] = []
     registered: dict[str, int] = {}  # id → 首个出现的任务索引
@@ -205,6 +205,15 @@ def resolve_tasks(
             logger.error(f"任务 #{index + 1} 的 dest 配置无效：{reason}，跳过该任务。")
             drafts.append(TaskSpec(None))
             continue
+
+        # backup_dir 与 source/dest 的位置关系是跨字段语义校验，仅 sync 模式
+        # 存在该字段（dest 的模式兼容性已由 validate_dest 收口）
+        if isinstance(config, SyncTaskConfig):
+            reason = dest.validate_backup_dir(config.dest, config.source, config.backup_dir)
+            if reason is not None:
+                logger.error(f"任务 #{index + 1} 的 backup_dir 配置无效：{reason}，跳过该任务。")
+                drafts.append(TaskSpec(None))
+                continue
 
         drafts.append(TaskSpec(config, task_id, depends_on))
 

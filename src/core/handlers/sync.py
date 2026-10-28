@@ -66,7 +66,7 @@ def _resolve_rsync() -> SyncTool | None:
     """解析系统 PATH 中的 rsync。
 
     macOS 的系统 rsync 即 openrsync 实现，不支持 --backup/--backup-dir，
-    以 supports_backup_dir=False 标记，由调用方忽略 create_backups 配置。
+    以 supports_backup_dir=False 标记，由调用方忽略 backup_dir 配置。
 
     Returns:
         SyncTool | None: 解析失败时返回 None，是否致命由调用方判定。
@@ -108,11 +108,10 @@ def _resolve_sync_tool(tool: str) -> SyncTool | None:
 
 
 def _warn_backup_unsupported():
-    """提示当前 rsync 为 openrsync 实现，create_backups 已被忽略。"""
+    """提示当前 rsync 为 openrsync 实现，backup_dir 已被忽略。"""
     ctx = AppContext.get()
     ctx.logger.warning(
-        "当前系统的 rsync 为 openrsync 实现，不支持 --backup/--backup-dir，"
-        "已忽略 create_backups 配置。"
+        "当前系统的 rsync 为 openrsync 实现，不支持 --backup/--backup-dir，已忽略 backup_dir 配置。"
     )
 
 
@@ -124,7 +123,12 @@ def _warn_backup_unsupported():
 def _rsync_common_args(
     exclude_list: list[str], exclude_from: list[str], backup_dir: str | None
 ) -> list[str]:
-    """构造 rsync 的过滤规则与备份选项段；--exclude-from/--backup-dir 用等号连写形式。"""
+    """构造 rsync 的过滤规则与备份选项段；--exclude-from/--backup-dir 用等号连写形式。
+
+    --delete-excluded 不可配置：排除项也从 dest 侧删除，保证 dest 与
+    source 完全一致（--delete 由各命令构造处固定携带，二者配合生效；
+    openrsync 手册亦支持该选项）。
+    """
     args: list[str] = []
     for ex in exclude_list:
         args.extend(["--exclude", ex])
@@ -132,6 +136,7 @@ def _rsync_common_args(
         args.append(f"--exclude-from={path}")
     if backup_dir:
         args.extend(["--backup", f"--backup-dir={backup_dir}"])
+    args.append("--delete-excluded")
     return args
 
 
@@ -141,6 +146,8 @@ def _rclone_common_args(
     """构造 rclone 的公共选项段：传输并发、过滤规则与备份选项。
 
     过滤与备份项与 --exclude 同风格，全部双参数形式。
+    --delete-excluded 不可配置：排除项也从 dest 侧删除（rclone sync 的
+    同名选项），保证 dest 与 source 完全一致。
     """
     # 同时传输文件数固定为 1（串行传输），本地与 SSH 远端路径共用
     args: list[str] = ["--transfers", "1"]
@@ -150,6 +157,7 @@ def _rclone_common_args(
         args.extend(["--exclude-from", path])
     if backup_dir:
         args.extend(["--backup-dir", backup_dir])
+    args.append("--delete-excluded")
     return args
 
 
@@ -311,18 +319,17 @@ class SyncHandler(BaseTaskHandler):
         exclude_list = self.config.exclude
         exclude_from = self.config.exclude_from
 
-        backup_enabled = self.config.create_backups
-        max_backups = self.config.max_backups
+        backup_dir_config = self.config.backup_dir
 
         if remote is not None:
             return self._execute_ssh_sync(
-                remote, parsed.path, tool, exclude_list, exclude_from, backup_enabled, max_backups
+                remote, parsed.path, tool, exclude_list, exclude_from, backup_dir_config
             )
 
         backup_dir = None
-        if backup_enabled:
+        if backup_dir_config:
             if tool.supports_backup_dir:
-                backup_dir = self._setup_backup_dir(self.dest_root, max_backups, exclude_list)
+                backup_dir = self._setup_backup_dir(backup_dir_config)
             else:
                 _warn_backup_unsupported()
 
@@ -350,16 +357,13 @@ class SyncHandler(BaseTaskHandler):
         tool: SyncTool,
         exclude_list: list[str],
         exclude_from: list[str],
-        backup_enabled: bool,
-        max_backups: int,
+        backup_dir_config: str,
     ) -> bool:
         """执行 SSH 远端同步（rsync 或 rclone）。"""
         backup_dir = None
-        if backup_enabled:
+        if backup_dir_config:
             if tool.supports_backup_dir:
-                backup_dir = self._setup_ssh_backup_dir(
-                    remote, remote_root, max_backups, exclude_list
-                )
+                backup_dir = self._setup_ssh_backup_dir(remote, backup_dir_config)
             else:
                 _warn_backup_unsupported()
 
@@ -452,28 +456,25 @@ class SyncHandler(BaseTaskHandler):
 
         return _run_sync_command(cmd, "rclone", env=env)
 
-    def _setup_ssh_backup_dir(
-        self, remote: SshRemote, remote_root: str, max_backups: int, exclude_list: list[str]
-    ) -> str:
-        """为 SSH 远端目标设置备份目录。
+    def _setup_ssh_backup_dir(self, remote: SshRemote, backup_base: str) -> str:
+        """为 SSH 远端目标设置备份目录（backup_base 为用户配置的远端绝对路径）。
 
-        在远端计算备份路径，清理旧备份，返回远端备份目录路径。
-        返回值是远端绝对路径：rsync 的 --backup-dir 不接受 user@host: 前缀，
-        备份由接收端（远端）的 rsync 直接落盘；rclone 侧由调用方补 :sftp: 前缀。
+        在远端轮转旧备份后，返回本次时间戳子目录的远端绝对路径：
+        rsync 的 --backup-dir 不接受 user@host: 前缀，备份由接收端（远端）
+        的 rsync 直接落盘；rclone 侧由调用方补 :sftp: 前缀。
+        backup_dir 由加载期校验保证不位于 dest 之下，无需注入排除项；
+        该目录视为备份独占目录，轮转不校验子目录命名，按名排序删除最旧的。
         """
         ctx = AppContext.get()
 
-        backup_base = posixpath.join(remote_root, ".smart-archiver.backups")
         timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
         backup_dir = posixpath.join(backup_base, timestamp)
 
-        exclude_list.append(".smart-archiver.backups/")
-
-        if max_backups > 0:
+        if self.config.max_backups > 0:
             try:
                 all_dirs = ops.list_remote_dirs(remote, backup_base)
-                if all_dirs and len(all_dirs) >= max_backups:
-                    num_to_delete = len(all_dirs) - max_backups + 1
+                if all_dirs and len(all_dirs) >= self.config.max_backups:
+                    num_to_delete = len(all_dirs) - self.config.max_backups + 1
                     for d in all_dirs[:num_to_delete]:
                         remote_path = posixpath.join(backup_base, d)
                         ctx.logger.info(f"正在删除远端旧备份: {d}")
@@ -489,15 +490,17 @@ class SyncHandler(BaseTaskHandler):
     # 本地备份目录
     # ============================================================
 
-    def _setup_backup_dir(self, dest_root: str, max_backups: int, exclude_list: list[str]) -> str:
+    def _setup_backup_dir(self, backup_base: str) -> str:
+        """在备份独占目录下计算本次时间戳子目录路径，并按 max_backups 轮转旧备份。
+
+        backup_dir 由加载期校验保证不位于 source/dest 之下，无需注入排除项；
+        该目录视为备份独占目录，轮转不校验子目录命名，按名排序删除最旧的。
+        """
         ctx = AppContext.get()
-        backup_base = os.path.join(dest_root, ".smart-archiver.backups")
         timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
         backup_dir = os.path.join(backup_base, timestamp)
 
-        exclude_list.append(".smart-archiver.backups/")
-
-        if max_backups > 0 and os.path.exists(backup_base):
+        if self.config.max_backups > 0 and os.path.exists(backup_base):
             try:
                 backups = [
                     os.path.join(backup_base, d)
@@ -505,8 +508,8 @@ class SyncHandler(BaseTaskHandler):
                     if os.path.isdir(os.path.join(backup_base, d))
                 ]
                 backups.sort()
-                if len(backups) >= max_backups:
-                    num_to_delete = len(backups) - max_backups + 1
+                if len(backups) >= self.config.max_backups:
+                    num_to_delete = len(backups) - self.config.max_backups + 1
                     for b in backups[:num_to_delete]:
                         # 日志事前输出：即将删除时打印；失败时由外层错误行保留异常信息
                         ctx.logger.info(f"正在删除旧备份: {b}")

@@ -150,9 +150,69 @@ def validate_dest(
     return f"未知的远端类型 '{parsed.kind}'（dest 路径: {dest_path}），仅支持 http 和 ssh"
 
 
+def validate_backup_dir(dest_str: str, source: str, backup_dir: str) -> str | None:
+    """加载期校验 sync 任务的 backup_dir（纯函数，不读 AppContext）。
+
+    backup_dir 与 dest 始终同主机（本地 dest → 本地路径；SSH dest → 远端
+    POSIX 绝对路径），故不支持 {类型:别名}? 协议前缀语法。非空时还须满足：
+
+    - dest 为 SSH 远端时必须是远端绝对路径（以 / 开头）——远端相对路径的
+      锚点在工具间语义不一（rsync 相对 dest、rclone 相对工作目录），一律拒绝；
+    - 不得位于 source 或 dest 之下（含相等）：位于 dest 下会随同步被工具
+      删除/覆盖，位于 source 下会被当作源内容再次同步进 dest，均破坏镜像；
+      该约束同时满足 rsync/rclone 对 --backup-dir 不得在目标内的要求。
+
+    backup_dir 为空表示不备份，直接合法。dest 的兼容性（sync 不接受 HTTP）
+    已由 validate_dest 保证，此处对未知远端类型防御性放行。
+
+    合法返回 None；不合法时返回中文错误消息（不含任务上下文与"跳过"
+    后缀，由调用方拼装）。
+    """
+    if not backup_dir:
+        return None
+
+    if _REMOTE_DEST_PATTERN.match(backup_dir):
+        return "backup_dir 不支持 {类型:别名}? 协议前缀语法（备份目录始终与 dest 同主机）"
+
+    parsed = parse_dest(dest_str)
+    if parsed.kind not in (LOCAL, SSH):
+        return None
+
+    if parsed.kind == SSH:
+        if not backup_dir.startswith("/"):
+            return f"dest 为 SSH 远端时 backup_dir 必须是远端绝对路径（以 / 开头）: {backup_dir}"
+        child = posixpath.normpath(backup_dir)
+        ancestor = posixpath.normpath(parsed.path)
+        if _is_within(child, ancestor, "/"):
+            return f"backup_dir 不能位于 dest 之下（备份会随同步被删除/覆盖）: {backup_dir}"
+        return None
+
+    # 本地 dest：sync 的 source 恒为本地路径，包含判断用同一 os.path 语义；
+    # 相对路径与 source/dest 一致按工作目录解析，Windows 额外做大小写/斜杠归一
+    child = os.path.normcase(os.path.abspath(backup_dir))
+    ancestor = os.path.normcase(os.path.abspath(parsed.path))
+    if _is_within(child, ancestor, os.sep):
+        return f"backup_dir 不能位于 dest 之下（备份会随同步被删除/覆盖）: {backup_dir}"
+    if _is_within(child, os.path.normcase(os.path.abspath(source)), os.sep):
+        return f"backup_dir 不能位于 source 之下（备份产物会被同步进 dest）: {backup_dir}"
+    return None
+
+
 # ============================================================
 # 路径规则（纯函数）
 # ============================================================
+
+
+def _is_within(child: str, ancestor: str, sep: str) -> bool:
+    """归一化绝对路径的包含判断：child 是否位于 ancestor 之下（含相等）。
+
+    ancestor 先剥去尾部分隔符再比较，兼容 "D:\\" 这类盘符根形态；
+    ancestor 恰为根分隔符（POSIX 的 "/"）时任意绝对路径均视为在其下。
+    """
+    if ancestor == sep:
+        return True
+    trimmed = ancestor.rstrip(sep)
+    return child == trimmed or child.startswith(trimmed + sep)
 
 
 def build_dest_path(root: str, rel_path: str) -> str:

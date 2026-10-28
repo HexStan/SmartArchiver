@@ -8,6 +8,7 @@
 """
 
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -65,14 +66,31 @@ class TestLocalSyncCommands:
         run_task(sync_task(tmp_path, tool="rsync"))
 
         assert len(stub_procs.calls) == 1
-        assert stub_procs.calls[0].cmd == ["rsync", "-av", "--delete", src + "/", dest]
+        assert stub_procs.calls[0].cmd == [
+            "rsync",
+            "-av",
+            "--delete",
+            src + "/",
+            dest,
+            "--delete-excluded",
+        ]
 
     def test_forced_rclone_command(self, run_task, tmp_path, stub_procs, prepared_dirs):
         src, dest = prepared_dirs
         run_task(sync_task(tmp_path, tool="rclone"))
 
-        # -v：INFO 级日志，逐文件输出与 rsync -av 对齐；--transfers 1：串行传输
-        assert stub_procs.calls[0].cmd == ["rclone", "sync", src, dest, "-v", "--transfers", "1"]
+        # -v：INFO 级日志，逐文件输出与 rsync -av 对齐；--transfers 1：串行传输；
+        # --delete-excluded：排除项也从 dest 删除（不可配置）
+        assert stub_procs.calls[0].cmd == [
+            "rclone",
+            "sync",
+            src,
+            dest,
+            "-v",
+            "--transfers",
+            "1",
+            "--delete-excluded",
+        ]
 
     def test_auto_prefers_system_rsync_on_linux(
         self, run_task, tmp_path, stub_procs, prepared_dirs, monkeypatch
@@ -129,6 +147,7 @@ class TestLocalSyncCommands:
             "*.tmp",
             "--exclude",
             "cache/",
+            "--delete-excluded",
         ]
 
     def test_exclude_from_forwarded_rsync(self, run_task, tmp_path, stub_procs, prepared_dirs):
@@ -145,6 +164,7 @@ class TestLocalSyncCommands:
             src + "/",
             dest,
             f"--exclude-from={exclude_file}",
+            "--delete-excluded",
         ]
 
     def test_exclude_from_forwarded_rclone(self, run_task, tmp_path, stub_procs, prepared_dirs):
@@ -164,6 +184,7 @@ class TestLocalSyncCommands:
             "1",
             "--exclude-from",
             str(exclude_file),
+            "--delete-excluded",
         ]
 
     def test_exclude_from_multiple_files_kept_in_order(
@@ -189,28 +210,32 @@ class TestLocalSyncCommands:
         _src, _dest = prepared_dirs
         exclude_file = tmp_path / "exclude.txt"
         exclude_file.write_text("*.log\n", encoding="utf-8")
+        backup_base = str(tmp_path / "backups")
         run_task(
             sync_task(
                 tmp_path,
                 tool="rsync",
                 exclude=["*.tmp"],
                 exclude_from=str(exclude_file),
-                create_backups=True,
+                backup_dir=backup_base,
             )
         )
 
         cmd = stub_procs.calls[0].cmd
-        # 顺序：内联 --exclude → --exclude-from（跨平台一致）
-        assert cmd.index("--exclude") < cmd.index(f"--exclude-from={exclude_file}")
         if sys.platform == "darwin":
             # macOS 系统 rsync 为 openrsync：备份段整体缺失并告警
             assert capture_log.has("warning", "openrsync")
         else:
-            # 顺序：--exclude-from → --backup/--backup-dir
+            # 顺序：内联 --exclude → --exclude-from（跨平台一致）→ --backup/--backup-dir
+            assert cmd.index("--exclude") < cmd.index(f"--exclude-from={exclude_file}")
             assert cmd.index(f"--exclude-from={exclude_file}") < cmd.index("--backup")
-            # 备份目录排除机制不受影响：仍以内联 --exclude 追加
-            backups_idx = cmd.index(".smart-archiver.backups/")
-            assert cmd[backups_idx - 1] == "--exclude"
+            backup_arg = next(a for a in cmd if a.startswith("--backup-dir="))
+            value = backup_arg.removeprefix("--backup-dir=")
+            assert os.path.dirname(value) == backup_base
+            assert re.fullmatch(r"\d{8}-\d{6}", os.path.basename(value))
+        # backup_dir 由加载期校验保证不在 dest 之下，不再注入排除项
+        assert ".smart-archiver.backups/" not in cmd
+        assert "--delete-excluded" in cmd
 
     def test_nonzero_exit_code_logs_error(
         self, run_task, tmp_path, stub_procs, prepared_dirs, capture_log
@@ -229,40 +254,56 @@ class TestLocalBackupDir:
     )
     def test_rsync_backup_flags_added(self, run_task, tmp_path, stub_procs, prepared_dirs):
         _src, _dest = prepared_dirs
-        run_task(sync_task(tmp_path, tool="rsync", create_backups=True))
+        backup_base = str(tmp_path / "backups")
+        run_task(sync_task(tmp_path, tool="rsync", backup_dir=backup_base))
 
         cmd = stub_procs.calls[0].cmd
         assert "--backup" in cmd
-        backup_dir = next(a for a in cmd if a.startswith("--backup-dir="))
-        assert ".smart-archiver.backups" in backup_dir
-        # 备份目录本身必须被排除在同步之外
-        assert cmd[cmd.index("--exclude") + 1] == ".smart-archiver.backups/"
+        backup_arg = next(a for a in cmd if a.startswith("--backup-dir="))
+        value = backup_arg.removeprefix("--backup-dir=")
+        # 备份数据直接落在 [backup_dir]/[时间戳]，无预设固定目录名
+        assert os.path.dirname(value) == backup_base
+        assert re.fullmatch(r"\d{8}-\d{6}", os.path.basename(value))
+        # backup_dir 不位于 dest 之下，无需排除项
+        assert ".smart-archiver.backups/" not in cmd
 
     def test_rclone_backup_dir_added(self, run_task, tmp_path, stub_procs, prepared_dirs):
         _src, _dest = prepared_dirs
-        run_task(sync_task(tmp_path, tool="rclone", create_backups=True))
+        backup_base = str(tmp_path / "backups")
+        run_task(sync_task(tmp_path, tool="rclone", backup_dir=backup_base))
 
         cmd = stub_procs.calls[0].cmd
         assert "--backup-dir" in cmd
-        assert ".smart-archiver.backups" in cmd[cmd.index("--backup-dir") + 1]
+        value = cmd[cmd.index("--backup-dir") + 1]
+        assert os.path.dirname(value) == backup_base
+        assert re.fullmatch(r"\d{8}-\d{6}", os.path.basename(value))
 
-    @pytest.mark.skipif(
-        sys.platform == "darwin",
-        reason="macOS 系统 rsync 为 openrsync，备份目录功能整体被跳过，无清理可言",
-    )
     def test_max_backups_prunes_oldest(self, run_task, tmp_path, stub_procs, prepared_dirs):
-        """超出保留数量的旧备份从最旧开始清理（真实文件操作）。"""
-        _src, dest = prepared_dirs
-        base = os.path.join(dest, ".smart-archiver.backups")
-        for name in ["20230101-000000", "20230202-000000", "20230303-000000"]:
+        """超出保留数量的旧备份按子目录名排序从最旧开始清理（真实文件操作）。
+
+        backup_dir 视为备份独占目录：轮转不校验子目录命名，任何子目录都
+        参与排序。改用 rclone 使用例在 macOS（openrsync）同样可跑。
+        """
+        _src, _dest = prepared_dirs
+        base = str(tmp_path / "backups")
+        for name in ["m-3", "a-1", "z-4", "b-2"]:
             os.makedirs(os.path.join(base, name))
 
-        run_task(sync_task(tmp_path, tool="rsync", create_backups=True, max_backups=2))
+        run_task(sync_task(tmp_path, tool="rclone", backup_dir=base, max_backups=2))
 
-        remaining = set(os.listdir(base))
-        assert "20230101-000000" not in remaining
-        assert "20230202-000000" not in remaining
-        assert "20230303-000000" in remaining
+        # 4 个子目录按名排序 [a-1, b-2, m-3, z-4]，保留 2 份需删 3 个
+        assert set(os.listdir(base)) == {"z-4"}
+
+    def test_max_backups_zero_keeps_all(self, run_task, tmp_path, stub_procs, prepared_dirs):
+        """max_backups = 0（默认）不轮转：backup_dir 下的已有子目录全部保留。"""
+        _src, _dest = prepared_dirs
+        base = str(tmp_path / "backups")
+        for name in ["20230101-000000", "20230202-000000"]:
+            os.makedirs(os.path.join(base, name))
+
+        run_task(sync_task(tmp_path, tool="rclone", backup_dir=base))
+
+        assert set(os.listdir(base)) == {"20230101-000000", "20230202-000000"}
 
 
 class TestBundledRcloneResolution:
@@ -356,7 +397,7 @@ class TestBundledRcloneResolution:
         )
         _src, _dest = prepared_dirs
 
-        run_task(sync_task(tmp_path, create_backups=True))
+        run_task(sync_task(tmp_path, backup_dir=str(tmp_path / "backups")))
 
         cmd = stub_procs.calls[0].cmd
         assert cmd[0] == "rsync"
@@ -370,7 +411,7 @@ class TestBundledRcloneResolution:
         monkeypatch.setattr(sys, "platform", "darwin")
         _src, _dest = prepared_dirs
 
-        run_task(sync_task(tmp_path, tool="rsync", create_backups=True))
+        run_task(sync_task(tmp_path, tool="rsync", backup_dir=str(tmp_path / "backups")))
 
         cmd = stub_procs.calls[0].cmd
         assert "--backup" not in cmd
@@ -430,6 +471,28 @@ class TestSyncRejections:
 
         assert stub_procs.calls == []
         assert capture_log.has("error", "tool 配置值无效")
+
+    def test_backup_dir_under_dest_rejected_at_load_time(
+        self, run_task, tmp_path, stub_procs, prepared_dirs, capture_log
+    ):
+        """backup_dir 位于 dest 之下：加载期报错，任务被跳过（无进程调用）。"""
+        _src, dest_dir = prepared_dirs
+        run_task(sync_task(tmp_path, backup_dir=os.path.join(dest_dir, "backups")))
+
+        assert stub_procs.calls == []
+        assert capture_log.has("error", "backup_dir 配置无效")
+        assert capture_log.has("error", "dest 之下")
+
+    def test_backup_dir_under_source_rejected_at_load_time(
+        self, run_task, tmp_path, stub_procs, prepared_dirs, capture_log
+    ):
+        """backup_dir 位于 source 之下：加载期报错，任务被跳过（无进程调用）。"""
+        _src, _dest = prepared_dirs
+        run_task(sync_task(tmp_path, backup_dir=os.path.join(str(tmp_path / "src"), "backups")))
+
+        assert stub_procs.calls == []
+        assert capture_log.has("error", "backup_dir 配置无效")
+        assert capture_log.has("error", "source 之下")
 
     def test_missing_dest_dir_aborts(self, run_task, tmp_path, stub_procs, capture_log):
         make_tree(tmp_path / "src", {"a.txt": b"x"})
@@ -498,6 +561,7 @@ class TestSshSyncCommands:
             ),
         ]
         assert cmd[-2:] == [src + "/", "root@192.168.1.100:/remote/data"]
+        assert "--delete-excluded" in cmd
 
     def test_rsync_ssh_password_file_wraps_sshpass(self, run_task, tmp_path, stub_procs, ssh_ready):
         make_tree(tmp_path / "src", {"a.txt": b"x"})
@@ -574,6 +638,7 @@ class TestSshSyncCommands:
             "/k",
             "--transfers",
             "1",
+            "--delete-excluded",
         ]
 
     def test_rclone_ssh_password_passed_via_env_not_argv(

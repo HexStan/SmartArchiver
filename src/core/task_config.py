@@ -260,7 +260,13 @@ class SyncTaskConfig(TaskBase):
     exclude_from: Annotated[list[str], BeforeValidator(_coerce_exclude)] = Field(
         default_factory=list
     )
-    create_backups: bool = False
+    # 备份目录：同步中被替换/删除的文件由底层工具移入 [backup_dir]/[时间戳] 目录。
+    # 空（默认）表示不创建备份；该目录视为备份独占目录，max_backups 轮转
+    # 会按子目录名排序删除其中的旧子目录，请勿混放非备份数据。
+    # dest 为 SSH 远端时是同主机上的远端 POSIX 绝对路径。
+    # "不得位于 source/dest 之下"属跨字段语义校验，由 task_plan 经
+    # dest.validate_backup_dir 在加载期判定（需要 source/dest 的路径语义）。
+    backup_dir: str = ""
     max_backups: int = Field(default=0, ge=0)
 
     @field_validator("tool")

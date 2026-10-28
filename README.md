@@ -478,8 +478,8 @@ SmartArchiver 的核心能力是**对源目录中的文件执行某种操作**�
 | `tool` | ○ | 同步工具：`"auto"`（自动，按平台选择，见下文）、`"rsync"`、`"rclone"` |
 | `exclude` | ○ | 排除模式列表，由底层工具处理 |
 | `exclude_from` | ○ | 排除规则文件路径列表（可配置多个，对应底层工具的 `--exclude-from` 选项），文件内容由底层工具处理 |
-| `create_backups` | ○ | 替换/删除前是否备份，默认 `false` |
-| `max_backups` | ○ | 最多保留备份份数，`0` 表示不限制 |
+| `backup_dir` | ○ | 备份目录：同步中被替换/删除的文件移入 `[backup_dir]/[时间戳]` 目录，留空或不设则不备份；不能位于 `source` / `dest` 之下，否则任务报错跳过（详见[下文](#sync-模式的-backup_dir)） |
+| `max_backups` | ○ | 最多保留备份份数（按 `backup_dir` 下子目录名排序轮转删除最旧的），`0` 表示不限制 |
 
 > sync 模式不支持规则系统（`include_rules` / `exclude_rules` / `delete_rules` / `rotate_rules`），所有过滤通过 `exclude` / `exclude_from` 参数实现。
 
@@ -561,7 +561,16 @@ mode = "rotate"
 - `"rsync"`：强制使用 rsync（需预装，Linux/macOS 通常自带）
 - `"rclone"`：强制使用 rclone（优先使用打包版内置的，其次 PATH；[下载地址](https://rclone.org/downloads/)）
 
-> macOS 注意：系统 rsync 为 openrsync 实现，不支持 `--backup`/`--backup-dir`，`create_backups` 配置在该工具下会被忽略（日志中会给出警告）。
+> macOS 注意：系统 rsync 为 openrsync 实现，不支持 `--backup`/`--backup-dir`，`backup_dir` 配置在该工具下会被忽略（日志中会给出警告）。
+
+**sync 模式的 `backup_dir`**（选填，留空或不设表示不备份）：
+
+配置后，同步中被替换/删除的文件会由底层工具移入 `[backup_dir]/[时间戳]` 目录（时间戳格式 `YYYYMMDD-HHMMSS`，每次运行新建一个）：
+
+- `backup_dir` 不能位于 `source` 或 `dest` 之下，否则任务在加载时报错跳过——位于 dest 下会随同步被删除/覆盖，位于 source 下会被当作源内容再次同步进 dest。
+- dest 为 SSH 远端时，`backup_dir` 是**远端主机上的绝对路径**（以 `/` 开头），备份直接落在远端；不支持 `{ssh:别名}?` 前缀语法。
+- `backup_dir` 视为**备份独占目录**：`max_backups > 0` 时按子目录名排序轮转删除最旧的子目录，请勿在其中存放非备份数据。
+- `max_backups = 0` 表示不限制备份份数。
 
 **sync 模式的 `exclude` / `exclude_from`**：
 
@@ -569,6 +578,7 @@ mode = "rotate"
 - 文件内容每行一条模式，空行与以 `#` / `;` 开头的注释行会被底层工具忽略。注意 rsync 与 rclone 的模式语法存在差异（通配符语义与锚定规则不同），同一份文件在两个工具下的匹配行为可能不完全一致。
 - 文件路径按程序工作目录解析；目标为 SSH 远端时规则文件仍在本地读取（rsync over SSH 与 rclone SFTP 均由本地进程解析过滤规则）。
 - 运行时任一 `exclude_from` 文件不存在，任务报错跳过（不发起同步）。
+- 排除项同样会从 dest 侧删除（底层工具的 `--delete-excluded` 选项，程序固定携带、不可配置）：sync 保证 dest 与 source 完全一致，包括被排除的内容。
 
 ---
 

@@ -219,8 +219,9 @@ dest = "./dest-3"
 # 【选填】排除规则文件路径列表（对应 --exclude-from，可配置多个）
 # exclude_from = ["./exclude-1.txt", "./exclude-2.txt"]
 
-# 【选填】替换/删除前是否备份；默认 false
-# create_backups = true
+# 【选填】备份目录路径，同步中被替换/删除的文件移入 [backup_dir]/[时间戳] 目录；
+# 不能位于 source 或 dest 之下，dest 为 SSH 远端时须为远端绝对路径；默认空（不备份）
+# backup_dir = "./task-3-backups"
 
 # 【选填】最多保留的备份份数，0 表示不限制；默认 0
 # max_backups = 0
