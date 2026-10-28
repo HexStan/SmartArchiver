@@ -51,7 +51,7 @@ cron_expr = "0 0 * * *"
 # HTTP 远端（可选）：把其他 SmartArchiver 服务器的目录作为任务目标
 # --------------------------------------------------
 
-# [[http_remotes]]
+[[http_remotes]]
 
 # 【必填】远端别名，供 dest 引用；范围：a-z、A-Z、0-9、-、_
 alias = "my_nas"
@@ -75,7 +75,7 @@ key = "your_api_key"
 # SSH 远端（可选，仅 sync 模式支持）：把 SSH 主机的目录作为同步目标
 # --------------------------------------------------
 
-# [[ssh_remotes]]
+[[ssh_remotes]]
 
 # 【必填】远端别名；范围：a-z、A-Z、0-9、-、_（与 HTTP 远端命名空间隔离，允许重名）
 alias = "my_vps"
@@ -171,7 +171,7 @@ source = "./source-2"
 # dest = "./dest-2"
 
 # remove_empty_dirs = true
-conflict_policy = "skip"
+# conflict_policy = "skip"
 
 # 【选填】全局目录总体积上限，0 表示不限制；与 count_limit、rotate_rules 至少配置一项
 # size_limit = "1GiB"
@@ -221,7 +221,7 @@ dest = "./dest-3"
 
 # 【选填】备份目录路径，同步中被替换/删除的文件移入 [backup_dir]/[时间戳] 目录；
 # 不能位于 source 或 dest 之下，dest 为 SSH 远端时须为远端绝对路径；默认空（不备份）
-# backup_dir = "./task-3-backups"
+# backup_dir = "/data/sa-backups/task-3"
 
 # 【选填】最多保留的备份份数，0 表示不限制；默认 0
 # max_backups = 0
