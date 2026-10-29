@@ -189,14 +189,17 @@ class TestRulesEndToEnd:
         assert snapshot(task["source"]) == {"a.log": 3}
         assert snapshot(task["dest"]) == {"b.txt": 3}
 
-    def test_delete_rule_deletes_instead_of_transferring(self, run_task, tmp_path):
+    def test_delete_rule_deletes_instead_of_transferring(self, run_task, tmp_path, capture_log):
         task = move_task(tmp_path, delete_rules={"ge": {"*.tmp": "0"}})
         make_tree(task["source"], {"a.tmp": b"x", "b.txt": b"y"})
 
-        run_task(task, now=NOW)
+        handler = run_task(task, now=NOW)
 
         assert snapshot(task["source"]) == {}
         assert snapshot(task["dest"]) == {"b.txt": 1}
+        assert handler.stats.deleted == 1
+        assert handler.stats.deleted_bytes == 1
+        assert capture_log.has("info", "根据规则删除 1 项（1 Byte）")
 
     def test_exclude_shields_file_from_delete(self, run_task, tmp_path):
         task = move_task(
@@ -243,11 +246,14 @@ class TestRulesEndToEnd:
         task = move_task(tmp_path, delete_rules={"ge": {"cache/": "0"}})
         make_tree(task["source"], {"cache/x.tmp": b"x", "keep.txt": b"k"})
 
-        run_task(task, now=NOW)
+        handler = run_task(task, now=NOW)
 
         assert snapshot(task["source"]) == {}
         assert snapshot(task["dest"]) == {"keep.txt": 1}
         assert not os.path.exists(os.path.join(task["source"], "cache"))
+        # 删除目录计入的体积为目录递归大小（与"正在删除目录"日志一致）
+        assert handler.stats.deleted == 1
+        assert handler.stats.deleted_bytes == 1
 
     def test_directory_delete_gated_by_content_mtime(self, run_task, tmp_path):
         """目录的 mtime 取内容物最新时间——目录里有新文件时整个目录受保护。"""

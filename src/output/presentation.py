@@ -42,6 +42,9 @@ class TaskStats(Protocol):
     def deleted(self) -> int: ...
 
     @property
+    def deleted_bytes(self) -> int: ...
+
+    @property
     def conflict_skipped(self) -> int: ...
 
     @property
@@ -119,7 +122,9 @@ def print_task_summary(stats: TaskStats, duration: float, total_bytes: int, logg
     if stats.kept > 0:
         tail_msg.append(f"根据规则跳过 {stats.kept} 项")
     if stats.deleted > 0:
-        tail_msg.append(f"根据规则删除 {stats.deleted} 项")
+        tail_msg.append(
+            f"根据规则删除 {stats.deleted} 项（{fmt_size(stats.deleted_bytes, binary=True)}）"
+        )
     logger.info("，".join(tail_msg) + "。")
 
     tail_msg_2 = []

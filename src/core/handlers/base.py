@@ -188,7 +188,7 @@ class ActionExecutor:
             ctx.logger.info(f"正在删除文件: {rel_path}  ({size_str})")
             _fs_delete(src_path)
             ctx.history_mgr.record_success(self.identity, src_path)
-            stats.record_deleted()
+            stats.record_deleted(file_size)
         except OSError as e:
             count = ctx.history_mgr.record_failure(self.identity, src_path)
             ctx.logger.error(f"删除文件失败 ({count} 次): {e}")

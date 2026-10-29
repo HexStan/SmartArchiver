@@ -157,9 +157,11 @@ class TestRotationWithoutDest:
             {f"f{i}.txt": (b"x", OLD + i) for i in range(4)},
         )
 
-        run_task(task, now=NOW)
+        handler = run_task(task, now=NOW)
 
         assert snapshot(task["source"]) == {"f2.txt": 1, "f3.txt": 1}
+        assert handler.stats.deleted == 2
+        assert handler.stats.deleted_bytes == 2
 
     def test_no_dest_and_no_delete_rules_changes_nothing(self, run_task, tmp_path, capture_log):
         """无可处理动作（无 dest、无 delete_rules）时文件原地不动，

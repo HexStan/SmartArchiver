@@ -27,6 +27,7 @@ class MoverStats:
         self._dropped = 0
         self._kept = 0
         self._deleted = 0
+        self._deleted_bytes = 0
         self._conflict_skipped = 0
         self._locked_skipped = 0
         self._total_bytes = 0
@@ -50,6 +51,10 @@ class MoverStats:
     @property
     def deleted(self) -> int:
         return self._deleted
+
+    @property
+    def deleted_bytes(self) -> int:
+        return self._deleted_bytes
 
     @property
     def conflict_skipped(self) -> int:
@@ -76,8 +81,9 @@ class MoverStats:
     def record_kept(self) -> None:
         self._kept += 1
 
-    def record_deleted(self) -> None:
+    def record_deleted(self, size_bytes: int = 0) -> None:
         self._deleted += 1
+        self._deleted_bytes += size_bytes
 
     def record_conflict_skipped(self) -> None:
         self._conflict_skipped += 1

@@ -100,7 +100,7 @@ class StandardHandler(TransferTaskHandler):
                             f"正在删除目录: {rel_dir_path} ({fmt_size(dir_size, binary=True)})"
                         )
                         fs.delete_dir(dir_path)
-                        self.stats.record_deleted()
+                        self.stats.record_deleted(dir_size)
                     except fs.FsOpError as e:
                         ctx.logger.error(f"删除目录失败: {e}")
                 dirs_to_remove.append(d)
