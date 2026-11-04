@@ -23,6 +23,8 @@ if TYPE_CHECKING:
 
 # 收到停止指令后，等待在途请求收尾的最长时间（临时文件由 atomic_writer 清理）
 _STOP_DRAIN_TIMEOUT = 3.0
+# 在途请求收尾的轮询间隔
+_STOP_DRAIN_POLL_INTERVAL = 0.5
 
 
 def _parse_queue_timeout() -> float:
@@ -313,7 +315,7 @@ def _start_stop_watcher(
         coordinator.request_abort(logger)
         deadline = time.time() + _STOP_DRAIN_TIMEOUT
         while gate.active_requests > 0 and time.time() < deadline:
-            time.sleep(0.05)
+            time.sleep(_STOP_DRAIN_POLL_INTERVAL)
         # os._exit 跳过 with 块的收尾，这里手动清理 PID / 控制 / 状态文件
         # （锁由操作系统随进程退出释放，锁文件本身无需删除）
         paths = runtime_paths(instance_name)
