@@ -18,8 +18,10 @@ SmartArchiver 是文件归档/清理工具：目录树 + 配置 → 新目录树
 
   请向维护者询问。可在开发过程中多次询问，直至所有细节清晰。
 
-## 禁令
+## 文档编纂原则
 
+- `AGENTS.md` 的定位是“规则条款和索引目录”，因此对增加内容要克制，确保仅包含非常必要的内容，所有细节由具体代码和其他文档来表达。
+- 除了 `CHANGELOG.md`，所有文档和注释都不得出现迭代叙事文案，如“原来XXX，现在XXX”、“不再XXX”、“保留原有的XXX”等。
 - 除非被明确要求，否则禁止修改 `ROADMAP.md`。
 - 除非进入发布流程或被明确要求，否则禁止修改 `CHANGELOG.md`。
 
@@ -37,9 +39,6 @@ uv run python main.py --server                                          # 服务
 uv run --group build python scripts/build_executable.py                 # 构建当前平台的可执行文件（PyInstaller onedir + 内置 rclone；--group build 保证隐式同步不裁掉 PyInstaller）
 uv run python scripts/smoke_test.py "dist/SmartArchiver-*.zip" # 对发行 zip 做冒烟检查（包结构 + 入口可运行）
 ```
-
-- 运行前需 `cp config/config.example.toml config/config.toml`；`config.toml` 已 gitignore，只提交 `config/*.example.toml`。
-- 验证手段 = pytest + ruff check + pyrefly check；formatter 用 Ruff Format（`pyproject.toml` 的 `[tool.ruff.format]`）。
 
 ## 类型检查（权威配置：pyproject.toml 的 [tool.pyrefly]）
 
