@@ -24,6 +24,7 @@ SmartArchiver 的本质是一个“目录树 + 配置 → 新目录树”的变�
 | 白盒·实例锁 | `test_instance_lock.py` | SingleInstance 跨进程互斥、instance_name 解析 | 子进程边界 + 纯函数 |
 | 白盒·日志跟随 | `test_logtail.py` | LogFollower（尾部回读/增量/切换） | 真实日志文件 + 手动步进 |
 | 白盒·状态栏 | `test_statusbar.py` | StatusBar（滚动区域/反色绘制/降级） | 注入输出流、尺寸查询与 VT 开关 |
+| 白盒·进度多路输出 | `test_output_progress.py` | 进度多路输出（日志文件定宽原位覆盖 / TTY 单行覆盖 / 非 TTY 追加） | 注入时钟 + 真实日志文件 + 记录型流 |
 | 白盒·调度循环 | `test_runtime_schedule.py` | 首次执行语义（first_run_delay）+ run-once 唤醒语义 + [schedule] 配置模型（ScheduleConfig） | 线程驱动 _run_interval/_run_cron + 真实文件系统；模型校验直接调用 |
 | 白盒·run-once 前置判定 | `test_control_run_once.py` | 子命令预检（存活 + 休眠期）与受理回执等待 | 真实锁原语 + 真实状态文件 |
 | 白盒·quiet 确认返回 | `test_control_quiet.py` | `start --quiet` 启动确认等待（实例锁轮询）与 `run-once --quiet` 的受理/未受理返回分支 | 真实锁原语 + 真实状态文件；`_spawn_detached` 进程边界打桩 |
@@ -51,7 +52,8 @@ SmartArchiver 的本质是一个“目录树 + 配置 → 新目录树”的变�
 - **多分组扣减联动**：一个文件从所有关联分组中扣除统计值（`test_rotate_groups.py`）；
 - **阈值边界**：lt 严格小于、ge 大于等于（两处都有，白盒侧钉死语义）；
 - **落盘位置（HTTP 传输）**：上传字节必须自始至终以目标目录内的临时文件为落盘目标、只经目标目录内一次 rename 落盘，系统临时目录全程零介入——「先落系统临时目录再移动」与直写的最终目录树完全相同，只能在传输过程、落盘边界与服务器选型上观察（`test_server_direct_write.py`）；
-- **上传分块大小（HTTP 传输）**：客户端发送与服务端接收统一按 `UPLOAD_CHUNK_SIZE`（1MB）分块——性能契约，终态不可观察；服务端侧由探针流确定性计数（`test_server_direct_write.py`），客户端侧经回环观察受 TCP 分段时序影响而不确定，只能钉死装配：会话适配器与真实连接的 blocksize（`test_remote_client_chunk.py`）。
+- **上传分块大小（HTTP 传输）**：客户端发送与服务端接收统一按 `UPLOAD_CHUNK_SIZE`（1MB）分块——性能契约，终态不可观察；服务端侧由探针流确定性计数（`test_server_direct_write.py`），客户端侧经回环观察受 TCP 分段时序影响而不确定，只能钉死装配：会话适配器与真实连接的 blocksize（`test_remote_client_chunk.py`）；
+- **进度多路输出**：日志文件定宽原位覆盖（文件长度不回缩、他线日志追加让位重锚、轮转重锚）、TTY/非 TTY 落笔节奏与终写、日志 emit 清行协调（`test_output_progress.py`，注入时钟）。
 不在此列的内部细节（比如某个私有方法的返回结构）不要测——那会把测试焊死在实现上。
 
 **原则三：打桩只发生在外部边界。**
