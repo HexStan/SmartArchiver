@@ -1,14 +1,37 @@
 name: Docker Build and Publish - SSH Server
 
 on:
+  schedule:
+    # 北京时间每月 1–7 日 00:00 触发；由 guard 任务判定当天是否为当月第一个周六
+    - cron: '0 0 1-7 * *'
+      timezone: 'Asia/Shanghai'
   workflow_dispatch:
 
 env:
   GHCR_REPO: ghcr.io/hexstan/sa-ssh-server
   CODE_BRANCH: dev
 
+concurrency:
+  group: ssh-server-publish
+  cancel-in-progress: false
+
 jobs:
+  guard:
+    runs-on: ubuntu-latest
+    outputs:
+      build: ${{ steps.check.outputs.build }}
+    steps:
+      - name: 判定是否需要构建（北京时间当月第一个周六，或手动触发）
+        id: check
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] \
+            || [ "$(TZ=Asia/Shanghai date +%u)" = 6 ]; then
+            echo "build=true" >> "$GITHUB_OUTPUT"
+          fi
+
   build-and-push:
+    needs: guard
+    if: needs.guard.outputs.build == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -33,6 +56,10 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Generate tag
+        id: date
+        run: echo "date=$(TZ=Asia/Shanghai date +%Y%m%d)" >> "$GITHUB_OUTPUT"
+
       - name: Extract metadata (tags, labels) for Docker
         id: meta
         uses: docker/metadata-action@v6
@@ -43,7 +70,7 @@ jobs:
             latest=false
           tags: |
             type=raw,value=latest
-            type=raw,value=${{ env.CODE_BRANCH }}
+            type=raw,value=${{ steps.date.outputs.date }}
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v7
