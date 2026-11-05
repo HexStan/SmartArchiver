@@ -43,9 +43,6 @@ class CaptureLogger:
     def critical(self, msg, **kwargs):
         self._log("critical", msg, **kwargs)
 
-    def progress_reporter(self):
-        """进度分发器替身：无可用输出设施，返回 None。"""
-
     def has(self, level, substring):
         """是否存在包含指定子串的某级别日志。"""
         return any(lv == level and substring in m for lv, m in self.messages)
