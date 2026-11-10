@@ -13,10 +13,6 @@
 # 范围：仅填名称（不带路径/后缀）；缺省或非法时使用默认标识 smartarchiver
 # instance_name = "smartarchiver"
 
-# 【选填】单文件操作失败的最大重试次数；默认 3
-# 范围：≥ 0 的整数
-# max_retries = 3
-
 # 【选填】日志文件存储目录；默认 "./logs"
 # log_dir = "./logs"
 
